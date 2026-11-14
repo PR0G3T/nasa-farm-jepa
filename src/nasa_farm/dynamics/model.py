@@ -33,6 +33,15 @@ class WorldModel(nn.Module):
         self.register_buffer("crop_table", self.crops.table)
         self.residual = ResidualNet() if residual else None
 
+    def enable_compile(self, **compile_kw) -> "WorldModel":
+        """JIT-compile `step` via torch.compile — ~2× on repeated rollouts.
+
+        Opt-in because the first call pays a ~10 s graph build; worth it for
+        planning sweeps and training loops, not for a single short rollout.
+        """
+        self.step = torch.compile(self.step, **compile_kw)  # type: ignore[method-assign]
+        return self
+
     def _apply_residual(self, state: FieldState, soil, forcing_d: dict, action_d: dict) -> FieldState:
         feats = featurize(
             {**{k: getattr(state, k) for k in

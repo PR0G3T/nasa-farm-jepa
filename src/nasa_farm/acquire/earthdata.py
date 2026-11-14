@@ -1,8 +1,11 @@
-"""NASA Earthdata (CMR) source via `earthaccess` — imported lazily so the
-package works without credentials; search needs no login, downloads do.
+"""NASA Earthdata (CMR) source via `earthaccess` — PEP 810 lazy import keeps
+the package usable (and import-fast) without the heavy dep or credentials;
+search needs no login, downloads do.
 """
 
 from __future__ import annotations
+
+lazy import earthaccess
 
 from dataclasses import dataclass
 from typing import Any
@@ -10,7 +13,7 @@ from typing import Any
 from nasa_farm.acquire.base import BBox, Temporal
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class EarthdataSource:
     """Generic CMR granule source for one product short name."""
 
@@ -21,8 +24,6 @@ class EarthdataSource:
     def fetch(self, aoi: BBox | None, temporal: Temporal, *,
               count: int = 10, cloud_cover: tuple[int, int] | None = None,
               download_dir: str | None = None) -> list[Any]:
-        import earthaccess
-
         kw: dict[str, Any] = {
             "short_name": self.short_name,
             "temporal": (temporal.start, temporal.end),

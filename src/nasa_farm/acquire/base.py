@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from typing import Any, Protocol, runtime_checkable
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class BBox:
     west: float
     south: float
@@ -22,7 +22,7 @@ class BBox:
         return (self.west, self.south, self.east, self.north)
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class Temporal:
     start: str  # YYYY-MM-DD
     end: str

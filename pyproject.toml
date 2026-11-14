@@ -2,7 +2,7 @@
 name = "nasa-farm"
 version = "0.1.0"
 description = "Physics-informed latent world model for NASA-data-driven crop rotation decision support"
-requires-python = ">=3.14"
+requires-python = ">=3.15"
 dependencies = [
     "earthaccess>=0.19.0",
     "httpx>=0.28.1",

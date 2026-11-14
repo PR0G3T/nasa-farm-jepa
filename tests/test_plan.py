@@ -125,3 +125,29 @@ class TestEvaluate:
         assert len(rec["ranking"]) == 3
         assert (rec["scores"][rec["ranking"][0]] >=
                 rec["scores"][rec["ranking"][-1]])
+
+
+class TestWorkers:
+    def test_auto_workers_positive(self):
+        from nasa_farm.plan import auto_workers
+        assert auto_workers() >= 1
+
+    def test_sharded_evaluate_bit_identical(self, physics_model, field, crops):
+        """Thread-sharded rollout = serial rollout, bit for bit: rows are
+        independent, contiguous chunks preserve order, no shared mutation."""
+        idx = [crops.index(n) for n in ("maize", "soybean", "wheat")]
+        plans = enumerate_rotations(idx, 2)  # 9 plans
+        ens = climatology_ensemble(
+            [synthetic_year(42.0, seed=s) for s in range(3)], 2)
+        serial = evaluate(physics_model, field, plans, ens, workers=1)
+        sharded = evaluate(physics_model, field, plans, ens, workers=4)
+        assert torch.equal(serial.metrics, sharded.metrics)
+        for k in serial.objectives:
+            assert torch.equal(serial.objectives[k], sharded.objectives[k])
+
+    def test_workers_rejects_batched_field(self, physics_model, field, crops):
+        plans = enumerate_rotations([crops.index("maize"), crops.index("soybean")], 1)
+        ens = climatology_ensemble([synthetic_year(42.0, seed=1)], 1)
+        batched = field.repeat(3)
+        with pytest.raises(ValueError, match="workers"):
+            evaluate(physics_model, batched, plans, ens, workers=2)

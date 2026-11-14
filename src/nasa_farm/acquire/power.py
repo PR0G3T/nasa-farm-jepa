@@ -8,6 +8,7 @@ model's Forcing layout (365-day years, leap days dropped).
 from __future__ import annotations
 
 import datetime as dt
+from concurrent.futures import ThreadPoolExecutor
 
 import httpx
 import torch
@@ -67,8 +68,13 @@ class PowerClient:
         data = self.fetch(None, Temporal(f"{year}-01-01", f"{year}-12-31"), lat=lat, lon=lon)
         return series_to_forcing(data, year)
 
-    def forcing_years(self, lat: float, lon: float, years: list[int]) -> list[Forcing]:
-        return [self.forcing_year(lat, lon, y) for y in years]
+    def forcing_years(self, lat: float, lon: float, years: list[int],
+                      workers: int = 8) -> list[Forcing]:
+        """Fetch calendar years in parallel — pure I/O, near-linear speedup."""
+        if len(years) <= 2 or workers <= 1:
+            return [self.forcing_year(lat, lon, y) for y in years]
+        with ThreadPoolExecutor(max_workers=min(workers, len(years))) as pool:
+            return list(pool.map(lambda y: self.forcing_year(lat, lon, y), years))
 
 
 def series_to_forcing(data: dict[str, dict[str, float]], year: int) -> Forcing:

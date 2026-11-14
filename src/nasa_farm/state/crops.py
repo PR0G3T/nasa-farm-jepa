@@ -48,7 +48,7 @@ _LIBRARY: dict[str, list[float]] = {
 PERENNIAL = {"alfalfa", "clover"}  # gdd_sen/gdd_mat=1e9 → never matures in-season
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class CropLibrary:
     """Immutable crop trait table (C, P) plus name index."""
 

@@ -8,6 +8,9 @@ approximation error, fully vectorized.
 from __future__ import annotations
 
 import itertools
+import os
+import sys
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 
 import torch
@@ -58,33 +61,70 @@ def expand_actions(plans: torch.Tensor, crop_table: torch.Tensor,
     return Actions(sow=sow, irrigation=irr, n_fert=fert)
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class Evaluation:
     metrics: torch.Tensor            # (R, S, H, M)
     objectives: dict[str, torch.Tensor]  # name → (R,)
 
 
-def evaluate(model: WorldModel, field0: Field, plans: torch.Tensor,
-             forcing_ens: Forcing, irr_mm_day: float = 0.0,
-             n_fert_kg: float = 0.0) -> Evaluation:
-    """Roll out every plan under every scenario in one batched pass."""
+def _rollout_metrics(model: WorldModel, field0: Field, plans: torch.Tensor,
+                     forcing_ens: Forcing, irr_mm_day: float,
+                     n_fert_kg: float) -> torch.Tensor:
+    """One contiguous plan block → raw seasonal metrics (r_c·S, H, M)."""
     r, h = plans.shape
     s = forcing_ens.batch
-    b = r * s
-
-    field = field0.repeat(b) if field0.batch == 1 else field0
+    field = field0.repeat(r * s) if field0.batch == 1 else field0
     actions = expand_actions(plans, model.crop_table,
                              irr_mm_day=irr_mm_day, n_fert_kg=n_fert_kg)
     actions = Actions(actions.sow.repeat_interleave(s, dim=0),
                       actions.irrigation.repeat_interleave(s, dim=0),
                       actions.n_fert.repeat_interleave(s, dim=0))
     forcing = forcing_ens.repeat(r)
-
-    acc = SeasonAccumulator(b, h)
+    acc = SeasonAccumulator(r * s, h)
     with torch.inference_mode():
         model.rollout(field, forcing, actions, observer=acc)
-    metrics = acc.result().reshape(r, s, h, -1)
-    return Evaluation(metrics=metrics, objectives=objectives(acc.result(), r, s))
+    return acc.result()
+
+
+def auto_workers() -> int:
+    """No-GIL builds scale threads for real; GIL builds stay serial."""
+    gil = getattr(sys, "_is_gil_enabled", lambda: True)
+    return min(os.cpu_count() or 1, 8) if not gil() else 1
+
+
+def evaluate(model: WorldModel, field0: Field, plans: torch.Tensor,
+             forcing_ens: Forcing, irr_mm_day: float = 0.0,
+             n_fert_kg: float = 0.0, workers: int = 1) -> Evaluation:
+    """Roll out every plan under every scenario, batched; `workers` shards
+    the plan axis across threads — true parallelism on free-threaded Python
+    since `model.step` is a pure function with zero shared mutation."""
+    r, h = plans.shape
+    s = forcing_ens.batch
+    w = auto_workers() if workers == 0 else min(workers, r)
+    if w > 1 and field0.batch != 1:
+        raise ValueError(
+            "workers>1 requires a single template field (batch == 1); "
+            "pre-batched fields are only supported with workers=1")
+    if w > 1:
+        chunks = plans.chunk(w)
+        # Rollouts are dispatch-bound, not FLOP-bound: intra-op OMP only
+        # contends between worker threads, so run each op single-threaded.
+        omp_prev = torch.get_num_threads()
+        torch.set_num_threads(1)
+        try:
+            with ThreadPoolExecutor(max_workers=w) as pool:
+                parts = list(pool.map(
+                    lambda p: _rollout_metrics(model, field0, p, forcing_ens,
+                                               irr_mm_day, n_fert_kg),
+                    chunks))
+        finally:
+            torch.set_num_threads(omp_prev)
+        season = torch.cat(parts, dim=0)
+    else:
+        season = _rollout_metrics(model, field0, plans, forcing_ens,
+                                  irr_mm_day, n_fert_kg)
+    metrics = season.reshape(r, s, h, -1)
+    return Evaluation(metrics=metrics, objectives=objectives(season, r, s))
 
 
 def objective_matrix(obj: dict[str, torch.Tensor],

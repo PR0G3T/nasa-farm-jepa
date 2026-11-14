@@ -15,7 +15,7 @@ from nasa_farm.constants import DTYPE
 from nasa_farm.state.soil import SoilProfile
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class FieldState:
     """Mutable-in-time state. (B,) tensors, float64 except `crop` (long)."""
 
@@ -51,7 +51,7 @@ class FieldState:
         )
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class Field:
     """A field = state + static soil + location. The world model's full input."""
 

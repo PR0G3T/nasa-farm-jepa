@@ -14,8 +14,10 @@ from nasa_farm.constants import DTYPE
 
 FORCING_VARS: tuple[str, ...] = ("tmin", "tmax", "srad", "precip", "rh", "u2", "doy")
 
+type DayDict = dict[str, torch.Tensor]
 
-@dataclass(frozen=True)
+
+@dataclass(frozen=True, slots=True)
 class Forcing:
     """Daily exogenous drivers, (B, T).
 
@@ -39,7 +41,7 @@ class Forcing:
     def days(self) -> int:
         return self.tmin.shape[1]
 
-    def day(self, t: int) -> dict[str, torch.Tensor]:
+    def day(self, t: int) -> DayDict:
         return {k: getattr(self, k)[:, t] for k in FORCING_VARS}
 
     def perturb(self, delta_t: float = 0.0, precip_scale: float = 1.0,
@@ -60,7 +62,7 @@ class Forcing:
                      for k in FORCING_VARS))
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class Actions:
     """Daily management drivers, (B, T). sow: long, −1 = no sowing."""
 
@@ -76,7 +78,7 @@ class Actions:
     def days(self) -> int:
         return self.sow.shape[1]
 
-    def day(self, t: int) -> dict[str, torch.Tensor]:
+    def day(self, t: int) -> DayDict:
         return {"sow": self.sow[:, t], "irrigation": self.irrigation[:, t],
                 "n_fert": self.n_fert[:, t]}
 

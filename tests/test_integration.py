@@ -66,3 +66,18 @@ def test_cli_plan_offline(capsys):
     assert out["scenarios"] == 2
     assert len(out["top"]) == 3
     assert all("rotation" in p for p in out["pareto"] + out["top"])
+
+
+def test_cli_config_toml(tmp_path, capsys):
+    """TOML supplies defaults; explicit CLI flags still win (later in argv)."""
+    cfg = tmp_path / "p.toml"
+    cfg.write_text(
+        '[plan]\nhorizon = 2\ncrops = "maize,fallow"\nyears = 2\n'
+        'offline = true\n')
+    rc = main(["plan", "--lat", "42.0", "--lon", "-93.6",
+               "--config", str(cfg), "--top-k", "2"])
+    assert rc == 0
+    out = json.loads(capsys.readouterr().out)
+    assert out["plans_evaluated"] == 4   # 2 crops ^ 2y from TOML
+    assert out["scenarios"] == 2
+    assert len(out["top"]) == 2          # CLI flag won over nothing → applied

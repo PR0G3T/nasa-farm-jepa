@@ -39,7 +39,7 @@ def theta_sat(sand_pct: torch.Tensor, clay_pct: torch.Tensor) -> torch.Tensor:
     return torch.clamp(0.332 - 7.251e-4 * s_pct + 0.1276 * torch.log10(c_pct), min=0.25)
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class SoilLayer:
     """Hydraulic parameters of one layer; storages in mm."""
 
@@ -53,7 +53,7 @@ class SoilLayer:
         return self.theta_sat.shape[0]
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class SoilProfile:
     """Two-layer soil. All tensors batched (B,)."""
 

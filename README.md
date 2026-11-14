@@ -2,6 +2,7 @@
 
 **Physics-informed latent world model for crop-rotation decision support.**
 NASA Space Apps 2026 — *Field Shift: Adapting Farms with NASA Data*.
+Runs on **CPython 3.15 free-threaded** (no GIL) — see *Performance*.
 
 A field is a dynamical system. Given its state today, a sequence of management
 actions (what to sow, when, how much water/N) and weather realizations, this
@@ -85,6 +86,10 @@ uv run nasa-farm plan --lat 42.0 --lon -93.6 --horizon 3 --offline
 uv run nasa-farm plan --lat 42.03 --lon -93.63 --horizon 3 --years 5 \
     --crops maize,soybean,wheat,clover,fallow \
     --delta-t 1.5 --precip-scale 0.85 --irrig 4 --fert 120
+
+# Repeatable runs: TOML defaults + selective CLI overrides
+uv run nasa-farm plan --lat 42.0 --lon -93.6 --config plan.toml --fert 200
+# plan.toml → [plan] horizon = 3, crops = "...", years = 5, offline = true …
 ```
 
 Output: exact **Pareto front** of rotations + priority-weighted ranking, each
@@ -112,9 +117,18 @@ rec = recommend(ev, weights={"yield_mean": 2.0, "soc_gain": 1.0})
 
 ## Performance
 
-~1.2 M field-days/s single-core (float64): 216 rotations × 5 climate scenarios
-× 3 years evaluates in ~1.4 s. Rollouts are O(1) extra memory — seasonal
-metrics accumulate online; nothing per-day is stored unless an observer asks.
+- **Free-threaded CPython 3.15** (`.python-version` → `3.15+freethreaded`, GIL
+  off): `evaluate(workers=N)` shards the plan axis across threads — `step` is
+  pure, so scaling is real, not fake-async. `workers=0` auto-detects: CPU
+  count on no-GIL builds, 1 elsewhere. Rollouts are dispatch-bound, so
+  intra-op OMP is parked at 1 thread during parallel blocks.
+- **`model.enable_compile()`** fuses the daily step via `torch.compile`
+  (~2× on repeated rollouts; ~10 s graph-build on first call — opt-in via
+  CLI `--compile`, meant for sweeps, not one-shots). Compiled-vs-eager
+  parity is test-enforced.
+- ~1.2 M field-days/s single-core float64; POWER year fetches are
+  parallelized (I/O). Rollouts stay O(1) extra memory — seasonal metrics
+  accumulate online; nothing per-day is stored unless an observer asks.
 
 ## Calibration notes (honest limits)
 
@@ -126,6 +140,7 @@ metrics accumulate online; nothing per-day is stored unless an observer asks.
 
 ## Tests
 
-`uv run pytest` — 120 tests: conservation laws (Hypothesis property tests),
+`uv run pytest` — 125 tests: conservation laws (Hypothesis property tests),
 bounds, lifecycle events, legume economics, Pareto exactness, API parsing,
-differentiability, and a full offline pipeline + CLI integration test.
+differentiability, thread-sharded-vs-serial bit-parity, compiled-vs-eager
+parity, and a full offline pipeline + CLI integration test.

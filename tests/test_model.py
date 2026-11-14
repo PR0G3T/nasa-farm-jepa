@@ -122,6 +122,31 @@ class TestForcingResponse:
         assert torch.equal(a.state.cum_yield, b.state.cum_yield)
 
 
+class TestCompiledParity:
+    def test_compiled_step_matches_eager(self, field, warm_year, hybrid_model, crops):
+        """torch.compile (inductor) must reproduce eager float64 results —
+        fusions may reorder fp ops, so parity is to fused-precision, not bit."""
+        forcing = tile_to_horizon(warm_year, 1)
+        actions = sow_actions(crops.index("maize"), 120, forcing.days)
+
+        eager = hybrid_model.rollout(
+            Field(field.state.clone(), field.soil, field.lat),
+            forcing, actions)
+
+        compiled = type(hybrid_model)(hybrid_model.crops, residual=True)
+        compiled.load_state_dict(hybrid_model.state_dict())
+        compiled.enable_compile()
+        jit = compiled.rollout(
+            Field(field.state.clone(), field.soil, field.lat),
+            forcing, actions)
+
+        for name in ("sw1", "sw2", "n_min", "n_org", "soc", "litter",
+                     "lai", "biomass", "cum_yield"):
+            torch.testing.assert_close(
+                getattr(jit.state, name), getattr(eager.state, name),
+                rtol=1e-9, atol=1e-9, msg=lambda m, n=name: f"{n}: {m}")
+
+
 class TestDifferentiability:
     def test_gradients_reach_residual(self, field, hybrid_model):
         """Data assimilation path: loss on a flux differentiates into the

@@ -10,6 +10,7 @@ import argparse
 import datetime as dt
 import json
 import sys
+import tomllib
 
 import torch
 
@@ -38,9 +39,34 @@ def _build_parser() -> argparse.ArgumentParser:
     pl.add_argument("--fert", type=float, default=0.0, help="kg N/ha at sow+30d")
     pl.add_argument("--soil", default=None, help="texture preset override")
     pl.add_argument("--top-k", type=int, default=5)
+    pl.add_argument("--workers", type=int, default=0,
+                    help="rollout threads; 0 = auto (no-GIL build only)")
+    pl.add_argument("--compile", action="store_true",
+                    help="torch.compile the step — pays off on large sweeps")
+    pl.add_argument("--config", default=None,
+                    help="TOML file; CLI flags override config values")
     pl.add_argument("--offline", action="store_true", help="synthetic forcing, no network")
     pl.add_argument("--no-residual", action="store_true")
     return p
+
+
+def _argv_with_config(argv: list[str]) -> list[str]:
+    """`--config file.toml` → flags injected after the subcommand, so any
+    flag the user typed still wins (argparse takes the last occurrence)."""
+    if "--config" not in argv or (argv and argv[0] != "plan"):
+        return argv
+    i = argv.index("--config")
+    with open(argv[i + 1], "rb") as fh:
+        cfg = tomllib.load(fh)
+    argv = argv[:i] + argv[i + 2:]
+    flags = []
+    for k, v in cfg.get("plan", cfg).items():
+        key = "--" + k.replace("_", "-")
+        match v:
+            case bool() if v:  flags.append(key)
+            case bool():       pass
+            case _:            flags += [key, str(v)]
+    return [argv[0], *flags, *argv[1:]]
 
 
 def _forcings(args) -> list:
@@ -71,8 +97,11 @@ def cmd_plan(args) -> int:
                   lat=torch.tensor([args.lat], dtype=DTYPE))
 
     model = WorldModel(crops, residual=not args.no_residual)
+    if args.compile:
+        model.enable_compile(mode="max-autotune-no-cudagraphs")
     ev = evaluate(model, field, plans, ens,
-                  irr_mm_day=args.irrig, n_fert_kg=args.fert)
+                  irr_mm_day=args.irrig, n_fert_kg=args.fert,
+                  workers=args.workers)
     rec = recommend(ev, top_k=min(args.top_k, plans.shape[0]))
 
     out = {
@@ -100,8 +129,13 @@ def cmd_plan(args) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
+    argv = _argv_with_config(list(sys.argv[1:] if argv is None else argv))
     args = _build_parser().parse_args(argv)
-    return {"plan": cmd_plan}[args.cmd](args)
+    match args.cmd:
+        case "plan":
+            return cmd_plan(args)
+        case _:
+            return 2
 
 
 if __name__ == "__main__":
