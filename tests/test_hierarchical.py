@@ -78,7 +78,7 @@ class TestVariety:
     def test_var_emb_flows_to_ctx(self, field):
         crops = CropLibrary.default().with_var(4, seed=0)
         m = WorldModel(crops, residual=True, latent_dimension=4, seed=0)
-        assert m.var_emb is not None and m.var_emb.shape == (crops.n_crops, 4)
+        assert m.variety_embedding is not None and m.variety_embedding.shape == (crops.n_crops, 4)
         saved = field.state.replace(crop=torch.zeros(1, dtype=torch.long))
         f = Field(state=saved, soil=field.soil, latitude=field.latitude)
         d = m._dctx(f)
@@ -95,7 +95,7 @@ class TestVariety:
         f = Field(state=saved, soil=field.soil, latitude=field.latitude)
         f2 = m.rollout(f, _year30(warm_year), Actions.idle(1, 90))
         f2.state.z.sum().backward()
-        assert m.var_emb.grad is not None
+        assert m.variety_embedding.grad is not None
 
 
 class TestSAE:

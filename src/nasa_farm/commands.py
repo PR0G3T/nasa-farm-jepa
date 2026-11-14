@@ -371,7 +371,7 @@ def cmd_traits(arguments) -> int:
     else:
         raw = Power().data_years(arguments.latitude, arguments.longitude, years)
         series = [series_to_forcing(d, y) for d, y in zip(raw, years)]
-    forcing = Forcing(*[torch.cat([getattr(f, v) for f in series], dim=0)
+    forcing = Forcing(*[torch.cat([getattr(f, v) for f in series], dim=-1)
                         for v in FORCING_VARS])
     soil = (SoilProfile.preset(arguments.soil)
             if arguments.soil else SoilGrids().profile(
@@ -379,19 +379,22 @@ def cmd_traits(arguments) -> int:
     n = len(years)
     from nasa_farm.heads import METRICS
     channel = METRICS.index("yield_kg")
-    field = Field(initial_state(n, soil), soil,
-                  torch.full((n,), arguments.latitude, dtype=DTYPE))
+    field = Field(initial_state(1, soil), soil,
+                  torch.full((1,), arguments.latitude, dtype=DTYPE))
     fitted, report = {}, {}
     for crop, target in targets.items():
         model = WorldModel(crops, residual=False)
         base = model.crop_table.detach().clone()
         row, col = crops.index(crop), INDEX[arguments.param]
         parameter = leaf(base[row, col])
-        values = torch.full((1, len(METRICS)), float("nan"), dtype=DTYPE)
-        values[0, channel] = target
+        # One continuous n-year rollout — an autumn-sown crop harvests in
+        # the next calendar year's metric cell, so year 0 is establishment
+        # and stays unobserved; the loss scores years 1..n−1.
+        values = torch.full((n, len(METRICS)), float("nan"), dtype=DTYPE)
+        values[1:, channel] = target
         observed = ObservedTrajectory(values=values)
         actions = expand_actions(
-            torch.full((n, 1), row, dtype=torch.long), base,
+            torch.full((1, n), row, dtype=torch.long), base,
             n_fert_kg=ferts.get(crop, arguments.fertilizer))
 
         def loss() -> torch.Tensor:
@@ -408,8 +411,8 @@ def cmd_traits(arguments) -> int:
         model.crop_table = table
         with torch.inference_mode():
             achieved = float(season_metrics(
-                model, field, forcing, actions)[..., channel].mean())
-        fitted[crop] = {arguments.param: round(float(parameter), 6)}
+                model, field, forcing, actions)[0, 1:, channel].mean())
+        fitted[crop] = {arguments.param: round(float(parameter.detach()), 6)}
         report[crop] = {"target": target, "achieved": round(achieved, 1),
                         "fert": ferts.get(crop, arguments.fertilizer),
                         "loss": round(result.best_loss, 6)}

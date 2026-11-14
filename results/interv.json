@@ -265,19 +265,19 @@
     },
     "edit_response": {
       "prior": {
-        "biomass_err": 0.0,
+        "biomass_err": 960.4437,
         "water_err": -0.8349,
         "nmin_err": -12.1343
       },
       "cal": {
-        "biomass_err": 0.0,
+        "biomass_err": 4489.4613,
         "water_err": -6.3748,
         "nmin_err": -16.7511
       }
     },
     "held_realizations": 3
   },
-  "seconds": 373.465,
+  "seconds": 400.93,
   "metadata": {
     "python": "3.15.2",
     "torch": "2.15.0+cu132",

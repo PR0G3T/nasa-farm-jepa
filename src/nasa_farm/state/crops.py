@@ -61,7 +61,7 @@ class CropLibrary:
     """Immutable crop trait table (C, P) plus name index.
 
     `var`: optional (C, Dv) variety embedding table — the G×E axis.
-    Cultivar identity rides the latent's ctx input (WorldModel.var_emb)
+    Cultivar identity rides the latent's ctx input (WorldModel.variety_embedding)
     so two cultivars of the same crop can learn different residuals and
     dynamics without touching the physics traits."""
 

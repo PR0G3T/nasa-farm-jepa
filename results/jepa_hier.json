@@ -1,8 +1,8 @@
 {
   "name": "jepa",
-  "spec": {
-    "lat": 42.0,
-    "lon": -93.6,
+  "specification": {
+    "latitude": 42.0,
+    "longitude": -93.6,
     "soil": "silt_loam",
     "depths": [
       0.3,
@@ -13,13 +13,14 @@
     "years": [],
     "realizations": 4,
     "members": 16,
-    "obs_every": 10,
+    "cadence": 10,
     "noise": 0.05,
     "perturb": {
       "rue": 0.8,
       "gdd_mat": 0.92
     },
-    "obs_channels": [
+    "extra": [],
+    "observed_channels": [
       "ndvi",
       "sm1",
       "vwc",
@@ -31,74 +32,74 @@
     "alphas": [
       0.1
     ],
-    "latent_dim": 8,
-    "hier": [
-      1,
+    "latent_dimension": 8,
+    "hierarchy": [
       4,
-      16
+      2,
+      1
     ],
     "ema": 0.996,
     "sig_weight": 1.0,
-    "epochs": 120,
-    "lr": 0.05,
+    "epochs": 60,
+    "rate": 0.05,
     "seed": 0
   },
   "results": {
     "latent": {
       "dim": 8,
-      "sigreg_final": 0.067461,
-      "z_std_final": 0.792378,
-      "best_loss": 0.07061566,
-      "epochs_run": 120
+      "sigreg_final": 0.09761,
+      "z_std_final": 0.920439,
+      "best_loss": 0.10568369,
+      "epochs_run": 60
     },
-    "z_pred_rmse": 0.06224,
+    "z_pred_rmse": 0.094397,
     "channels": {
       "ndvi": {
-        "prior": 0.094845,
-        "jepa_probe": 0.137804,
-        "residual": 0.065031,
-        "hybrid": 0.06658,
-        "hybrid_reduction_pct": 29.8
+        "prior": 0.096183,
+        "jepa_probe": 0.327042,
+        "residual": 0.065944,
+        "hybrid": 0.0652,
+        "hybrid_reduction_pct": 32.21
       },
       "sm1": {
-        "prior": 0.001108,
-        "jepa_probe": 0.018299,
-        "residual": 0.005678,
-        "hybrid": 0.030499,
-        "hybrid_reduction_pct": -2652.62
+        "prior": 0.000913,
+        "jepa_probe": 0.033299,
+        "residual": 0.004137,
+        "hybrid": 0.002578,
+        "hybrid_reduction_pct": -182.37
       },
       "vwc": {
-        "prior": 0.114495,
-        "jepa_probe": 0.068736,
-        "residual": 0.024741,
-        "hybrid": 0.078564,
-        "hybrid_reduction_pct": 31.38
+        "prior": 0.113882,
+        "jepa_probe": 0.081868,
+        "residual": 0.028422,
+        "hybrid": 0.02517,
+        "hybrid_reduction_pct": 77.9
       },
       "lst": {
-        "prior": 0.127668,
-        "jepa_probe": 3.640288,
-        "residual": 0.263841,
-        "hybrid": 1.907257,
-        "hybrid_reduction_pct": -1393.92
+        "prior": 0.137718,
+        "jepa_probe": 2.422257,
+        "residual": 0.916213,
+        "hybrid": 0.946851,
+        "hybrid_reduction_pct": -587.53
       }
     },
     "hier": {
       "strides": [
-        1,
         4,
-        16
+        2,
+        1
       ],
       "channels": {
-        "ndvi": 0.088359,
-        "sm1": 0.040652,
-        "vwc": 0.040076,
-        "lst": 2.172588
+        "ndvi": 0.068787,
+        "sm1": 0.063244,
+        "vwc": 0.033968,
+        "lst": 2.764686
       },
-      "best_loss": 0.07299753
+      "best_loss": 0.11879423
     }
   },
-  "seconds": 794.605,
-  "meta": {
+  "seconds": 511.155,
+  "metadata": {
     "python": "3.15.2",
     "torch": "2.15.0+cu132",
     "device": "cuda",
@@ -107,17 +108,19 @@
       "jepa",
       "--perturb",
       "rue:0.8,gdd_mat:0.92",
-      "--obs-channels",
-      "ndvi,sm1,vwc,lst",
-      "--realizations",
-      "4",
       "--horizon",
       "2",
+      "--realizations",
+      "4",
+      "--latent-dimension",
+      "8",
+      "--hierarchy",
+      "4,2,1",
+      "--obs-channels",
+      "ndvi,sm1,vwc,lst",
       "--epochs",
-      "120",
-      "--hier",
-      "1,4,16",
-      "--out",
+      "60",
+      "--output",
       "results/jepa_hier.json"
     ]
   }

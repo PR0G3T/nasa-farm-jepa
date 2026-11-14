@@ -22,7 +22,9 @@
     "extra": [],
     "observed_channels": [
       "ndvi",
-      "sm1"
+      "sm1",
+      "vwc",
+      "lst"
     ],
     "channels": [
       "yield_kg"
@@ -41,30 +43,44 @@
   "results": {
     "latent": {
       "dim": 8,
-      "sigreg_final": 0.183005,
-      "z_std_final": 0.929849,
-      "best_loss": 0.18311358,
-      "epochs_run": 54
+      "sigreg_final": 0.09761,
+      "z_std_final": 0.920439,
+      "best_loss": 0.10568369,
+      "epochs_run": 60
     },
-    "z_pred_rmse": 0.178093,
+    "z_pred_rmse": 0.094397,
     "channels": {
       "ndvi": {
         "prior": 0.096183,
-        "jepa_probe": 0.127302,
-        "residual": 0.06544,
-        "hybrid": 0.065848,
-        "hybrid_reduction_pct": 31.54
+        "jepa_probe": 0.327042,
+        "residual": 0.065819,
+        "hybrid": 0.0652,
+        "hybrid_reduction_pct": 32.21
       },
       "sm1": {
         "prior": 0.000913,
-        "jepa_probe": 0.119044,
-        "residual": 0.007358,
-        "hybrid": 0.007335,
-        "hybrid_reduction_pct": -703.4
+        "jepa_probe": 0.033299,
+        "residual": 0.0052,
+        "hybrid": 0.002578,
+        "hybrid_reduction_pct": -182.37
+      },
+      "vwc": {
+        "prior": 0.113882,
+        "jepa_probe": 0.081868,
+        "residual": 0.029369,
+        "hybrid": 0.02517,
+        "hybrid_reduction_pct": 77.9
+      },
+      "lst": {
+        "prior": 0.137718,
+        "jepa_probe": 2.422257,
+        "residual": 0.945151,
+        "hybrid": 0.946851,
+        "hybrid_reduction_pct": -587.53
       }
     }
   },
-  "seconds": 370.369,
+  "seconds": 399.523,
   "metadata": {
     "python": "3.15.2",
     "torch": "2.15.0+cu132",
@@ -80,6 +96,8 @@
       "4",
       "--latent-dimension",
       "8",
+      "--obs-channels",
+      "ndvi,sm1,vwc,lst",
       "--epochs",
       "60",
       "--output",

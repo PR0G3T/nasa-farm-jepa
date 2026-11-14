@@ -84,8 +84,20 @@ def _targets(L: Lake, fid: str) -> dict:
     for v in OBS_VARS:
         if (s := L.get(fid, "obs", v)) is not None:
             w = L.get(fid, "obs", f"{v}_w")
-            output[v] = (s[0], s[1], None if w is None else w[1])
+            output[v] = (s[0], s[1], _aligned(s[0], w))
     return output
+
+
+def _aligned(dates: numpy.ndarray, w: tuple | None) -> numpy.ndarray | None:
+    """Weights on the observation dates — `*_w` shards only cover granule
+    days, so unweighted days default to full confidence."""
+    if w is None:
+        return None
+    wd, wv = w
+    if len(wd) == len(dates) and (wd == dates).all():
+        return wv
+    confidence = dict(zip(wd.tolist(), wv.tolist()))
+    return numpy.asarray([confidence.get(int(d), 1.0) for d in dates])
 
 
 def targets(root: Lake | Path | str, fid: str
