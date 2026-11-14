@@ -1,16 +1,14 @@
-"""Bench experiment — predictive skill vs baselines on a held-out year.
+"""Bench experiment — predictive skill vs baselines on held-out years.
 
-The truth model rolls the held-out forcing realization once; each predictor
-rolls the members ensemble and is scored as a probabilistic forecast:
+Each predictor rolls the members ensemble once; the truth model rolls
+every held-out realization, so probabilistic scores (CRPS, PICP, PIT)
+aggregate R·H genuine out-of-sample verifications:
 
 - prior   — literature traits, uncalibrated (the baseline to beat)
-- cal     — traits gradient-fitted on sparse noisy observations
+- cal     — traits gradient-fitted on sparse noisy observations of the
+            calibration realization
 - oracle  — the truth model itself; the irreducible-skill ceiling (its
             error is pure forcing uncertainty, not model bias)
-
-Per channel: full deterministic suite on the ensemble mean plus CRPS,
-PICP/interval-score/width, spread–skill and PIT reliability — everything a
-paper table needs, from one rollout per predictor.
 """
 
 from __future__ import annotations
@@ -33,21 +31,24 @@ def run(spec: Spec) -> dict:
     obs = observe(spec, sc)
     cal, rep = calibrate(spec, sc, obs)
 
-    s = sc.forcing_e.batch
+    s, r = sc.forcing_e.batch, sc.forcing_t.batch
     fld, acts = sc.field.repeat(s), sc.actions.repeat(s)
     idx = {n: i for i, n in enumerate(METRICS)}
-    tgt = season_metrics(sc.truth, sc.field, sc.forcing_t, sc.actions)[0]
+    tgt = season_metrics(sc.truth, sc.field.repeat(r), sc.forcing_t,
+                         sc.actions.repeat(r))           # (R, H, M)
     gen = torch.Generator().manual_seed(spec.seed + 31)
 
     out: dict = {"calibration": rep, "channels": {}}
     for name, model in (("prior", sc.prior), ("cal", cal),
                         ("oracle", sc.truth)):
-        ens = season_metrics(model, fld, sc.forcing_e, acts)
+        ens = season_metrics(model, fld, sc.forcing_e, acts)  # (S, H, M)
         for ch in spec.channels:
-            # (S, H) → (H, S): score_ens wants members last
-            e = ens[:, :, idx[ch]].t()
+            i = idx[ch]
+            # pair every realization-year with all members → (R·H, S)
+            e = (ens[:, :, i].t().unsqueeze(0)
+                 .expand(r, -1, -1).reshape(-1, s))
             out["channels"].setdefault(ch, {})[name] = score_ens(
-                e, tgt[:, idx[ch]], spec.alphas, gen=gen)
+                e, tgt[:, :, i].reshape(-1), spec.alphas, gen=gen)
 
     for ch, d in out["channels"].items():
         p, c, o = d["prior"], d["cal"], d["oracle"]

@@ -19,6 +19,8 @@ call every runner in `exp/` makes per evaluated channel.
 
 from __future__ import annotations
 
+import math
+
 import torch
 
 from nasa_farm.constants import DTYPE
@@ -37,10 +39,11 @@ def _finite(pred: torch.Tensor, obs: torch.Tensor) -> tuple[torch.Tensor, torch.
 
 def _finite_ens(ens: torch.Tensor,
                 obs: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
-    """(N, M) members / (N,) obs rows; a row survives only if the obs and
-    *all* its members are finite (a corrupt member corrupts the score)."""
-    o = obs.reshape(-1).to(DTYPE)
+    """ens (..., M) member-last, obs (...) → flat (N, M) / (N,) rows; a row
+    survives only if the obs and *all* its members are finite (a corrupt
+    member corrupts the score)."""
     e = ens.reshape(-1, ens.shape[-1]).to(DTYPE)
+    o = torch.broadcast_to(obs, ens.shape[:-1]).reshape(-1).to(DTYPE)
     m = torch.isfinite(o) & torch.isfinite(e).all(-1)
     return e[m], o[m]
 
@@ -78,8 +81,9 @@ def nrmse(pred: torch.Tensor, obs: torch.Tensor,
         return _NAN
     if norm == "auto":
         norm = "mean" if o.abs().mean() > _EPS else "sd"
-    den = {"mean": o.abs().mean(), "sd": o.std(),
-           "range": o.max() - o.min()}[norm]
+    den = {"mean": lambda: o.abs().mean(),
+           "sd": lambda: o.std() if o.numel() > 1 else o.new_ones(()),
+           "range": lambda: o.max() - o.min()}[norm]()
     return ((p - o) ** 2).mean().sqrt() / den.clamp(min=_EPS)
 
 
@@ -140,7 +144,8 @@ def ccc(pred: torch.Tensor, obs: torch.Tensor) -> torch.Tensor:
     if p.numel() < 2:
         return _NAN
     num = 2.0 * ((p - p.mean()) * (o - o.mean())).mean()
-    den = p.var() + o.var() + (p.mean() - o.mean()) ** 2
+    den = p.var(correction=0) + o.var(correction=0) \
+        + (p.mean() - o.mean()) ** 2
     return num / den.clamp(min=_EPS)
 
 
@@ -254,15 +259,21 @@ def spread_skill(ens: torch.Tensor, obs: torch.Tensor) -> torch.Tensor:
 # Bundles
 # ---------------------------------------------------------------------------
 
-def score(pred: torch.Tensor, obs: torch.Tensor) -> dict[str, float]:
+def _num(x: torch.Tensor) -> float | None:
+    """Metric → JSON-clean float; None when undefined (non-finite)."""
+    v = float(x)
+    return v if math.isfinite(v) else None
+
+
+def score(pred: torch.Tensor, obs: torch.Tensor) -> dict[str, float | None]:
     """Full deterministic suite for one (pred, obs) pair."""
     p, o = _finite(pred, obs)
     return {
-        "rmse": float(rmse(p, o)), "nrmse": float(nrmse(p, o)),
-        "mae": float(mae(p, o)), "mbe": float(mbe(p, o)),
-        "r2": float(r2(p, o)), "nse": float(nse(p, o)),
-        "kge09": float(kge(p, o, "2009")), "kge12": float(kge(p, o)),
-        "d": float(d_index(p, o)), "ccc": float(ccc(p, o)),
+        "rmse": _num(rmse(p, o)), "nrmse": _num(nrmse(p, o)),
+        "mae": _num(mae(p, o)), "mbe": _num(mbe(p, o)),
+        "r2": _num(r2(p, o)), "nse": _num(nse(p, o)),
+        "kge09": _num(kge(p, o, "2009")), "kge12": _num(kge(p, o)),
+        "d": _num(d_index(p, o)), "ccc": _num(ccc(p, o)),
         "n": int(p.numel()),
     }
 
@@ -274,14 +285,14 @@ def score_ens(ens: torch.Tensor, obs: torch.Tensor,
     mean plus CRPS, per-alpha PICP/interval-score/width, spread–skill and a
     PIT reliability histogram."""
     out: dict = score(ens.mean(-1), obs)
-    out["crps"] = float(crps(ens, obs))
-    out["spread"] = float(spread(ens))
-    out["spread_skill"] = float(spread_skill(ens, obs))
+    out["crps"] = _num(crps(ens, obs))
+    out["spread"] = _num(spread(ens))
+    out["spread_skill"] = _num(spread_skill(ens, obs))
     for a in alphas:
         lo, hi = interval(ens, a)
         tag = f"{a:g}"
-        out[f"picp_{tag}"] = float(picp(lo, hi, obs))
-        out[f"is_{tag}"] = float(interval_score(lo, hi, obs, a))
-        out[f"width_{tag}"] = float(mean_width(lo, hi))
+        out[f"picp_{tag}"] = _num(picp(lo, hi, obs))
+        out[f"is_{tag}"] = _num(interval_score(lo, hi, obs, a))
+        out[f"width_{tag}"] = _num(mean_width(lo, hi))
     out["pit"] = [int(c) for c in pit_hist(ens, obs, bins, gen)]
     return out

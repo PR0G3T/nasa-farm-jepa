@@ -20,6 +20,8 @@ from nasa_farm.acquire.power import PowerClient
 from nasa_farm.acquire.soilgrids import SoilGridsClient
 from nasa_farm.constants import DTYPE
 from nasa_farm.control import mppi
+from nasa_farm.exp import Spec, experiments
+from nasa_farm.exp import run as exp_run
 from nasa_farm.forcing import (
     augment, climatology_ensemble, synthetic_year, tile_to_horizon,
 )
@@ -101,6 +103,40 @@ def _build_parser() -> argparse.ArgumentParser:
     ct.add_argument("--sow-shifts", default="0",
                     help="sow-day shifts searched, comma-sep (e.g. -14,0,14)")
     ct.add_argument("--seed", type=int, default=0)
+
+    ex = sub.add_parser("exp", help="run a research experiment")
+    ex.add_argument("name", choices=experiments())
+    ex.add_argument("--lat", type=float, default=42.0)
+    ex.add_argument("--lon", type=float, default=-93.6)
+    ex.add_argument("--soil", default="silt_loam")
+    ex.add_argument("--crop", default="maize")
+    ex.add_argument("--horizon", type=int, default=1)
+    ex.add_argument("--years", default="",
+                    help="POWER years, comma-sep; empty = synthetic forcing")
+    ex.add_argument("--realizations", type=int, default=1,
+                    help="held-out truth realizations scored")
+    ex.add_argument("--members", type=int, default=16,
+                    help="forcing-ensemble / DA ensemble size")
+    ex.add_argument("--obs-every", type=int, default=10,
+                    help="days between assimilated observations")
+    ex.add_argument("--noise", type=float, default=0.05,
+                    help="relative observation noise")
+    ex.add_argument("--perturb", default="",
+                    help="truth trait shifts, e.g. rue:0.8,gdd_mat:0.95")
+    ex.add_argument("--channels", default="yield_kg",
+                    help="seasonal METRICS channels, comma-sep")
+    ex.add_argument("--obs-channels", default="ndvi,sm1",
+                    help="satellite channels assimilated, comma-sep")
+    ex.add_argument("--alphas", default="0.1",
+                    help="interval levels for PICP/interval score")
+    ex.add_argument("--epochs", type=int, default=120)
+    ex.add_argument("--lr", type=float, default=0.05)
+    ex.add_argument("--seed", type=int, default=0)
+    ex.add_argument("--out", default=None, help="save report JSON here")
+    ex.add_argument("--latex", action="store_true",
+                    help="also print booktabs rows of scalar results")
+    ex.add_argument("--config", default=None,
+                    help="TOML file; CLI flags override config values")
     return p
 
 
@@ -108,9 +144,9 @@ def _argv_with_config(argv: list[str]) -> list[str]:
     """`--config file.toml` → flags injected after the subcommand, so any
     flag the user typed still wins (argparse takes the last occurrence).
     Section = subcommand name (`[plan]`, `[calibrate]`, `[nas]`,
-    `[control]`); flat keys also work."""
+    `[control]`, `[exp]`); flat keys also work."""
     if "--config" not in argv or not argv or argv[0] not in (
-            "plan", "calibrate", "nas", "control"):
+            "plan", "calibrate", "nas", "control", "exp"):
         return argv
     i = argv.index("--config")
     with open(argv[i + 1], "rb") as fh:
@@ -331,6 +367,32 @@ def cmd_control(args) -> int:
     return 0
 
 
+def cmd_exp(args) -> int:
+    perturb = {k: float(v) for k, v in
+               (p.split(":") for p in args.perturb.split(",") if p)}
+    spec = Spec(
+        lat=args.lat, lon=args.lon, soil=args.soil, crop=args.crop,
+        horizon=args.horizon,
+        years=tuple(int(y) for y in args.years.split(",") if y),
+        realizations=args.realizations,
+        members=args.members, obs_every=args.obs_every,
+        noise=args.noise, perturb=perturb,
+        obs_channels=tuple(args.obs_channels.split(",")),
+        channels=tuple(args.channels.split(",")),
+        alphas=tuple(float(a) for a in args.alphas.split(",")),
+        epochs=args.epochs, lr=args.lr, seed=args.seed)
+    rep = exp_run(args.name, spec)
+    out = {"experiment": rep.name, "seconds": rep.seconds,
+           "spec": rep.spec, "meta": rep.meta, "results": rep.results}
+    if args.out:
+        out["saved"] = str(rep.save(args.out))
+    json.dump(out, sys.stdout, indent=2)
+    sys.stdout.write("\n")
+    if args.latex:
+        sys.stdout.write(rep.latex() + "\n")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     argv = _argv_with_config(list(sys.argv[1:] if argv is None else argv))
     args = _build_parser().parse_args(argv)
@@ -343,6 +405,8 @@ def main(argv: list[str] | None = None) -> int:
             return cmd_nas(args)
         case "control":
             return cmd_control(args)
+        case "exp":
+            return cmd_exp(args)
         case _:
             return 2
 

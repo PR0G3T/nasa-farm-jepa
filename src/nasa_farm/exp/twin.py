@@ -1,10 +1,9 @@
 """Twin experiment — parameter identifiability and calibration skill.
 
 Nature (truth) is the physics core with spec.crop's traits scaled by
-spec.perturb; the forecaster sees only sparse noisy seasonal observations
-on spec.channels and must close the gap by gradient-fitting those traits.
-Scores compare prior (literature traits) and calibrated model against the
-noise-free truth on every observed channel — the classic OSSE protocol.
+spec.perturb; the forecaster calibrates on sparse noisy observations of
+one realization and is then scored on every held-out realization — the
+classic OSSE protocol, so reported skill is out-of-sample by construction.
 """
 
 from __future__ import annotations
@@ -20,8 +19,12 @@ from nasa_farm.optimize.targets import season_metrics
 
 
 def _channel(model, sc, ch: str) -> torch.Tensor:
+    """(R·H,) seasonal metric across all held-out realizations."""
     i = METRICS.index(ch)
-    return season_metrics(model, sc.field, sc.forcing_t, sc.actions)[0, :, i]
+    r = sc.forcing_t.batch
+    m = season_metrics(model, sc.field.repeat(r), sc.forcing_t,
+                       sc.actions.repeat(r))
+    return m[..., i].reshape(-1)
 
 
 @register("twin")

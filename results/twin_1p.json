@@ -1,0 +1,132 @@
+{
+  "name": "twin",
+  "spec": {
+    "lat": 42.0,
+    "lon": -93.6,
+    "soil": "silt_loam",
+    "depths": [
+      0.3,
+      1.5
+    ],
+    "crop": "maize",
+    "horizon": 2,
+    "years": [],
+    "realizations": 4,
+    "members": 16,
+    "obs_every": 10,
+    "noise": 0.05,
+    "perturb": {
+      "rue": 0.8
+    },
+    "obs_channels": [
+      "ndvi",
+      "sm1"
+    ],
+    "channels": [
+      "yield_kg",
+      "water_used"
+    ],
+    "alphas": [
+      0.1
+    ],
+    "epochs": 120,
+    "lr": 0.05,
+    "seed": 0
+  },
+  "results": {
+    "calibration": {
+      "params": {
+        "rue": {
+          "start": 3.9,
+          "truth": 3.12,
+          "fitted": 2.955510225711457,
+          "recovery_pct": 121.09
+        }
+      },
+      "best_loss": 0.00274751,
+      "epochs_run": 52
+    },
+    "channels": {
+      "yield_kg": {
+        "prior": {
+          "rmse": 128.89825117924576,
+          "nrmse": 0.23447461145397355,
+          "mae": 128.73370515498908,
+          "mbe": 128.73370515498908,
+          "r2": 0.9350021743268407,
+          "nse": -37.44648453288749,
+          "kge09": 0.7205429804324596,
+          "kge12": 0.7536140592113618,
+          "d": 0.23300616983767675,
+          "ccc": 0.054633109641450205,
+          "n": 8
+        },
+        "cal": {
+          "rmse": 28.189658614252913,
+          "nrmse": 0.05127889005573541,
+          "mae": 28.172158107557983,
+          "mbe": -28.172158107557983,
+          "r2": 0.9994630961156045,
+          "nse": -0.8388326975341616,
+          "kge09": 0.9337099600666309,
+          "kge12": 0.9478430872526501,
+          "d": 0.6867714856489344,
+          "ccc": 0.5101960999230566,
+          "n": 8
+        },
+        "rmse_reduction_pct": 78.13
+      },
+      "water_used": {
+        "prior": {
+          "rmse": 0.0,
+          "nrmse": 0.0,
+          "mae": 0.0,
+          "mbe": 0.0,
+          "r2": 1.0,
+          "nse": 1.0,
+          "kge09": 1.0,
+          "kge12": 1.0,
+          "d": 1.0,
+          "ccc": 1.0,
+          "n": 8
+        },
+        "cal": {
+          "rmse": 0.0,
+          "nrmse": 0.0,
+          "mae": 0.0,
+          "mbe": 0.0,
+          "r2": 1.0,
+          "nse": 1.0,
+          "kge09": 1.0,
+          "kge12": 1.0,
+          "d": 1.0,
+          "ccc": 1.0,
+          "n": 8
+        },
+        "rmse_reduction_pct": 0.0
+      }
+    }
+  },
+  "seconds": 131.28,
+  "meta": {
+    "python": "3.15.2",
+    "torch": "2.15.0+cu132",
+    "device": "cuda",
+    "argv": [
+      "exp",
+      "twin",
+      "--perturb",
+      "rue:0.8",
+      "--horizon",
+      "2",
+      "--realizations",
+      "4",
+      "--epochs",
+      "120",
+      "--channels",
+      "yield_kg,water_used",
+      "--out",
+      "results/twin_1p.json"
+    ]
+  }
+}

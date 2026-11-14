@@ -1,0 +1,250 @@
+{
+  "name": "assim",
+  "spec": {
+    "lat": 42.0,
+    "lon": -93.6,
+    "soil": "silt_loam",
+    "depths": [
+      0.3,
+      1.5
+    ],
+    "crop": "maize",
+    "horizon": 1,
+    "years": [],
+    "realizations": 1,
+    "members": 24,
+    "obs_every": 15,
+    "noise": 0.05,
+    "perturb": {
+      "rue": 0.8
+    },
+    "obs_channels": [
+      "ndvi",
+      "sm1"
+    ],
+    "channels": [
+      "yield_kg"
+    ],
+    "alphas": [
+      0.1
+    ],
+    "epochs": 120,
+    "lr": 0.05,
+    "seed": 0
+  },
+  "results": {
+    "open": {
+      "obs_rmse": 0.019634,
+      "obs_crps": 0.017572,
+      "spread": 0.019757,
+      "state_rmse": {
+        "sw0": 0.429761,
+        "swr": 11.047191,
+        "n_min": 10.101927,
+        "lai": 0.242251,
+        "biomass": 551.257141
+      },
+      "channels": {
+        "yield_kg": {
+          "rmse": 756.9689246389288,
+          "nrmse": 1.3009361459261946,
+          "mae": 756.9689246389288,
+          "mbe": 756.9689246389288,
+          "r2": null,
+          "nse": null,
+          "kge09": null,
+          "kge12": null,
+          "d": 0.0,
+          "ccc": null,
+          "n": 1,
+          "crps": 338.1918314729846,
+          "spread": 786.1490533855126,
+          "spread_skill": 0.9628821931147522,
+          "picp_0.1": 0.0,
+          "is_0.1": 2577.5718605593574,
+          "width_0.1": 1782.6529253100532,
+          "pit": [
+            1,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        }
+      }
+    },
+    "enkf": {
+      "obs_rmse": 0.019638,
+      "obs_crps": 0.017576,
+      "spread": 0.019747,
+      "state_rmse": {
+        "sw0": 0.424049,
+        "swr": 10.175425,
+        "n_min": 9.035014,
+        "lai": 0.242251,
+        "biomass": 588.990029
+      },
+      "channels": {
+        "yield_kg": {
+          "rmse": 780.0743925811777,
+          "nrmse": 1.340645488590358,
+          "mae": 780.0743925811777,
+          "mbe": 780.0743925811777,
+          "r2": null,
+          "nse": null,
+          "kge09": null,
+          "kge12": null,
+          "d": 0.0,
+          "ccc": null,
+          "n": 1,
+          "crps": 327.4818268486305,
+          "spread": 1099.5920444634053,
+          "spread_skill": 0.7094216409703561,
+          "picp_0.1": 1.0,
+          "is_0.1": 3048.4053574866143,
+          "width_0.1": 3048.4053574866143,
+          "pit": [
+            0,
+            0,
+            0,
+            1,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        }
+      }
+    },
+    "ensf": {
+      "obs_rmse": 0.019638,
+      "obs_crps": 0.017574,
+      "spread": 0.019749,
+      "state_rmse": {
+        "sw0": 0.425657,
+        "swr": 14.401992,
+        "n_min": 53.944986,
+        "lai": 0.242251,
+        "biomass": 634.04063
+      },
+      "channels": {
+        "yield_kg": {
+          "rmse": 745.3280429425416,
+          "nrmse": 1.2809299828244474,
+          "mae": 745.3280429425416,
+          "mbe": 745.3280429425416,
+          "r2": null,
+          "nse": null,
+          "kge09": null,
+          "kge12": null,
+          "d": 0.0,
+          "ccc": null,
+          "n": 1,
+          "crps": 327.5593446038589,
+          "spread": 1103.5273528322464,
+          "spread_skill": 0.6754051370177893,
+          "picp_0.1": 1.0,
+          "is_0.1": 2973.990132123448,
+          "width_0.1": 2973.990132123448,
+          "pit": [
+            0,
+            0,
+            0,
+            1,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        }
+      }
+    },
+    "reduction_pct": {
+      "enkf": {
+        "obs_rmse": -0.02,
+        "obs_crps": -0.02,
+        "spread": 0.05,
+        "state_rmse": {
+          "sw0": 1.33,
+          "swr": 7.89,
+          "n_min": 10.56,
+          "lai": 0.0,
+          "biomass": -6.84
+        },
+        "channels": {
+          "yield_kg": {
+            "rmse": -3.05,
+            "nrmse": -3.05,
+            "mae": -3.05,
+            "mbe": -3.05,
+            "d": 0.0,
+            "n": 0.0,
+            "crps": 3.17,
+            "spread": -39.87,
+            "spread_skill": 26.32,
+            "picp_0.1": -100000000000.0,
+            "is_0.1": -18.27,
+            "width_0.1": -71.0
+          }
+        }
+      },
+      "ensf": {
+        "obs_rmse": -0.02,
+        "obs_crps": -0.01,
+        "spread": 0.04,
+        "state_rmse": {
+          "sw0": 0.95,
+          "swr": -30.37,
+          "n_min": -434.01,
+          "lai": 0.0,
+          "biomass": -15.02
+        },
+        "channels": {
+          "yield_kg": {
+            "rmse": 1.54,
+            "nrmse": 1.54,
+            "mae": 1.54,
+            "mbe": 1.54,
+            "d": 0.0,
+            "n": 0.0,
+            "crps": 3.14,
+            "spread": -40.37,
+            "spread_skill": 29.86,
+            "picp_0.1": -100000000000.0,
+            "is_0.1": -15.38,
+            "width_0.1": -66.83
+          }
+        }
+      }
+    }
+  },
+  "seconds": 1.61,
+  "meta": {
+    "python": "3.15.2",
+    "torch": "2.15.0+cu132",
+    "device": "cuda",
+    "argv": [
+      "exp",
+      "assim",
+      "--perturb",
+      "rue:0.8",
+      "--members",
+      "24",
+      "--obs-every",
+      "15",
+      "--channels",
+      "yield_kg",
+      "--out",
+      "results/assim.json"
+    ]
+  }
+}

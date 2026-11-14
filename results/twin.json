@@ -1,0 +1,146 @@
+{
+  "name": "twin",
+  "spec": {
+    "lat": 42.0,
+    "lon": -93.6,
+    "soil": "silt_loam",
+    "depths": [
+      0.3,
+      1.5
+    ],
+    "crop": "maize",
+    "horizon": 2,
+    "years": [],
+    "realizations": 3,
+    "members": 16,
+    "obs_every": 10,
+    "noise": 0.05,
+    "perturb": {
+      "rue": 0.8,
+      "gdd_mat": 0.92,
+      "harvest_index": 0.85
+    },
+    "obs_channels": [
+      "ndvi",
+      "sm1"
+    ],
+    "channels": [
+      "yield_kg",
+      "biomass_end"
+    ],
+    "alphas": [
+      0.1
+    ],
+    "epochs": 120,
+    "lr": 0.05,
+    "seed": 0
+  },
+  "results": {
+    "calibration": {
+      "params": {
+        "rue": {
+          "start": 3.9,
+          "truth": 3.12,
+          "fitted": 3.715086782136395,
+          "recovery_pct": 23.71
+        },
+        "gdd_mat": {
+          "start": 1750.0,
+          "truth": 1610.0,
+          "fitted": 1750.1903476188043,
+          "recovery_pct": -0.14
+        },
+        "harvest_index": {
+          "start": 0.52,
+          "truth": 0.442,
+          "fitted": 1.1405709453557953,
+          "recovery_pct": -795.6
+        }
+      },
+      "best_loss": 0.01340311,
+      "epochs_run": 120
+    },
+    "channels": {
+      "yield_kg": {
+        "prior": {
+          "rmse": 807.2091402743577,
+          "nrmse": 0.5438032904875527,
+          "mae": 806.0996309275382,
+          "mbe": -806.0996309275382,
+          "r2": 0.9386832681707258,
+          "nse": -138.4455286459699,
+          "kge09": 0.19133670077010467,
+          "kge12": 0.44274090243385533,
+          "d": 0.12898347837025304,
+          "ccc": 0.005549897077650606,
+          "n": 6
+        },
+        "cal": {
+          "rmse": 61.50756565160991,
+          "nrmse": 0.04143661775169715,
+          "mae": 59.93346688193723,
+          "mbe": -59.93346688193723,
+          "r2": 0.9754513171506285,
+          "nse": 0.19036452503840717,
+          "kge09": 0.8535205268061448,
+          "kge12": 0.8876736000041897,
+          "d": 0.8150111788589744,
+          "ccc": 0.6771627028959313,
+          "n": 6
+        },
+        "rmse_reduction_pct": 92.38
+      },
+      "biomass_end": {
+        "prior": {
+          "rmse": 0.0,
+          "nrmse": 0.0,
+          "mae": 0.0,
+          "mbe": 0.0,
+          "r2": 0.0,
+          "nse": 1.0,
+          "kge09": -0.7320508075688772,
+          "kge12": -0.7320508075688772,
+          "d": 1.0,
+          "ccc": 0.0,
+          "n": 6
+        },
+        "cal": {
+          "rmse": 0.0,
+          "nrmse": 0.0,
+          "mae": 0.0,
+          "mbe": 0.0,
+          "r2": 0.0,
+          "nse": 1.0,
+          "kge09": -0.7320508075688772,
+          "kge12": -0.7320508075688772,
+          "d": 1.0,
+          "ccc": 0.0,
+          "n": 6
+        },
+        "rmse_reduction_pct": 0.0
+      }
+    }
+  },
+  "seconds": 276.322,
+  "meta": {
+    "python": "3.15.2",
+    "torch": "2.15.0+cu132",
+    "device": "cuda",
+    "argv": [
+      "exp",
+      "twin",
+      "--perturb",
+      "rue:0.8,gdd_mat:0.92,harvest_index:0.85",
+      "--horizon",
+      "2",
+      "--realizations",
+      "3",
+      "--epochs",
+      "120",
+      "--channels",
+      "yield_kg,biomass_end",
+      "--out",
+      "results/twin.json"
+    ]
+  }
+}
