@@ -1,4 +1,4 @@
-"""E7 — test-time environment adaptation ablation.
+"""E8 — test-time environment adaptation ablation.
 
 The truth gap is an environment shift the prior does not know: the truth
 field's initial soil water is scaled up (a wetter prior season, unknown
