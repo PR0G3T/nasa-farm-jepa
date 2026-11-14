@@ -220,8 +220,8 @@ class TestCF:
         tr2 = ObservationTrace(f.days, ("biomass",), 5)
         truth.rollout(field, f, alt, observer=tr2)
         actual = tr2.result()
-        counterfactual, information = counterfactual(m, field, f, a, alt, observed, ("biomass",), 5)
-        e_cf = float((counterfactual - actual).pow(2).mean().sqrt())
+        cf, information = counterfactual(m, field, f, a, alt, observed, ("biomass",), 5)
+        e_cf = float((cf - actual).pow(2).mean().sqrt())
         e_nv = float((information["pred_alt"] - actual).pow(2).mean().sqrt())
         assert e_cf < 0.5 * e_nv
 

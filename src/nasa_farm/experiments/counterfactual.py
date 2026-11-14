@@ -47,11 +47,11 @@ def run(specification: Specification) -> dict:
         sc.truth.rollout(sc.field, f0, alt, observer=tr_t)
     actual = tr_t.result()
 
-    counterfactual, information = counterfactual(sc.prior, sc.field, f0, sc.actions, alt,
-                              observed, ch, every=specification.cadence)
+    cf, information = counterfactual(sc.prior, sc.field, f0, sc.actions, alt,
+                                     observed, ch, every=specification.cadence)
     output = {}
     for j, c in enumerate(ch):
-        e_cf = float(rmse(counterfactual[0, :, j], actual[0, :, j]))
+        e_cf = float(rmse(cf[0, :, j], actual[0, :, j]))
         e_nv = float(rmse(information["pred_alt"][0, :, j], actual[0, :, j]))
         output[c] = {"naive": round(e_nv, 6), "cf": round(e_cf, 6),
                   "improvement_pct": round(100 * (e_nv - e_cf) / e_nv, 2)

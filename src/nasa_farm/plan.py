@@ -147,8 +147,8 @@ def _rollout_metrics(model: WorldModel, field0: Field, plans: torch.Tensor,
 def _shard(model: WorldModel, field0: Field, plans: torch.Tensor,
            ensemble: Forcing, irr_mm_day: float,
            n_fert_kg: float) -> torch.Tensor:
-    """Pool-mappable block worker — module-level so interpreter pools can
-    pickle it. OMP is capped per shard: dispatch-bound ops only contend."""
+    """Pool-mappable block worker. OMP is capped at one thread per shard:
+    shard-level parallelism already saturates the physical cores."""
     previous = torch.get_num_threads()
     torch.set_num_threads(1)
     try:
@@ -440,9 +440,10 @@ def evaluate(model: WorldModel, field0: Field, plans: torch.Tensor,
         _size_blocks(lanes, r, min(probe._PROBE_DAYS, days), days)
 
     accelerator = any(l.accelerator for l in lanes)
-    output = torch.empty(
-        (r * s, h, len(METRICS)), dtype=DTYPE,
-        pin_memory=accelerator and torch.cuda.is_available())
+    with torch.inference_mode(False):
+        output = torch.empty(
+            (r * s, h, len(METRICS)), dtype=DTYPE,
+            pin_memory=accelerator and torch.cuda.is_available())
     mons = {l.name: Monitor(l.device) for l in lanes if l.accelerator}
     try:
         with ExitStack() as stack:

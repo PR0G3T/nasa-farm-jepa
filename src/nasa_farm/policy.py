@@ -50,7 +50,6 @@ def policy_actions(policy: Policy, model, field: Field,
     b, days = field.batch, forcing.days
     irrigation = torch.zeros(b, days, dtype=DTYPE)
     fertilizer = torch.zeros(b, days, dtype=DTYPE)
-    field = field
     with torch.inference_mode():
         for t in range(days):
             action = base.day(t)
@@ -75,7 +74,6 @@ def distill(model, field: Field, forcing: Forcing, base: Actions,
     b, days = field.batch, forcing.days
     policy = Policy()
     opt = torch.optim.Adam(policy.parameters(), lr=rate)
-    field = field
     for _ in range(epochs):
         opt.zero_grad(set_to_none=True)
         loss = torch.zeros((), dtype=DTYPE)
@@ -118,9 +116,10 @@ def policy_gradient(model, field: Field, forcing: Forcing, base: Actions,
     opt = torch.optim.Adam(policy.parameters(), lr=rate)
     years = max(1, forcing.days // 365)
     b, days = field.batch, forcing.days
+    initial = field
     for _ in range(epochs):
         opt.zero_grad(set_to_none=True)
-        field = field
+        field = initial
         accumulate = SeasonAccumulator(b, years)
         for t in range(days):
             action = base.day(t)
@@ -289,7 +288,6 @@ def inverse_plan(inverse: Inverse, model, field: Field, forcing: Forcing,
     executed policy or mppi's warm-start `base_mu` (transposed)."""
     b, days = field.batch, forcing.days
     mu = torch.zeros(b, days, 2, dtype=DTYPE)
-    field = field
     with torch.inference_mode():
         for t in range(days):
             action = base.day(t)

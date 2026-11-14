@@ -8,7 +8,7 @@ can never leave data written but unmarked. Writes outside `tx()` commit
 per call; `put` is a no-op when the merged series is unchanged, so
 re-crawls are write-free and idempotent.
 
-Read-only opens (`ro=True`) create no files; a missing `lake.db` under a
+Read-only opens (`readonly=True`) create no files; a missing `lake.db` under a
 legacy `*.zarr`/`catalog.db` layout is auto-migrated once through a
 writable open, then served read-only.
 """
@@ -94,21 +94,15 @@ class Lake:
                 raise FileNotFoundError(self.db_path)
         if readonly:
             self.database = sqlite3.connect(
-                f"file:{self.db_path}?mode=ro&immutable=1", uri=True,
+                f"file:{self.db_path}?mode=ro", uri=True,
                 isolation_level=None)
             self.database.execute("PRAGMA busy_timeout=5000")
-            try:
-                self.database.execute("PRAGMA mmap_size=268435456")
-            except sqlite3.OperationalError:
-                pass
         else:
             self.root.mkdir(parents=True, exist_ok=True)
             fresh = not self.db_path.exists()
             self.database = sqlite3.connect(self.db_path, isolation_level=None)
             self.database.execute("PRAGMA journal_mode=WAL")
-            self.database.execute("PRAGMA wal_autocheckpoint=1")
             self.database.execute("PRAGMA synchronous=NORMAL")
-            self.database.execute("PRAGMA mmap_size=268435456")
             self.database.execute("PRAGMA busy_timeout=5000")
             if self.database.execute("PRAGMA user_version").fetchone()[0] < _SCHEMA:
                 self.database.executescript(DDL)

@@ -4,7 +4,7 @@
 - ``capabilities`` — compute-lane discovery across every accelerator backend
 - ``topology``     — physical-core topology, NUMA map, worker affinity
 - ``memory``       — per-device memory + emergency OOM reserve pools
-- ``pool``         — worker executors: threads (no-GIL) or interpreters (GIL)
+- ``pool``         — pinned thread pools for CPU shards
 - ``streams``      — per-lane compute/copy streams + pinned staging
 - ``graphs``       — accelerator graph capture/replay for fixed-shape blocks
 - ``probe``        — measured device rates + persistent cost cache

@@ -100,7 +100,7 @@ class Specification:
 
 
 SMAP_SM = Specification(SMAP_L4, observed="sm", vars=("soil_moisture",),
-               radius_km=18.0, quality=SMAP_QC)
+               radius_km=18.0, quality=SMAP_QC, workers=12)
 NISAR_SM = Specification(NISAR_SME, observed="sme2", radius_km=0.2, quality=FLAG_QC,
                 vars=("soil_moisture", "soilMoisture", "soil_moisture_pmi",
                       "PMI", "DSG", "TSR"),

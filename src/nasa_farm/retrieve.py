@@ -47,7 +47,6 @@ class StateLibrary:
 def record(lib: StateLibrary, model, field: Field, forcing: Forcing,
            actions: Actions, every: int = 1) -> None:
     """Roll once, append realized states. `every` subsamples days."""
-    field = field
     with torch.inference_mode():
         for t in range(forcing.days):
             fd, action = forcing.day(t), actions.day(t)

@@ -33,22 +33,22 @@ class Normalizer(nn.Module):
     def __init__(self, dim: int) -> None:
         super().__init__()
         self.dim = dim
-        self.register_buffer("mu", torch.zeros(dim, dtype=DTYPE))
-        self.register_buffer("sd", torch.ones(dim, dtype=DTYPE))
+        self.register_buffer("mean", torch.zeros(dim, dtype=DTYPE))
+        self.register_buffer("deviation", torch.ones(dim, dtype=DTYPE))
         self.fitted = False
 
     @torch.no_grad()
-    def fit(self, embedding: torch.Tensor) -> "CtxNorm":
-        e = embedding.reshape(-1, embedding.shape[-1]).to(DTYPE)
-        if e.shape[-1] != self.dim:
-            raise ValueError(f"embedding dim {e.shape[-1]} != ctx dim {self.dim}")
-        self.mu.copy_(e.mean(0))
-        self.deviation.copy_(e.std(0).clamp(min=1e-6))
+    def fit(self, embedding: torch.Tensor) -> "Normalizer":
+        flat = embedding.reshape(-1, embedding.shape[-1]).to(DTYPE)
+        if flat.shape[-1] != self.dim:
+            raise ValueError(f"embedding dim {flat.shape[-1]} != ctx dim {self.dim}")
+        self.mean.copy_(flat.mean(0))
+        self.deviation.copy_(flat.std(0).clamp(min=1e-6))
         self.fitted = True
         return self
 
     def forward(self, embedding: torch.Tensor) -> torch.Tensor:
-        return (embedding.to(DTYPE) - self.mu) / self.deviation
+        return (embedding.to(DTYPE) - self.mean) / self.deviation
 
 
 def build_context(embedding: torch.Tensor, norm: Normalizer | None = None,

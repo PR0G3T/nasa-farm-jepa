@@ -2,6 +2,10 @@
 
 import datetime as dt
 import sqlite3
+import subprocess
+import sys
+import threading
+import tracemalloc
 
 import numpy as numpy
 import pytest
@@ -216,10 +220,13 @@ class TestLake:
     def test_read_only_no_files(self, tmp_path):
         with Lake(tmp_path) as L:
             L.put("F1", "obs", "sm", numpy.array([20240101]), numpy.array([0.5]))
-        before = {p.name for p in tmp_path.iterdir()}
         with Lake(tmp_path, readonly=True) as R:
             assert R.get("F1", "obs", "sm") is not None
-        assert {p.name for p in tmp_path.iterdir()} == before
+        assert {p.name for p in tmp_path.iterdir()} <= \
+            {"lake.db", "lake.db-shm", "lake.db-wal"}  # sqlite wal-index only
+        with Lake(tmp_path):                        # next writer reclaims it
+            pass
+        assert [p.name for p in tmp_path.iterdir()] == ["lake.db"]
 
     def test_missing_ro(self, tmp_path):
         with pytest.raises(FileNotFoundError):
@@ -307,3 +314,105 @@ class TestMigrate:
         with Lake(tmp_path) as L:
             assert L.fids() == [] and L.migrated == {
                 "fields": 0, "series": 0, "emb": 0, "granules": 0}
+
+
+_KILL_MID_TX = """
+import os, sys, numpy
+from nasa_farm.lake import Lake
+L = Lake(sys.argv[1])
+with L.transaction():
+    L.put("F1", "obs", "sm", numpy.array([20240101]), numpy.array([.5]))
+    L.mark_granule("G1", "smap")
+    os._exit(0)                    # dead before COMMIT
+"""
+
+_KILL_BETWEEN_UNITS = """
+import os, sys, numpy
+from nasa_farm.lake import Lake
+L = Lake(sys.argv[1])
+with L.transaction():
+    L.put("F1", "obs", "sm", numpy.array([20240101]), numpy.array([.5]))
+    L.mark_granule("G1", "smap")
+with L.transaction():                       # unit 2 begins
+    L.put("F1", "obs", "sm", numpy.array([20240102]), numpy.array([.6]))
+    L.mark_granule("G2", "smap")
+    os._exit(0)                             # dead before COMMIT
+"""
+
+
+class TestFault:
+    def test_kill_mid_tx_leaves_nothing(self, tmp_path):
+        subprocess.run([sys.executable, "-c", _KILL_MID_TX, str(tmp_path)])
+        with Lake(tmp_path) as L:
+            assert L.get("F1", "obs", "sm") is None
+            assert not L.has_granule("G1")
+
+    def test_kill_between_units_resumes(self, tmp_path):
+        subprocess.run(
+            [sys.executable, "-c", _KILL_BETWEEN_UNITS, str(tmp_path)])
+        with Lake(tmp_path) as L:
+            assert L.get("F1", "obs", "sm")[0].tolist() == [20240101]
+            assert L.has_granule("G1") and not L.has_granule("G2")
+            with L.transaction():           # resumable: replay unit 2
+                L.put("F1", "obs", "sm", numpy.array([20240102]),
+                      numpy.array([.6]))
+                L.mark_granule("G2", "smap")
+            d, v = L.get("F1", "obs", "sm")
+            assert d.tolist() == [20240101, 20240102]
+            assert L.has_granule("G2")
+
+    def test_readers_never_see_partial(self, tmp_path):
+        with Lake(tmp_path) as L:
+            L.field("F1", 1.0, 2.0)
+        errors, done = [], threading.Event()
+
+        def read():
+            while not done.is_set():
+                try:
+                    with Lake(tmp_path, readonly=True) as R:
+                        for fid, grp, var, _, _, n, _, _ in R.coverage():
+                            got = R.get(fid, grp, var)
+                            if got is None:
+                                errors.append("coverage but no series")
+                            else:
+                                d, v = got
+                                if len(d) != len(v) or len(d) != n \
+                                        or numpy.diff(d).min() <= 0:
+                                    errors.append("torn series")
+                except sqlite3.OperationalError:
+                    pass                    # db mid-schema: retry
+
+        threads = [threading.Thread(target=read) for _ in range(4)]
+        for t in threads:
+            t.start()
+        with Lake(tmp_path) as L:
+            for i in range(20):
+                with L.transaction():
+                    L.put("F1", "obs", f"s{i}",
+                          numpy.array([20240101 + j for j in range(50)]),
+                          numpy.arange(50, dtype=numpy.float32))
+                    L.mark_granule(f"G{i}", "p")
+        done.set()
+        for t in threads:
+            t.join()
+        assert errors == []
+
+    def test_load_memory_budget(self, tmp_path):
+        d = numpy.array(sorted(numpy.random.default_rng(0).choice(
+            to_date(numpy.arange(
+                to_ordinal(numpy.array([20200101]))[0],
+                to_ordinal(numpy.array([20251231]))[0] + 1)),
+            size=2000, replace=False)), numpy.int32)
+        raw = d.size * 8 * 40                        # dates+vals, 40 series
+        with Lake(tmp_path) as L:
+            for i in range(40):
+                L.put("F1", "forcing", f"v{i}", d,
+                      numpy.random.default_rng(i).random(
+                          d.size, dtype=numpy.float32))
+        tracemalloc.start()
+        with Lake(tmp_path, readonly=True) as L:
+            out = [L.get("F1", "forcing", f"v{i}") for i in range(40)]
+        peak = tracemalloc.get_traced_memory()[1]
+        tracemalloc.stop()
+        assert all(x is not None for x in out)
+        assert peak < raw * 2                        # no per-point objects

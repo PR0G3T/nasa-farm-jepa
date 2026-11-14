@@ -13,7 +13,7 @@ the user's existing configuration — explicitly set values always win.
   first-touch for the large forcing/action/state slabs.
 - ``PYTORCH_NVML_BASED_CUDA_CHECK=1``: ``is_available`` checks go through
   NVML rather than the CUDA runtime, keeping ``fork()`` unpolluted for
-  the process/interpreter pools used on GIL builds.
+  subprocess-spawning services.
 """
 
 from __future__ import annotations

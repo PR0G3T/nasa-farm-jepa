@@ -335,8 +335,8 @@ class WorldModel(nn.Module):
         names = [n for n in field.state.__dataclass_fields__
                  if getattr(field.state, n) is not None]
         accumulate = observer.accumulate if observer is not None else None
-        static = {"soil": field.soil, "lat": field.latitude, "elev": field.elevation,
-                  "ctx": field.context}
+        static = {"soil": field.soil, "latitude": field.latitude,
+                  "elevation": field.elevation, "context": field.context}
         cls = field.__class__
         avars = ACTION_VARS
         nf, na = len(FORCING_VARS), len(avars)

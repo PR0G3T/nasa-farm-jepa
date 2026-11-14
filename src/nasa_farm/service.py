@@ -193,12 +193,12 @@ def _site(point: Point, request: PlanRequest, crops: CropLibrary,
         series, sm = _forcings(request, point)
         source = request.source if not request.offline else (
             "power" if request.source == "power" else "synth")
-        ensemble = ensemble(source, point.latitude, point.longitude, (),
+        ens = ensemble(source, point.latitude, point.longitude, (),
                        request.horizon, request.members, 0, history=series)
         if request.delta_t or request.precip_scale != 1.0:
-            ensemble = ensemble.perturb(request.delta_t, request.precip_scale)
-        ensemble = dataclasses.replace(
-            ensemble, co2=torch.full_like(ensemble.tmin, request.co2))
+            ens = ens.perturb(request.delta_t, request.precip_scale)
+        ens = dataclasses.replace(
+            ens, co2=torch.full_like(ens.tmin, request.co2))
 
         if request.soil:
             soil = SoilProfile.preset(request.soil, depths=depths)
@@ -215,7 +215,7 @@ def _site(point: Point, request: PlanRequest, crops: CropLibrary,
             if pt.is_file():
                 model.residual.load_state_dict(
                     torch.load(pt, weights_only=True))
-        event = evaluate(model, field, plans, ensemble,
+        event = evaluate(model, field, plans, ens,
                       irr_mm_day=request.irrig, n_fert_kg=request.fertilizer,
                       workers=workers, device=device, compile=compile)
         record = recommend(event, weights=request.weights,
@@ -229,10 +229,10 @@ def _site(point: Point, request: PlanRequest, crops: CropLibrary,
         ]
         if top:
             top[0]["trace"] = _trace(model, field, plans[record["ranking"][:1]],
-                                     ensemble, request.irrig, request.fertilizer)
+                                     ens, request.irrig, request.fertilizer)
         return SiteResult(
             point=point, status="ok",
-            plans_evaluated=int(plans.shape[0]), scenarios=int(ensemble.batch),
+            plans_evaluated=int(plans.shape[0]), scenarios=int(ens.batch),
             history=_history(series, dt.date.today().year - request.years, sm),
             pareto=[
                 {"rotation": [crops.names[c] for c in plans[i].tolist()],

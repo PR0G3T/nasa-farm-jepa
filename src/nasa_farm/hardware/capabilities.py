@@ -87,9 +87,9 @@ def lanes(dtype: torch.dtype = DTYPE) -> list[torch.device]:
 
 def processor_workers(rows: int | None = None, *,
                 min_rows_per_shard: int = 64) -> int:
-    """Physical cores on no-GIL builds; 1 on GIL builds (the interpreter
-    pool restores parallelism there — see `hw.pool`). Floored so shards
-    stay bigger than coordination cost."""
+    """Physical cores — torch kernels release the GIL, so threads scale
+    on every build. Floored so shards stay bigger than coordination
+    cost; the probe prunes the lane when reality disagrees."""
     import sys
     cap = physical_cores()
     if rows is not None:

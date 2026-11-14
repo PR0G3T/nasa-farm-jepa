@@ -73,16 +73,11 @@ class TestMem:
 
 
 class TestPool:
-    def test_backend_known(self):
-        assert pool.backend() in ("threads", "interpreters")
-
     def test_make_requires_two(self):
         with pytest.raises(ValueError):
             pool.make(1)
 
     def test_map_order(self):
-        if pool.backend() == "interpreters":
-            pytest.skip("interpreter pool pickles args; covered via evaluate")
         ex = pool.make(2)
         try:
             assert list(ex.map(lambda x: x * 2, range(6))) == \

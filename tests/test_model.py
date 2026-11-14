@@ -216,7 +216,7 @@ class TestCheckpointedRollout:
             Field(field.state.clone(), field.soil, field.latitude),
             forcing, actions, observer=a2, checkpoint_every=30)
         for name in ("sw", "n_min", "soc_f", "soc_s", "gdd", "lai", "biomass",
-                     "cum_yield", "vern", "heat_acc"):
+                     "cum_yield", "vernalization", "heat_acc"):
             assert torch.equal(getattr(f1.state, name), getattr(f2.state, name)), name
         assert torch.equal(a1.result(), a2.result())
 
@@ -226,11 +226,11 @@ class TestCheckpointedRollout:
 
         def gradient(ckpt):
             tmin = forcing.tmin.detach().clone().requires_grad_(True)
-            forcing = dataclasses.replace(forcing, tmin=tmin)
+            fd = dataclasses.replace(forcing, tmin=tmin)
             accumulate = SeasonAccumulator(1, 1)
             hybrid_model.rollout(
                 Field(field.state.clone(), field.soil, field.latitude),
-                forcing, actions, observer=accumulate, checkpoint_every=ckpt)
+                fd, actions, observer=accumulate, checkpoint_every=ckpt)
             accumulate.result().sum().backward()
             return tmin.grad.clone()
 

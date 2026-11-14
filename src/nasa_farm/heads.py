@@ -120,19 +120,19 @@ def objectives(season_metrics: torch.Tensor, n_plans: int, n_scen: int,
     nmin_end = m[..., -1, i["n_min_end"]]
 
     def q(x): return torch.quantile(x, risk_q, dim=1)
-    def mu(x): return x.mean(1)
+    def mean(x): return x.mean(1)
 
     return {
-        "yield_mean": mu(yield_tot),
+        "yield_mean": mean(yield_tot),
         "yield_risk": q(yield_tot),          # pessimistic-but-likely yield
-        "water_used": mu(water + lost),      # total water consumed/lost
-        "n_leached": mu(leach),
-        "n2o_kg": mu(n2o),
-        "stress_days": mu(stress),
-        "heat_dd": mu(heat),                 # reproductive heat load
-        "frost_days": mu(frost),             # lethal-frost frequency
-        "soc_gain": mu(soc_gain),
-        "n_min_end": mu(nmin_end),
+        "water_used": mean(water + lost),      # total water consumed/lost
+        "n_leached": mean(leach),
+        "n2o_kg": mean(n2o),
+        "stress_days": mean(stress),
+        "heat_dd": mean(heat),                 # reproductive heat load
+        "frost_days": mean(frost),             # lethal-frost frequency
+        "soc_gain": mean(soc_gain),
+        "n_min_end": mean(nmin_end),
     }
 
 

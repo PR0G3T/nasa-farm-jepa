@@ -112,7 +112,7 @@ class Residual(nn.Module):
             h = h + self.short(feats)
         output = self.head(h)
         if self.diffusion:
-            mu, logvar = output.chunk(2, dim=-1)
-            return (torch.tanh(mu) * self.scale,
-                    logvar.clamp(-12.0, 2.0))
+            mean, log_variance = output.chunk(2, dim=-1)
+            return (torch.tanh(mean) * self.scale,
+                    log_variance.clamp(-12.0, 2.0))
         return torch.tanh(output) * self.scale

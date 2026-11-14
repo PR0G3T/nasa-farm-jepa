@@ -28,7 +28,7 @@ class TestLocal:
         lo_l, hi_l = lc.bound(torch.zeros(100, 1, dtype=DTYPE), x[test])
         lo_s, hi_s = sc.bound(torch.zeros(100, 1, dtype=DTYPE))
         assert float((hi_l - lo_l).mean()) == pytest.approx(
-            float((hi_s - lo_s).mean()), relative=0.35)
+            float((hi_s - lo_s).mean()), rel=0.35)
 
     def test_width_tracks_heteroscedasticity(self):
         """Intervals widen where |x| is large — conditional behavior."""

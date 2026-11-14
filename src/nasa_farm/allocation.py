@@ -56,10 +56,11 @@ def fit_allocation(model, field: Field, forcing: Forcing, base: Actions,
     years = max(1, days // 365)
     weights = weights or DEFAULT_WEIGHTS
     history: list[float] = []
+    initial = field
 
     for _ in range(epochs):
         opt.zero_grad(set_to_none=True)
-        field, used = field, torch.zeros(b, dtype=DTYPE)
+        field, used = initial, torch.zeros(b, dtype=DTYPE)
         accumulate = SeasonAccumulator(b, years)
         for t in range(days):
             action = base.day(t)
@@ -100,7 +101,7 @@ def evaluate_policies(model, field: Field, forcing: Forcing, base: Actions,
     if forcing.batch == 1 and b > 1:
         forcing = forcing.repeat(b)
     weights = weights or DEFAULT_WEIGHTS
-    field, used = field, torch.zeros(b, dtype=DTYPE)
+    used = torch.zeros(b, dtype=DTYPE)
     accumulate = SeasonAccumulator(b, max(1, days // 365))
     with torch.inference_mode():
         for t in range(days):

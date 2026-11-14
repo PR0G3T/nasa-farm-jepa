@@ -310,20 +310,20 @@ def path_integral(model, field: Field, forcing: Forcing, base: Actions,
                            .expand(E, -1),
                            n_fert=nf.clamp(*bounds[1]).unsqueeze(0)
                            .expand(E, -1))
-            forcing = forcing
+            fd = forcing
             if h < days:
-                forcing = Forcing(*(getattr(forcing, k)[:, :h]
-                                for k in FORCING_VARS))
+                fd = Forcing(*(getattr(fd, k)[:, :h]
+                               for k in FORCING_VARS))
                 acts = Actions(*(getattr(acts, k)[:, :h]
                                  for k in ACTION_VARS))
             accumulate = SeasonAccumulator(E, max(1, -(-h // 365)),
                                     device=field.state.sw.device)
-            field = model.rollout(field.repeat(E), forcing, acts, observer=accumulate,
+            rolled = model.rollout(field.repeat(E), fd, acts, observer=accumulate,
                                 checkpoint_every=24 if h > 64 else 0)
             m = accumulate.result().unsqueeze(0)              # (1, E, H, M)
             r = (reward(m) if reward is not None
                  else metric_reward(m, weights, risk, alpha, margin))
-            return -(r.mean() + bonus(field, forcing, acts).mean())
+            return -(r.mean() + bonus(rolled, fd, acts).mean())
 
         if refine_alg == "lbfgs":
             _quasi_newton(polish, [irrigation, nf], refine)

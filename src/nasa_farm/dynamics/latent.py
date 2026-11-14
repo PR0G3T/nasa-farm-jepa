@@ -64,13 +64,13 @@ class Dynamics(nn.Module):
         if not self.stochastic:
             self.kl = torch.zeros((), dtype=output.dtype, device=output.device)
             return self.link(z + output), zh
-        mu, logvar = output.chunk(2, dim=-1)
-        logvar = logvar.clamp(-8.0, 4.0)
-        signal = (0.5 * logvar).exp()
-        eps = torch.randn(mu.shape, generator=generation,
-                          dtype=mu.dtype, device=mu.device)
-        self.kl = 0.5 * (mu.pow(2) + signal.pow(2) - logvar - 1.0).mean()
-        return self.link(z + mu + signal * eps), zh
+        mean, log_variance = output.chunk(2, dim=-1)
+        log_variance = log_variance.clamp(-8.0, 4.0)
+        deviation = (0.5 * log_variance).exp()
+        noise = torch.randn(mean.shape, generator=generation,
+                          dtype=mean.dtype, device=mean.device)
+        self.kl = 0.5 * (mean.pow(2) + deviation.pow(2) - log_variance - 1.0).mean()
+        return self.link(z + mean + deviation * noise), zh
 
     def seed(self, z: torch.Tensor) -> torch.Tensor:
         """Obs embedding → initial latent state (identity for a flat

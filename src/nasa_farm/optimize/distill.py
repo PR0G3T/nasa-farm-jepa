@@ -67,27 +67,27 @@ def grow(x: torch.Tensor, y: torch.Tensor, k: int = 6,
     """
     F = basis(x)
     names = basis_names()
-    mu, deviation = F.mean(0), F.std(0).clamp(min=1e-9)
-    Fn = (F - mu) / deviation
+    mean, deviation = F.mean(0), F.std(0).clamp(min=1e-9)
+    normalized = (F - mean) / deviation
     f = x.shape[-1]
     for _ in range(rounds + 1):
-        index, w = pursuit(Fn, y, k)
+        index, w = pursuit(normalized, y, k)
         sel = set(index.tolist())
         new_cols, new_names = [], []
         for i in sel:
             if i == 0:
                 continue
             for j in range(1, f + 1):
-                column = Fn[:, i] * Fn[:, j]
+                column = normalized[:, i] * normalized[:, j]
                 if column.std() < 1e-6:
                     continue
                 new_cols.append((column - column.mean()) / column.std())
                 new_names.append(f"{names[i]}·{names[j]}")
         if not new_cols:
             break
-        Fn = torch.cat([Fn] + [c.unsqueeze(-1) for c in new_cols], dim=-1)
+        normalized = torch.cat([normalized] + [c.unsqueeze(-1) for c in new_cols], dim=-1)
         names += new_names
-    index, w = pursuit(Fn, y, k)
+    index, w = pursuit(normalized, y, k)
     return index, w, names
 
 

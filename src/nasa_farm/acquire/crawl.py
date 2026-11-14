@@ -10,7 +10,7 @@ Two regimes, one sink:
   confidence map — O(fields) extraction per O(1) open — then marked so
   re-runs skip them. Each obs lands with a `{var}_w` coverage weight.
 
-Every write lands inside `Lake.tx()` units sized so a crash can never
+Every write lands inside `Lake.transaction()` units sized so a crash can never
 leave data written but unmarked: one tx per POWER field, per NLDAS
 field-month (marks commit with the writes they cover — a mid-month crash
 re-downloads the month, never silently skips it), and per satellite
