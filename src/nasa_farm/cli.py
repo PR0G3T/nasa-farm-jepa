@@ -78,6 +78,15 @@ def _build_parser() -> argparse.ArgumentParser:
                      help="name[:k=v,...] — repeatable; k ∈ "
                           + ",".join(sorted(SCENARIO_KEYS)))
 
+    cr = sub.add_parser("crawl", help="batch acquisition → data lake")
+    cr.add_argument("--fields", required=True,
+                    help="fields JSON path, or '-' for stdin")
+    cr.add_argument("--out", default="lake", help="lake root dir")
+    cr.add_argument("--years", type=int, default=5)
+    cr.add_argument("--sources", default="power,soil",
+                    help="power,soil,smap,ecostress-seb,ecostress-met")
+    cr.add_argument("--workers", type=int, default=8)
+
     sv = sub.add_parser("serve", help="HTTP API (granian + fastapi)")
     sv.add_argument("--host", default="127.0.0.1")
     sv.add_argument("--port", type=int, default=8000)
@@ -270,6 +279,27 @@ def cmd_export(args) -> int:
                 f"{f' — {r.detail}' if r.detail else ''}\n")
         out["scenarios"][name] = {"params": over, "fields": fields}
     Path(args.out).write_text(json.dumps(out) + "\n")
+    sys.stderr.write(f"wrote {args.out}\n")
+    return 0
+
+
+def cmd_crawl(args) -> int:
+    from pathlib import Path
+
+    from nasa_farm.acquire.crawl import crawl
+
+    src = (sys.stdin.read() if args.fields == "-"
+           else Path(args.fields).read_text())
+    raw = json.loads(src)
+    items = raw if isinstance(raw, list) else raw.get(
+        "fields", raw.get("points", []))
+    fields = [{"id": str(f["id"]), "lat": f["lat"], "lon": f["lon"],
+               "name": f.get("name", "")} for f in items]
+    last = dt.date.today().year - 1
+    crawl(fields, args.out,
+          list(range(last - args.years + 1, last + 1)),
+          sources=tuple(args.sources.split(",")), workers=args.workers,
+          log=lambda m: sys.stderr.write(f"{m}\n"))
     sys.stderr.write(f"wrote {args.out}\n")
     return 0
 
@@ -473,6 +503,8 @@ def main(argv: list[str] | None = None) -> int:
             return cmd_plan(args)
         case "export":
             return cmd_export(args)
+        case "crawl":
+            return cmd_crawl(args)
         case "serve":
             return cmd_serve(args)
         case "calibrate":

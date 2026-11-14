@@ -12,6 +12,8 @@ from __future__ import annotations
 import dataclasses
 import datetime as dt
 import math
+import os
+from pathlib import Path
 from typing import Any, Literal
 
 import torch
@@ -151,11 +153,19 @@ def _history(series: list[Forcing], y0: int,
 
 
 def _forcings(req: PlanRequest, p: Point) -> tuple[list, torch.Tensor | None]:
-    """Daily forcing years + observed soil wetness series (None offline)."""
+    """Daily forcing years + observed soil wetness (lake first, else POWER)."""
     if req.offline:
         return [synthetic_year(p.lat, seed=y) for y in range(req.years)], None
     last = dt.date.today().year - 1
     years = list(range(last - req.years + 1, last + 1))
+    if (root := os.environ.get("NASA_FARM_LAKE")) and p.id:
+        from nasa_farm.optimize.data import forcings, wetness
+        try:
+            series = forcings(Path(root), p.id, years)
+            if series and (wet := wetness(Path(root), p.id)) is not None:
+                return series, torch.from_numpy(wet[:len(years) * 365])
+        except (KeyError, FileNotFoundError, ValueError):
+            pass
     client = PowerClient()
     raw = client.data_years(p.lat, p.lon, years)
     series = [series_to_forcing(d, y) for d, y in zip(raw, years)]
