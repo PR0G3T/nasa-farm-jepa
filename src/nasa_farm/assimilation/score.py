@@ -67,7 +67,7 @@ def _likelihood_grad(z: torch.Tensor, state: FieldState,
         full = torch.func.jacrev(h_batch)(zz)         # (B,C,B,V)
         jac = full.diagonal(dim1=0, dim2=2).permute(2, 0, 1)  # (B,C,V)
         h_z = h_batch(zz)
-    return torch.einsum("bcv,bv->bv", jac, (y - h_z) @ r_inv)
+    return torch.einsum("bcv,bc->bv", jac, (y - h_z) @ r_inv)
 
 
 def score_update(state: FieldState, observed_prediction: torch.Tensor,
