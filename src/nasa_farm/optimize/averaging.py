@@ -33,13 +33,13 @@ class Moments:
         self.n += 1
 
     @property
-    def var(self) -> torch.Tensor:
+    def variance(self) -> torch.Tensor:
         return (self.sq - self.mean ** 2).clamp(min=0.0)
 
     def sample(self, generation: torch.Generator | None = None,
                scale: float = 1.0) -> torch.Tensor:
         """Draw a weight vector ~ N(mean, diag(var)·scale²)."""
-        return self.mean + scale * self.var.sqrt() * torch.randn(
+        return self.mean + scale * self.variance.sqrt() * torch.randn(
             self.mean.shape, generator=generation,
             dtype=self.mean.dtype, device=self.mean.device)
 

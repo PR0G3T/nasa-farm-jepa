@@ -126,10 +126,12 @@ def soil_sample(d_lo: dict | None, d_hi: dict | None, n: int, seed: int = 0
 
 
 def _bound(d: dict | None, suffix: str) -> dict | None:
-    """`soil` flat dict → the {suffix}-swapped bound dict."""
-    return None if d is None else {
-        **d, "clay": d[f"clay{suffix}"], "sand": d[f"sand{suffix}"],
-        "bd": d[f"bd{suffix}"]}
+    """`soil` flat dict → the {suffix}-swapped bound dict; None when the
+    stored dict predates bound sampling or is a full profile dump."""
+    if d is None or f"clay{suffix}" not in d:
+        return None
+    return {**d, "clay": d[f"clay{suffix}"], "sand": d[f"sand{suffix}"],
+            "bd": d[f"bd{suffix}"]}
 
 
 def dataset(root: Lake | Path | str, fids: list[str], years: list[int]

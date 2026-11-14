@@ -12,7 +12,7 @@ from pydantic import ValidationError
 from nasa_farm.commands import main
 from nasa_farm.service import PlanRequest, Point, plan
 
-REQUEST = {"points": [{"lat": 48.2, "lon": 1.61}],
+REQUEST = {"points": [{"latitude": 48.2, "longitude": 1.61}],
        "horizon": 2, "crops": ["maize", "fallow"], "years": 2,
        "offline": True, "top_k": 2}
 
@@ -27,19 +27,42 @@ def test_request_validation_bounds():
 
 
 def test_plan_single_site():
-    result = plan(PlanRequest(**REQUEST)).results[0]
+    response = plan(PlanRequest(**REQUEST))
+    result = response.results[0]
     assert result.status == "ok"
     assert result.plans_evaluated == 4          # 2 crops ^ 2y
     assert result.scenarios == 2               # years=2 → 2 scenarios
-    assert len(result.top) == 2 and len(result.pareto) >= 1
-    assert all("rotation" in r for r in result.top)
-    assert all("yield_mean" in r for r in result.pareto)
+    assert len(result.ranking) == 2 and len(result.pareto) >= 1
+    assert set(result.ranking) <= set(result.pareto)
+    assert len(result.objectives) == 4
+    assert len(result.objectives[0]) == len(response.columns)
+    assert len(result.scores) == 4 and len(result.traces) == 4
+    assert len(response.rotations) == 4
+    assert "yield_mean" in response.columns
+    assert result.ranking[0] == max(
+        range(4), key=lambda i: result.scores[i])
+
+
+def test_plan_weights_select_objective_extremum():
+    def site(weights: dict):
+        response = plan(PlanRequest(**{**REQUEST, "weights": weights}))
+        return response, response.results[0]
+
+    response, s = site({"yield_mean": 10})
+    col = response.columns.index("yield_mean")
+    assert s.ranking[0] == max(
+        range(s.plans_evaluated), key=lambda i: s.objectives[i][col])
+
+    response, s = site({"n_leached": 10})
+    col = response.columns.index("n_leached")
+    assert s.ranking[0] == min(
+        range(s.plans_evaluated), key=lambda i: s.objectives[i][col])
 
 
 def test_plan_batch_aligned_and_independent():
     request = PlanRequest(**{**REQUEST, "points": [
-        {"id": "a", "lat": 48.2, "lon": 1.61},
-        {"id": "b", "lat": 42.0, "lon": -93.6}]})
+        {"id": "a", "latitude": 48.2, "longitude": 1.61},
+        {"id": "b", "latitude": 42.0, "longitude": -93.6}]})
     result = plan(request)
     assert [r.point.id for r in result.results] == ["a", "b"]
     assert all(r.status == "ok" for r in result.results)
@@ -58,7 +81,7 @@ def test_plan_site_error_degrades_not_raises():
 def test_cli_export_writes_scenarios(tmp_path):
     source = tmp_path / "f.json"
     source.write_text(json.dumps(
-        [{"id": "P1", "name": "P1", "lat": 48.2, "lon": 1.61}]))
+        [{"id": "P1", "name": "P1", "latitude": 48.2, "longitude": 1.61}]))
     output = tmp_path / "plan.json"
     code = main(["export", "--fields", str(source), "--output", str(output),
                "--horizon", "1", "--crops", "maize,fallow", "--years", "1",
@@ -68,8 +91,13 @@ def test_cli_export_writes_scenarios(tmp_path):
     data = json.loads(output.read_text())
     assert set(data["scenarios"]) == {"baseline", "warm"}
     assert data["scenarios"]["warm"]["params"] == {"delta_t": 2.0}
-    hit = data["scenarios"]["baseline"]["fields"]["P1"]
+    assert len(data["rotations"]) == 2
+    assert "yield_mean" in data["columns"]
+    shard = json.loads((output.parent / "plan" / "P1.json").read_text())
+    hit = shard["scenarios"]["baseline"]
     assert hit["status"] == "ok" and hit["plans_evaluated"] == 2
+    assert len(hit["objectives"]) == 2 and len(hit["traces"]) == 2
+    assert shard["history"]["years"]
 
 
 def test_cli_export_rejects_unknown_scenario_key(tmp_path):
@@ -92,10 +120,9 @@ def test_cli_plan_unchanged_shape(capsys):
 
 
 class TestAPI:
-    fastapi = pytest.importorskip("fastapi")
-
     @pytest.fixture
     def client(self):
+        pytest.importorskip("fastapi")
         from fastapi.testclient import TestClient
         from nasa_farm.server import create_app
         return TestClient(create_app())
@@ -114,7 +141,11 @@ class TestAPI:
         body = client.post("/v1/plan", json=REQUEST).json()
         result = body["results"][0]
         assert result["status"] == "ok" and result["plans_evaluated"] == 4
-        assert result["point"]["lat"] == 48.2
+        assert result["point"]["latitude"] == 48.2
+        assert len(body["rotations"]) == 4
+        assert len(result["objectives"]) == 4
+        assert result["ranking"][0] == max(
+            range(4), key=lambda i: result["scores"][i])
 
     def test_plan_cache_hit(self, client):
         r1 = client.post("/v1/plan", json=REQUEST)

@@ -120,7 +120,7 @@ def probe_plans(plans: torch.Tensor, ensemble) -> torch.Tensor:
     return plans[: max(1, min(plans.shape[0], _PROBE_ROWS // ensemble.batch))]
 
 
-def probe_ensemble(ensemble, vars: tuple[str, ...]):
+def probe_ensemble(ensemble, variables: tuple[str, ...]):
     """First ``_PROBE_DAYS`` forcing columns — the probe slice."""
     days = min(_PROBE_DAYS, ensemble.days)
-    return type(ensemble)(*(getattr(ensemble, k)[:, :days] for k in vars))
+    return type(ensemble)(*(getattr(ensemble, k)[:, :days] for k in variables))

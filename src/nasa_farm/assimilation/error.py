@@ -39,7 +39,7 @@ class Statistic:
         return None if self.accumulate is None else self.accumulate / max(self.n, 1.0)
 
     @property
-    def var(self) -> torch.Tensor | None:
+    def variance(self) -> torch.Tensor | None:
         """Diagonal of the estimate — drop-in replacement for std²."""
         e = self.estimate
         return None if e is None else e.diagonal().clamp(min=1e-12)

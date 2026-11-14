@@ -37,26 +37,26 @@ def _strict_conf(flag: numpy.ndarray) -> numpy.ndarray:
 class Quality:
     """QA band declaration: candidate names + flag → confidence map."""
 
-    vars: tuple[str, ...]
+    variables: tuple[str, ...]
     to_conf: Callable[[numpy.ndarray], numpy.ndarray] = _strict_conf
 
     def band(self, ds: xarray.Dataset) -> str | None:
         """First QA band name present, so callers can slice before masking."""
-        return next((v for v in self.vars if v in ds), None)
+        return next((v for v in self.variables if v in ds), None)
 
     def mask(self, ds: xarray.Dataset) -> numpy.ndarray | None:
         """(H, W) confidence map, or None when the product has no QA band."""
-        for v in self.vars:
+        for v in self.variables:
             if v in ds:
                 return numpy.asarray(self.to_conf(ds[v].values), numpy.float64)
         return None
 
 
 SMAP_QC = Quality(
-    vars=("retrieval_qual_flag", "retrieval_quality_flag",
+    variables=("retrieval_qual_flag", "retrieval_quality_flag",
           "retrieval_qual_flag_pm"),
     to_conf=_smap_conf)
 """SPL3SMP_E: recommended 0/8 → 1.0, attempted-uncertain → 0.4, skip → 0."""
 
-FLAG_QC = Quality(vars=("QC", "qc", "quality_flag", "mask"))
+FLAG_QC = Quality(variables=("QC", "qc", "quality_flag", "mask"))
 """Generic single-band QA (ECOSTRESS, NISAR): clean → 1.0, flagged → 0.4."""

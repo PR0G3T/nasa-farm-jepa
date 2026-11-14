@@ -40,9 +40,9 @@ def test_condition_wires_ctx_and_latents(field, crops):
     from nasa_farm.dynamics.model import WorldModel
     from nasa_farm.state.context import Initialization, condition
     m = WorldModel(crops, latent_dimension=6, context_dimension=8)
-    init = Initialization(8, 6, m.latent.hidden_dimension)
+    initialization = Initialization(8, 6, m.latent.hidden_dimension)
     context = torch.randn(1, 8, dtype=DTYPE)
-    f2 = condition(m, field, context, init=init)
+    f2 = condition(m, field, context, initialization=initialization)
     assert torch.equal(f2.context, context)
     assert f2.state.z.shape == (1, 6) and f2.state.zh.shape[1] == m.latent.hidden_dimension
 
@@ -161,13 +161,13 @@ def test_sample_gen_spread(warm_year):
 # ── assim/latent + langevin ───────────────────────────────────────────
 
 def test_ensf_lr_updates_and_bounds(physics_model, field, warm_year):
-    from nasa_farm.assimilation import score_langevin_update
+    from nasa_farm.assimilation import ensf_lr_update
     from nasa_farm.observe import observables
     f = field.repeat(8)
     chans = ("ndvi", "sm1")
     observed_prediction = observables(f.state, chans)
     observed = observed_prediction.mean(0) * 1.05
-    saved = score_langevin_update(f.state, observed_prediction, observed, 0.01, steps=3)
+    saved = ensf_lr_update(f.state, observed_prediction, observed, 0.01, steps=3)
     assert torch.isfinite(saved.sw).all() and (saved.n_min >= 0).all()
 
 

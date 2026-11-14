@@ -188,31 +188,31 @@ def run(specification: Specification) -> dict:
                              ("ensf", score_update)):
             v = _variant(scenario, specification, forcing_time, truth_obs, truth_state,
                          truth_season, update)
-            acc = pooled.setdefault(name, {"scalars": [], "m": [], "t": []})
-            acc["scalars"].append({k: v[k] for k in
+            entry = pooled.setdefault(name, {"scalars": [], "m": [], "t": []})
+            entry["scalars"].append({k: v[k] for k in
                                    ("obs_rmse", "obs_crps", "spread",
                                     "state_rmse")})
-            acc["m"].append(v["ensemble"])
-            acc["t"].append(v["truth"])
+            entry["m"].append(v["ensemble"])
+            entry["t"].append(v["truth"])
 
     index = {n: i for i, n in enumerate(METRICS)}
     generation = torch.Generator().manual_seed(specification.seed + 97)
     output = {}
-    for name, acc in pooled.items():
-        mean = lambda vals: round(sum(vals) / len(vals), 6)
+    for name, entry in pooled.items():
+        mean = lambda values: round(sum(values) / len(values), 6)
         scalars = {
-            "obs_rmse": mean([s["obs_rmse"] for s in acc["scalars"]]),
-            "obs_crps": mean([s["obs_crps"] for s in acc["scalars"]]),
-            "spread": mean([s["spread"] for s in acc["scalars"]]),
+            "obs_rmse": mean([s["obs_rmse"] for s in entry["scalars"]]),
+            "obs_crps": mean([s["obs_crps"] for s in entry["scalars"]]),
+            "spread": mean([s["spread"] for s in entry["scalars"]]),
             "state_rmse": {
-                v: mean([s["state_rmse"][v] for s in acc["scalars"]])
+                v: mean([s["state_rmse"][v] for s in entry["scalars"]])
                 for v in STATE_VARS},
         }
         ch_scores = {}
         for ch in specification.channels:
             i = index[ch]
-            ensemble = torch.cat([m[:, :, i].t() for m in acc["m"]])
-            truth = torch.cat([t[:, i] for t in acc["t"]])
+            ensemble = torch.cat([m[:, :, i].t() for m in entry["m"]])
+            truth = torch.cat([t[:, i] for t in entry["t"]])
             ch_scores[ch] = score_ens(ensemble, truth, specification.alphas,
                                      generation=generation)
         output[name] = {**scalars, "channels": ch_scores}

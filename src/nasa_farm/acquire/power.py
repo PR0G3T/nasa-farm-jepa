@@ -94,8 +94,8 @@ def vars_to_forcing(data: dict[str, dict[str, float]], year: int) -> Forcing:
     days = [d for d in days if not (d.month == 2 and d.day == 29)]
     keys = [d.strftime("%Y%m%d") for d in days]
 
-    def column(var: str, default: float) -> torch.Tensor:
-        s = data.get(var, {})
+    def column(variable: str, default: float) -> torch.Tensor:
+        s = data.get(variable, {})
         values = [s.get(k, float("nan")) for k in keys]
         t = torch.tensor(values, dtype=DTYPE)
         return torch.nan_to_num(t, nan=default)

@@ -46,7 +46,7 @@ class Specification:
 
     source: Earthdata
     observed: str
-    vars: tuple[str, ...]
+    variables: tuple[str, ...]
     radius_km: float = 0.0
     quality: Quality | None = None
     workers: int = 4
@@ -54,8 +54,8 @@ class Specification:
     bbox: tuple[float, float, float, float] = WORLD
     span: tuple[str, str] = ("2015-01-01", "2030-01-01")
 
-    def var(self, ds: xarray.Dataset) -> str | None:
-        return next((v for v in self.vars if v in ds), None)
+    def variable(self, ds: xarray.Dataset) -> str | None:
+        return next((v for v in self.variables if v in ds), None)
 
     def _conf(self, ds: xarray.Dataset):
         return self.quality.mask(ds) if self.quality else None
@@ -67,7 +67,7 @@ class Specification:
         `bbox` crops the read to the local window (footprint margin must
         already be folded in by the caller); the QA band is sliced with
         the data var, then converted to confidence on the small window."""
-        if (v := self.var(ds)) is None:
+        if (v := self.variable(ds)) is None:
             return None
         band = self.quality.band(ds) if self.quality else None
         values, glat, glon, raw = _prep(
@@ -84,13 +84,13 @@ class Specification:
 
     def read(self, ds: xarray.Dataset, latitude: float, longitude: float) -> float:
         """Footprint-weighted value at the point; NaN when unsupported."""
-        if (v := self.var(ds)) is None:
+        if (v := self.variable(ds)) is None:
             return float("nan")
         return _smp(ds, v, latitude, longitude, self.radius_km, self._conf(ds))
 
     def coverage(self, ds: xarray.Dataset, latitude: float, longitude: float) -> float:
         """Kernel-mass fraction over valid cells — the stored obs weight."""
-        if (v := self.var(ds)) is None:
+        if (v := self.variable(ds)) is None:
             return 0.0
         return _cov(ds, v, latitude, longitude, self.radius_km, self._conf(ds))
 
@@ -99,15 +99,15 @@ class Specification:
         return granule_day(ds.attrs.get("granule_id", ""))
 
 
-SMAP_SM = Specification(SMAP_L4, observed="sm", vars=("soil_moisture",),
+SMAP_SM = Specification(SMAP_L4, observed="sm", variables=("soil_moisture",),
                radius_km=18.0, quality=SMAP_QC, workers=12)
 NISAR_SM = Specification(NISAR_SME, observed="sme2", radius_km=0.2, quality=FLAG_QC,
-                vars=("soil_moisture", "soilMoisture", "soil_moisture_pmi",
+                variables=("soil_moisture", "soilMoisture", "soil_moisture_pmi",
                       "PMI", "DSG", "TSR"),
                 span=("2025-06-01", "2030-01-01"))
-ECO_ET = Specification(ECOSTRESS_SEB, observed="et", vars=("ETdaily", "EVAPOTRANSPIRATION"),
+ECO_ET = Specification(ECOSTRESS_SEB, observed="et", variables=("ETdaily", "EVAPOTRANSPIRATION"),
               radius_km=0.5, quality=FLAG_QC, span=("2018-07-01", "2030-01-01"))
-ECO_LST = Specification(ECOSTRESS_MET, observed="lst", vars=("LST", "LST_Day", "LST_Night"),
+ECO_LST = Specification(ECOSTRESS_MET, observed="lst", variables=("LST", "LST_Day", "LST_Night"),
                radius_km=0.5, quality=FLAG_QC, span=("2018-07-01", "2030-01-01"))
 
 SPECS = {"smap": SMAP_SM, "nisar": NISAR_SM,

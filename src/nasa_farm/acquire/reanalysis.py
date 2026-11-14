@@ -98,8 +98,8 @@ def year_point(latitude: float, longitude: float, year: int) -> Forcing:
         day = dt.date(year, 1, 1) + dt.timedelta(i)
         if day.month == 2 and day.day == 29:
             continue
-        for var, v in day_point(edited, day, latitude, longitude).items():
-            data[var][day.strftime("%Y%m%d")] = v
+        for variable, v in day_point(edited, day, latitude, longitude).items():
+            data[variable][day.strftime("%Y%m%d")] = v
     return vars_to_forcing(data, year)
 
 

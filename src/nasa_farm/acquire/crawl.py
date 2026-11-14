@@ -63,9 +63,9 @@ def _power(fields: list[dict], lake: Lake, years: list[int],
                     [d.get(param, {}).get(k, numpy.nan)
                      for d, y in zip(raw, years) for k in keys[y]],
                     numpy.float32)
-                group, var = ("obs", "smg") if param == "GWETROOT" \
+                group, variable = ("obs", "smg") if param == "GWETROOT" \
                     else ("forcing", CANON.get(param, param))
-                lake.put(f["id"], group, var, dates, values, "power")
+                lake.put(f["id"], group, variable, dates, values, "power")
         log(f"power {f['id']} ok")
 
 
@@ -108,8 +108,8 @@ def _nldas(fields: list[dict], lake: Lake, years: list[int], log) -> None:
                 for f in na:
                     raw = {v: reanalysis.sample(ds, v, f["lat"], f["lon"])
                            for v in reanalysis.VARS if v in ds}
-                    for var, value in reanalysis.convert(raw).items():
-                        slot = pend[f["id"]].setdefault(var, ([], []))
+                    for variable, value in reanalysis.convert(raw).items():
+                        slot = pend[f["id"]].setdefault(variable, ([], []))
                         slot[0].append(di)
                         slot[1].append(value)
             marked.append(key)
@@ -117,8 +117,8 @@ def _nldas(fields: list[dict], lake: Lake, years: list[int], log) -> None:
             continue
         with lake.transaction():
             for fid, accumulate in pend.items():
-                for var, (ds_, vs) in accumulate.items():
-                    lake.put(fid, "forcing", var, numpy.array(ds_, numpy.int32),
+                for variable, (ds_, vs) in accumulate.items():
+                    lake.put(fid, "forcing", variable, numpy.array(ds_, numpy.int32),
                              numpy.array(vs, numpy.float32), "nldas3")
             for key in marked:
                 lake.mark_granule(key, "nldas3")

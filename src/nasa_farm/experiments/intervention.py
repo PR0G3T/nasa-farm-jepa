@@ -137,9 +137,11 @@ def run(specification: Specification) -> dict:
         fe = Field(state=st_e, soil=f.soil, latitude=f.latitude, elevation=f.elevation,
                    context=f.context)
         edited = fe
+        peak = edited.state.biomass.clone()
         for t in range(day, f_t.days):
             edited, _ = model.step(edited, scenario.actions.day(t), f_t.day(t), t)
-        return edited.state.biomass, edited.state.sw.sum(-1), edited.state.n_min
+            peak = torch.maximum(peak, edited.state.biomass)
+        return peak, edited.state.sw.sum(-1), edited.state.n_min
 
     response: dict = {}
     for i in held:
@@ -151,8 +153,8 @@ def run(specification: Specification) -> dict:
                 "biomass_err": float(b_m - b_t),
                 "water_err": float(w_m - w_t),
                 "nmin_err": float(n_m - n_t)}
-            acc = response.setdefault(label, [])
-            acc.append(row)
+            bucket = response.setdefault(label, [])
+            bucket.append(row)
     response = {label: {
         k: round(sum(r[k] for r in rows) / len(rows), 4)
         for k in rows[0]} for label, rows in response.items()}

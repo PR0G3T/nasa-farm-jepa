@@ -25,9 +25,9 @@ _COORD_NAMES = (("lat", "lon"), ("latitude", "longitude"),
                 ("cell_lat", "cell_lon"))
 
 
-def _coords(ds: xarray.Dataset, var: str) -> tuple[numpy.ndarray, numpy.ndarray]:
+def _coords(ds: xarray.Dataset, variable: str) -> tuple[numpy.ndarray, numpy.ndarray]:
     """(lat, lon) arrays broadcast onto the var's spatial grid."""
-    data = ds[var]
+    data = ds[variable]
     for la, low in _COORD_NAMES:
         if la in ds and low in ds:
             latitude, longitude = ds[la].values, ds[low].values
@@ -53,7 +53,7 @@ def kernel(d: numpy.ndarray, radius_km: float) -> numpy.ndarray:
     return numpy.where(d <= radius_km, numpy.exp(-0.5 * (d / sigma) ** 2), 0.0)
 
 
-def _window(ds: xarray.Dataset, var: str,
+def _window(ds: xarray.Dataset, variable: str,
             bbox: tuple[float, float, float, float]) -> tuple | None:
     """(row slice, col slice, glat, glon) covering bbox — found on a strided
     coordinate subsample so remote grids cost ~1/64th of a coord read."""
@@ -71,7 +71,7 @@ def _window(ds: xarray.Dataset, var: str,
             rs = slice(rows[0], rows[-1] + 1)
             cs = slice(cols[0], cols[-1] + 1)
             glat, glon = numpy.meshgrid(lat[rs], lon[cs], indexing="ij")
-            da = ds[var]
+            da = ds[variable]
             if da.dims.index(la) > da.dims.index(lo):
                 glat, glon = glat.T, glon.T
             return rs, cs, glat, glon
@@ -92,16 +92,16 @@ def _window(ds: xarray.Dataset, var: str,
     return None
 
 
-def prep(ds: xarray.Dataset, var: str,
+def prep(ds: xarray.Dataset, variable: str,
          confidence: numpy.ndarray | xarray.DataArray | None = None,
          bbox: tuple[float, float, float, float] | None = None) -> tuple:
     """Pre-materialized (values, glat, glon, conf) grid — one dataset read
     for any number of point queries via `at`. `confidence` may be a ready
     array or the QA-band DataArray itself — either way it is cropped with
     `bbox` (w, s, e, n) so remote reads cost only the local slice."""
-    if bbox is not None and (win := _window(ds, var, bbox)) is not None:
+    if bbox is not None and (win := _window(ds, variable, bbox)) is not None:
         rs, cs, glat, glon = win
-        values = ds[var][..., rs, cs].values.astype(numpy.float64)
+        values = ds[variable][..., rs, cs].values.astype(numpy.float64)
         if confidence is None:
             c = None
         elif isinstance(confidence, xarray.DataArray):
@@ -112,8 +112,8 @@ def prep(ds: xarray.Dataset, var: str,
     c = None if confidence is None else numpy.asarray(
         confidence.values if isinstance(confidence, xarray.DataArray)
         else confidence, numpy.float64)
-    glat, glon = _coords(ds, var)
-    values = numpy.asarray(ds[var].values, numpy.float64)
+    glat, glon = _coords(ds, variable)
+    values = numpy.asarray(ds[variable].values, numpy.float64)
     return values, glat, glon, c
 
 
@@ -132,25 +132,25 @@ def at(grid: tuple, latitude: float, longitude: float,
     return value, covariance
 
 
-def sample(ds: xarray.Dataset, var: str, latitude: float, longitude: float,
+def sample(ds: xarray.Dataset, variable: str, latitude: float, longitude: float,
            radius_km: float = 0.0, confidence: numpy.ndarray | None = None) -> float:
     """Footprint-weighted estimate at (lat, lon); NaN when nothing valid."""
     if radius_km <= 0.0:
-        return _nearest(ds, var, latitude, longitude)
-    return at(prep(ds, var, confidence), latitude, longitude, radius_km)[0]
+        return _nearest(ds, variable, latitude, longitude)
+    return at(prep(ds, variable, confidence), latitude, longitude, radius_km)[0]
 
 
-def coverage(ds: xarray.Dataset, var: str, latitude: float, longitude: float,
+def coverage(ds: xarray.Dataset, variable: str, latitude: float, longitude: float,
              radius_km: float, confidence: numpy.ndarray | None = None) -> float:
     """Fraction of kernel mass over valid cells — the stored obs weight."""
-    return at(prep(ds, var, confidence), latitude, longitude, radius_km)[1]
+    return at(prep(ds, variable, confidence), latitude, longitude, radius_km)[1]
 
 
-def _nearest(ds: xarray.Dataset, var: str, latitude: float, longitude: float) -> float:
+def _nearest(ds: xarray.Dataset, variable: str, latitude: float, longitude: float) -> float:
     """Nearest-point sample — regular (lat/lon dims) or 2-D grids."""
-    data = ds[var]
+    data = ds[variable]
     if "lat" in data.dims and "lon" in data.dims:
         return float(data.sel(lat=latitude, lon=longitude, method="nearest").values.ravel()[0])
-    glat, glon = _coords(ds, var)
+    glat, glon = _coords(ds, variable)
     flat = numpy.nanargmin((glat - latitude) ** 2 + (glon - longitude) ** 2)
     return float(data.values.flat[flat])

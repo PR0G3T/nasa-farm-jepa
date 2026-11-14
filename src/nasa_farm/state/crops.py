@@ -67,7 +67,7 @@ class CropLibrary:
 
     table: torch.Tensor  # (C, P)
     names: tuple[str, ...]
-    var: torch.Tensor | None = None  # (C, Dv) variety embeddings
+    variety: torch.Tensor | None = None  # (C, Dv) variety embeddings
 
     @classmethod
     def default(cls) -> "CropLibrary":
@@ -79,9 +79,22 @@ class CropLibrary:
                  seed: int | None = None) -> "CropLibrary":
         """Attach a small learnable variety embedding per crop."""
         g = torch.Generator().manual_seed(seed) if seed is not None else None
-        var = 0.02 * torch.randn(self.table.shape[0], dim,
+        variety = 0.02 * torch.randn(self.table.shape[0], dim,
                                  generator=g, dtype=DTYPE)
-        return replace(self, var=var)
+        return replace(self, variety=variety)
+
+    def calibrated(self, overrides: dict[str, dict[str, float]]) -> "CropLibrary":
+        """New library with per-crop trait overrides applied — the
+        `{crop: {param: value}}` contract `nasa-farm traits` writes to
+        `lake/traits.json`. Unknown crops/params are ignored."""
+        table = self.table.clone()
+        for crop, params in overrides.items():
+            if crop not in self.names:
+                continue
+            for param, value in params.items():
+                if param in INDEX:
+                    table[self.index(crop), INDEX[param]] = float(value)
+        return replace(self, table=table)
 
     def index(self, name: str) -> int:
         return self.names.index(name)
@@ -112,7 +125,7 @@ class CropLibrary:
         row = row.clone()
         row[INDEX["sow_doy"]] = row[INDEX["sow_doy"]].round()
         table = torch.cat([self.table, row.unsqueeze(0)], dim=0)
-        var = None if self.var is None else torch.cat(
-            [self.var, (fraction * self.var[i] + (1.0 - fraction) * self.var[j])
+        variety = None if self.variety is None else torch.cat(
+            [self.variety, (fraction * self.variety[i] + (1.0 - fraction) * self.variety[j])
              .unsqueeze(0)], dim=0)
-        return CropLibrary(table=table, names=self.names + (name,), var=var)
+        return CropLibrary(table=table, names=self.names + (name,), variety=variety)

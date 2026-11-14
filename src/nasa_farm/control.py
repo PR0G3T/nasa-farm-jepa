@@ -94,14 +94,14 @@ def metric_reward(metrics: torch.Tensor,
     return r.mean(1)
 
 
-def _means(x: torch.Tensor, init: torch.Tensor,
+def _means(x: torch.Tensor, initial: torch.Tensor,
             iterations: int = 8) -> torch.Tensor:
     """Assignment of rows x (E, D) to the nearest of `init` (M, D)
     centers — enough structure for elite clustering, no full solver."""
-    c = init
+    c = initial
     for _ in range(iterations):
         a = torch.cdist(x, c).argmin(dim=1)
-        for m in range(init.shape[0]):
+        for m in range(initial.shape[0]):
             sel = a == m
             if sel.any():
                 c = torch.cat([c[:m], x[sel].mean(0, keepdim=True),

@@ -502,7 +502,7 @@ def recommend(evaluation: Evaluation, weights: dict[str, float] | None = None,
             if k in keys:
                 w[keys.index(k)] = float(v)
     score = scalarize(mat, signs, w)
-    order = torch.argsort(score, descending=True)
+    order = torch.argsort(score, descending=True, stable=True)
     return {
         "pareto_idx": mask.nonzero().flatten(),
         "ranking": order[:top_k],

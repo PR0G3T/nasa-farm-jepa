@@ -118,7 +118,7 @@ class Initialization(nn.Module):
 
 def condition(model, field: Field, context: torch.Tensor,
               hyper: Traits | None = None,
-              init: Initialization | None = None) -> Field:
+              initialization: Initialization | None = None) -> Field:
     """Wire a context vector into field + model in one call.
 
     - field.ctx := ctx (consumed by LatentDyn when built with ctx_dim)
@@ -131,8 +131,8 @@ def condition(model, field: Field, context: torch.Tensor,
         table = hyper.table(context, model.crop_table.detach())
         model.crop_table = (table[0] if field.batch == 1
                             else table.mean(0))
-    if init is not None:
-        z0, h0 = init(context)
+    if initialization is not None:
+        z0, h0 = initialization(context)
         field = Field(state=field.state.replace(z=z0, zh=h0),
                       soil=field.soil, latitude=field.latitude, elevation=field.elevation,
                       context=context)

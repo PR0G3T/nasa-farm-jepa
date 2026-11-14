@@ -56,12 +56,12 @@ class WorldModel(nn.Module):
         # Variety embeddings (G×E): a learnable per-crop vector appended to
         # the latent ctx each step, so cultivar identity conditions residual
         # dynamics. Kept out of crop_table — it is a model parameter.
-        self.var_emb = (nn.Parameter(self.crops.var.clone())
-                        if self.crops.var is not None else None)
+        self.variety_embedding = (nn.Parameter(self.crops.variety.clone())
+                        if self.crops.variety is not None else None)
         parts = (OPS if latent_factors == "ops" else latent_factors) or None
         z_dim = (latent_dimension * len(parts) if parts
                  else latent_dimension * max(len(latent_strides), 1))
-        lctx = context_dimension + (self.var_emb.shape[1] if self.var_emb is not None
+        lctx = context_dimension + (self.variety_embedding.shape[1] if self.variety_embedding is not None
                           else 0)
         for n in extra:
             if n not in EXTRAS:
@@ -157,9 +157,9 @@ class WorldModel(nn.Module):
         """Dynamic conditioning ctx = static site ctx + variety embedding
         of the currently sown crop — cultivar/G×E identity reaches the
         latent the day sowing changes crop."""
-        if self.var_emb is None:
+        if self.variety_embedding is None:
             return field.context
-        v = self.var_emb[field.state.crop.clamp(min=0)]
+        v = self.variety_embedding[field.state.crop.clamp(min=0)]
         return v if field.context is None else torch.cat([field.context, v], -1)
 
     def step(self, field: Field, action: dict, forcing_day: dict,

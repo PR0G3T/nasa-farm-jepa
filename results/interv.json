@@ -1,8 +1,8 @@
 {
   "name": "interv",
-  "spec": {
-    "lat": 42.0,
-    "lon": -93.6,
+  "specification": {
+    "latitude": 42.0,
+    "longitude": -93.6,
     "soil": "silt_loam",
     "depths": [
       0.3,
@@ -13,13 +13,14 @@
     "years": [],
     "realizations": 4,
     "members": 16,
-    "obs_every": 10,
+    "cadence": 10,
     "noise": 0.05,
     "perturb": {
       "rue": 0.8,
       "gdd_mat": 0.92
     },
-    "obs_channels": [
+    "extra": [],
+    "observed_channels": [
       "ndvi",
       "sm1"
     ],
@@ -29,11 +30,12 @@
     "alphas": [
       0.1
     ],
-    "latent_dim": 8,
+    "latent_dimension": 8,
+    "hierarchy": [],
     "ema": 0.996,
     "sig_weight": 1.0,
     "epochs": 120,
-    "lr": 0.05,
+    "rate": 0.05,
     "seed": 0
   },
   "results": {
@@ -42,131 +44,131 @@
         "rue": {
           "start": 3.9,
           "truth": 3.12,
-          "fitted": 7.496734055935464,
-          "recovery_pct": -461.12
+          "fitted": 7.483283607361045,
+          "recovery_pct": -459.4
         },
         "gdd_mat": {
           "start": 1750.0,
           "truth": 1610.0,
-          "fitted": 2888.9522564232384,
-          "recovery_pct": -813.54
+          "fitted": 2875.568548094838,
+          "recovery_pct": -803.98
         }
       },
-      "best_loss": 0.09066638,
+      "best_loss": 0.07071255,
       "epochs_run": 120
     },
     "perturbations": {
       "yield_kg": {
         "irrig+10d": {
           "prior": {
-            "truth_delta": -9.5212,
-            "model_delta": -6.5358,
-            "err": 2.9854
+            "truth_delta": -0.3151,
+            "model_delta": -1.6468,
+            "err": -1.3317
           },
           "cal": {
-            "truth_delta": -9.5212,
-            "model_delta": -11.5167,
-            "err": -1.9956
+            "truth_delta": -0.3151,
+            "model_delta": -10.2958,
+            "err": -9.9807
           }
         },
         "fert+40": {
           "prior": {
-            "truth_delta": 26.3181,
-            "model_delta": 17.4458,
-            "err": -8.8724
+            "truth_delta": 15.2402,
+            "model_delta": 9.3901,
+            "err": -5.8501
           },
           "cal": {
-            "truth_delta": 26.3181,
-            "model_delta": 59.7824,
-            "err": 33.4642
+            "truth_delta": 15.2402,
+            "model_delta": 44.1849,
+            "err": 28.9447
           }
         },
         "sow-14d": {
           "prior": {
-            "truth_delta": 2.0255,
-            "model_delta": 1660.1741,
-            "err": 1658.1486
+            "truth_delta": -5.2125,
+            "model_delta": 1560.5489,
+            "err": 1565.7614
           },
           "cal": {
-            "truth_delta": 2.0255,
-            "model_delta": 27.4677,
-            "err": 25.4422
+            "truth_delta": -5.2125,
+            "model_delta": 22.7925,
+            "err": 28.0051
           }
         },
         "sow+14d": {
           "prior": {
-            "truth_delta": -15.908,
-            "model_delta": -13.4882,
-            "err": 2.4197
+            "truth_delta": 0.6604,
+            "model_delta": -11.0237,
+            "err": -11.6841
           },
           "cal": {
-            "truth_delta": -15.908,
-            "model_delta": -44.2039,
-            "err": -28.2959
+            "truth_delta": 0.6604,
+            "model_delta": -44.5006,
+            "err": -45.161
           }
         }
       },
-      "biomass_end": {
+      "biomass_max": {
         "irrig+10d": {
           "prior": {
-            "truth_delta": 0.0,
-            "model_delta": 0.0,
-            "err": 0.0
+            "truth_delta": -0.606,
+            "model_delta": -10.5562,
+            "err": -9.9503
           },
           "cal": {
-            "truth_delta": 0.0,
-            "model_delta": 0.0,
-            "err": 0.0
+            "truth_delta": -0.606,
+            "model_delta": -65.9986,
+            "err": -65.3926
           }
         },
         "fert+40": {
           "prior": {
-            "truth_delta": 0.0,
-            "model_delta": 0.0,
-            "err": 0.0
+            "truth_delta": 29.308,
+            "model_delta": 60.193,
+            "err": 30.885
           },
           "cal": {
-            "truth_delta": 0.0,
-            "model_delta": 0.0,
-            "err": 0.0
+            "truth_delta": 29.308,
+            "model_delta": 283.2367,
+            "err": 253.9286
           }
         },
         "sow-14d": {
           "prior": {
-            "truth_delta": 0.0,
-            "model_delta": 0.0,
-            "err": 0.0
+            "truth_delta": -10.0241,
+            "model_delta": 2.6741,
+            "err": 12.6982
           },
           "cal": {
-            "truth_delta": 0.0,
-            "model_delta": 0.0,
-            "err": 0.0
+            "truth_delta": -10.0241,
+            "model_delta": 146.1061,
+            "err": 156.1302
           }
         },
         "sow+14d": {
           "prior": {
-            "truth_delta": 0.0,
-            "model_delta": 0.0,
-            "err": 0.0
+            "truth_delta": 1.2699,
+            "model_delta": -70.6648,
+            "err": -71.9348
           },
           "cal": {
-            "truth_delta": 0.0,
-            "model_delta": 0.0,
-            "err": 0.0
+            "truth_delta": 1.2699,
+            "model_delta": -285.2604,
+            "err": -286.5303
           }
         }
       },
       "water_used": {
         "irrig+10d": {
           "prior": {
-            "truth_delta": 0.3052,
-            "model_delta": 0.3079,
-            "err": 0.0027
+            "truth_delta": 2.1486,
+            "model_delta": 2.2078,
+            "err": 0.0592
           },
           "cal": {
-            "truth_delta": 0.3052,
-            "model_delta": 0.3106,
-            "err": 0.0054
+            "truth_delta": 2.1486,
+            "model_delta": 2.2614,
+            "err": 0.1129
           }
         },
         "fert+40": {
@@ -183,76 +185,76 @@
         },
         "sow-14d": {
           "prior": {
-            "truth_delta": 10.5991,
-            "model_delta": 7.6339,
-            "err": -2.9652
+            "truth_delta": 5.5595,
+            "model_delta": -0.0996,
+            "err": -5.659
           },
           "cal": {
-            "truth_delta": 10.5991,
-            "model_delta": 14.1567,
-            "err": 3.5577
+            "truth_delta": 5.5595,
+            "model_delta": 8.6306,
+            "err": 3.0711
           }
         },
         "sow+14d": {
           "prior": {
-            "truth_delta": -14.2893,
-            "model_delta": -12.0959,
-            "err": 2.1934
+            "truth_delta": -5.4428,
+            "model_delta": -1.5167,
+            "err": 3.9262
           },
           "cal": {
-            "truth_delta": -14.2893,
-            "model_delta": -19.6974,
-            "err": -5.4081
+            "truth_delta": -5.4428,
+            "model_delta": -13.0646,
+            "err": -7.6218
           }
         }
       },
       "n_leached": {
         "irrig+10d": {
           "prior": {
-            "truth_delta": 1.0113,
-            "model_delta": 1.2677,
-            "err": 0.2565
+            "truth_delta": 0.9127,
+            "model_delta": 1.044,
+            "err": 0.1313
           },
           "cal": {
-            "truth_delta": 1.0113,
-            "model_delta": 3.4001,
-            "err": 2.3888
+            "truth_delta": 0.9127,
+            "model_delta": 3.4672,
+            "err": 2.5545
           }
         },
         "fert+40": {
           "prior": {
-            "truth_delta": 15.6394,
-            "model_delta": 15.1578,
-            "err": -0.4816
+            "truth_delta": 16.6854,
+            "model_delta": 16.3666,
+            "err": -0.3189
           },
           "cal": {
-            "truth_delta": 15.6394,
-            "model_delta": 2.9466,
-            "err": -12.6928
+            "truth_delta": 16.6854,
+            "model_delta": 2.3685,
+            "err": -14.3169
           }
         },
         "sow-14d": {
           "prior": {
-            "truth_delta": -0.4216,
-            "model_delta": -0.5354,
-            "err": -0.1138
+            "truth_delta": -0.4146,
+            "model_delta": -0.5628,
+            "err": -0.1483
           },
           "cal": {
-            "truth_delta": -0.4216,
-            "model_delta": -0.8541,
-            "err": -0.4325
+            "truth_delta": -0.4146,
+            "model_delta": -0.4923,
+            "err": -0.0777
           }
         },
         "sow+14d": {
           "prior": {
-            "truth_delta": 0.9601,
-            "model_delta": 1.5721,
-            "err": 0.612
+            "truth_delta": 1.261,
+            "model_delta": 2.1214,
+            "err": 0.8603
           },
           "cal": {
-            "truth_delta": 0.9601,
-            "model_delta": 1.2583,
-            "err": 0.2982
+            "truth_delta": 1.261,
+            "model_delta": 0.7773,
+            "err": -0.4837
           }
         }
       }
@@ -264,31 +266,32 @@
     "edit_response": {
       "prior": {
         "biomass_err": 0.0,
-        "water_err": -10.79,
-        "nmin_err": -15.0356
+        "water_err": -0.8349,
+        "nmin_err": -12.1343
       },
       "cal": {
         "biomass_err": 0.0,
-        "water_err": -27.58,
-        "nmin_err": -18.8426
+        "water_err": -6.3748,
+        "nmin_err": -16.7511
       }
-    }
+    },
+    "held_realizations": 3
   },
-  "seconds": 287.949,
-  "meta": {
+  "seconds": 373.465,
+  "metadata": {
     "python": "3.15.2",
     "torch": "2.15.0+cu132",
     "device": "cuda",
     "argv": [
       "exp",
       "interv",
-      "--realizations",
-      "4",
-      "--horizon",
-      "2",
       "--perturb",
       "rue:0.8,gdd_mat:0.92",
-      "--out",
+      "--horizon",
+      "2",
+      "--realizations",
+      "4",
+      "--output",
       "results/interv.json"
     ]
   }

@@ -15,6 +15,8 @@ import tomllib
 import torch
 
 from nasa_farm import CropLibrary, Field, WorldModel, initial_state
+from nasa_farm.acquire.power import Power, series_to_forcing
+from nasa_farm.acquire.soilgrid import SoilGrids
 from nasa_farm.constants import DTYPE
 from nasa_farm.control import path_integral
 from nasa_farm.experiments import Specification, experiments
@@ -23,12 +25,14 @@ from nasa_farm.forcing import augment, synthetic_year, tile_to_horizon
 from nasa_farm.optimize.hyperparameter import gradient
 from nasa_farm.optimize.architecture import search
 from nasa_farm.optimize.targets import (
-    season_metrics, synthetic_observation, trajectory_loss,
+    ObservedTrajectory, season_metrics, synthetic_observation, trajectory_loss,
 )
 from nasa_farm.optimize.trainer import fit, leaf
+from nasa_farm.plan import expand_actions
 from nasa_farm.service import SCENARIO_KEYS, PlanRequest, Point, plan
 from nasa_farm.state.crops import INDEX
 from nasa_farm.state.soil import SoilProfile
+from nasa_farm.types import FORCING_VARS, Forcing
 
 DEFAULT_CROPS_ARG = "maize,soybean,wheat,clover,fallow"
 
@@ -46,6 +50,8 @@ def _plan_flags(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--depths", default=None,
                     help="layer thicknesses m, comma-sep (e.g. 0.3,0.6,0.9)")
     parser.add_argument("--top-k", type=int, default=5)
+    parser.add_argument("--weights", default=None,
+                    help="objective weights k=v,... e.g. yield_mean=2,soc_gain=1")
     parser.add_argument("--workers", type=int, default=0,
                     help="rollout threads; 0 = auto (physical cores, no-GIL)")
     parser.add_argument("--device", default="auto",
@@ -100,6 +106,26 @@ def _build_parser() -> argparse.ArgumentParser:
                     help="granian worker processes")
     serve.add_argument("--tunnel", action="store_true",
                     help="cloudflared quick tunnel → public URL")
+
+    traits = subparsers.add_parser(
+        "traits", help="calibrate crop traits to regional yield targets")
+    traits.add_argument("--latitude", type=float, required=True)
+    traits.add_argument("--longitude", type=float, required=True)
+    traits.add_argument("--years", type=int, default=5)
+    traits.add_argument("--target", required=True,
+                    help="crop=kg/ha,... e.g. maize=9000,wheat=7400")
+    traits.add_argument("--fert", default="",
+                    help="per-crop N kg/ha, crop=kg,... — else --fertilizer")
+    traits.add_argument("--fertilizer", type=float, default=0.0,
+                    help="fallback N kg/ha for crops not in --fert")
+    traits.add_argument("--param", default="rue",
+                    help="single trait fitted per crop")
+    traits.add_argument("--soil", default=None, help="texture preset")
+    traits.add_argument("--offline", action="store_true",
+                    help="synthetic forcing, no network")
+    traits.add_argument("--epochs", type=int, default=160)
+    traits.add_argument("--rate", type=float, default=0.05)
+    traits.add_argument("--output", required=True)
 
     calibrate = subparsers.add_parser("calibrate", help="gradient HPO on a trait cell")
     calibrate.add_argument("--latitude", type=float, required=True)
@@ -213,6 +239,9 @@ def _request(arguments, points: list[Point], **over) -> PlanRequest:
               members=getattr(arguments, "members", 16),
               residual=not arguments.no_residual, offline=arguments.offline,
               top_k=arguments.top_k,
+              weights=({k: float(v) for k, v in
+                        (w.split("=") for w in arguments.weights.split(","))}
+                       if getattr(arguments, "weights", None) else None),
               depths=([float(x) for x in arguments.depths.split(",")]
                       if arguments.depths else None))
     keywords.update(over)
@@ -220,15 +249,23 @@ def _request(arguments, points: list[Point], **over) -> PlanRequest:
 
 
 def cmd_plan(arguments) -> int:
-    result = plan(_request(arguments, [Point(latitude=arguments.latitude, longitude=arguments.longitude)]),
+    response = plan(_request(arguments, [Point(latitude=arguments.latitude, longitude=arguments.longitude)]),
                workers=arguments.workers, device=arguments.device,
-               compile=arguments.compile).results[0]
-    if result.status != "ok":
-        sys.stderr.write(f"{result.detail}\n")
+               compile=arguments.compile)
+    site = response.results[0]
+    if site.status != "ok":
+        sys.stderr.write(f"{site.detail}\n")
         return 1
-    json.dump(result.model_dump(
-        include={"plans_evaluated", "scenarios", "pareto", "top"}),
-        sys.stdout, indent=2)
+
+    def row(i: int) -> dict:
+        return {"rotation": response.rotations[i], "score": site.scores[i],
+                **dict(zip(response.columns, site.objectives[i]))}
+
+    json.dump({"plans_evaluated": site.plans_evaluated,
+               "scenarios": site.scenarios,
+               "top": [row(i) for i in site.ranking],
+               "pareto": [row(i) for i in site.pareto]},
+              sys.stdout, indent=2)
     sys.stdout.write("\n")
     return 0
 
@@ -258,35 +295,136 @@ def cmd_export(arguments) -> int:
     raw = json.loads(source)
     items = raw if isinstance(raw, list) else raw.get(
         "fields", raw.get("points", []))
-    points = [Point(id=str(f["id"]), latitude=f["lat"], longitude=f["lon"])
-              for f in items]
+    points = [Point(id=str(f["id"]), latitude=f["latitude"],
+                    longitude=f["longitude"]) for f in items]
     metadata = {str(f["id"]): {k: f[k] for k in ("name", "crop", "ha") if k in f}
             for f in items}
 
     scenarios = _scenarios(arguments.scenario)
-    output = {"version": __version__,
+    output = Path(arguments.output)
+    shards_root = output.parent / "plan"
+    shards_root.mkdir(parents=True, exist_ok=True)
+    index = {"version": __version__,
            "generated": dt.datetime.now(dt.UTC).isoformat(timespec="seconds"),
            "request": {"horizon": arguments.horizon, "crops": arguments.crops.split(","),
                        "years": arguments.years, "irrig": arguments.irrigation,
                        "fert": arguments.fertilizer, "co2": arguments.co2,
                        "offline": arguments.offline},
+           "columns": [], "directions": [], "rotations": [],
            "fields": metadata, "scenarios": {}}
+    shards: dict[str, dict] = {}
     for name, over in scenarios.items():
-        result = plan(_request(arguments, points, **over),
+        response = plan(_request(arguments, points, **over),
                    workers=arguments.workers, device=arguments.device,
                    compile=arguments.compile)
-        fields = {}
-        for i, r in enumerate(result.results):
+        index["columns"] = response.columns
+        index["directions"] = response.directions
+        index["rotations"] = response.rotations
+        for i, r in enumerate(response.results):
             if r.point.id:
-                fields[r.point.id] = r.model_dump(exclude={"point", "history"})
-                if r.history and "history" not in output["fields"].get(r.point.id, {}):
-                    output["fields"].setdefault(r.point.id, {})["history"] = r.history
+                shard = shards.setdefault(
+                    r.point.id, {"history": r.history, "scenarios": {}})
+                shard["scenarios"][name] = r.model_dump(
+                    exclude={"point", "history"})
             sys.stderr.write(
-                f"{name} [{i + 1}/{len(result.results)}] "
+                f"{name} [{i + 1}/{len(response.results)}] "
                 f"{r.point.id or r.point.latitude} {r.status}"
                 f"{f' — {r.detail}' if r.detail else ''}\n")
-        output["scenarios"][name] = {"params": over, "fields": fields}
-    Path(arguments.output).write_text(json.dumps(output) + "\n")
+        index["scenarios"][name] = {"params": over}
+    output.write_text(json.dumps(index) + "\n")
+    written = set()
+    for fid, shard in shards.items():
+        target = shards_root / f"{fid}.json"
+        target.write_text(json.dumps(shard) + "\n")
+        written.add(target.name)
+    for stale in shards_root.glob("*.json"):
+        if stale.name not in written:
+            stale.unlink()
+    sys.stderr.write(f"wrote {output} + {len(written)} shards\n")
+    return 0
+
+
+def cmd_traits(arguments) -> int:
+    """Fit one trait per crop against absolute yield targets — variational
+    (gradient) calibration of the physics core on regional statistics.
+
+    Forcing = the same real POWER years serving uses; each calendar year is
+    a rollout row, so one rollout prices every season at once. Only one
+    trait is fitted per crop — multi-trait fits are equifinal under a
+    yield-only channel (E2) and would not be identifiable."""
+    from pathlib import Path
+
+    crops = CropLibrary.default()
+    targets = {c: float(v) for c, v in
+               (t.split("=") for t in arguments.target.split(","))}
+    ferts = {c: float(v) for c, v in
+             (t.split("=") for t in arguments.fert.split(",") if t)}
+    unknown = [c for c in targets if c not in crops.names]
+    if unknown:
+        sys.stderr.write(f"unknown crops: {', '.join(unknown)}\n")
+        return 2
+
+    last = dt.date.today().year - 1
+    years = list(range(last - arguments.years + 1, last + 1))
+    if arguments.offline:
+        series = [synthetic_year(arguments.latitude, seed=y) for y in years]
+    else:
+        raw = Power().data_years(arguments.latitude, arguments.longitude, years)
+        series = [series_to_forcing(d, y) for d, y in zip(raw, years)]
+    forcing = Forcing(*[torch.cat([getattr(f, v) for f in series], dim=0)
+                        for v in FORCING_VARS])
+    soil = (SoilProfile.preset(arguments.soil)
+            if arguments.soil else SoilGrids().profile(
+                arguments.latitude, arguments.longitude))
+    n = len(years)
+    from nasa_farm.heads import METRICS
+    channel = METRICS.index("yield_kg")
+    field = Field(initial_state(n, soil), soil,
+                  torch.full((n,), arguments.latitude, dtype=DTYPE))
+    fitted, report = {}, {}
+    for crop, target in targets.items():
+        model = WorldModel(crops, residual=False)
+        base = model.crop_table.detach().clone()
+        row, col = crops.index(crop), INDEX[arguments.param]
+        parameter = leaf(base[row, col])
+        values = torch.full((1, len(METRICS)), float("nan"), dtype=DTYPE)
+        values[0, channel] = target
+        observed = ObservedTrajectory(values=values)
+        actions = expand_actions(
+            torch.full((n, 1), row, dtype=torch.long), base,
+            n_fert_kg=ferts.get(crop, arguments.fertilizer))
+
+        def loss() -> torch.Tensor:
+            table = base.clone()
+            table[row, col] = parameter
+            model.crop_table = table
+            return trajectory_loss(
+                season_metrics(model, field, forcing, actions), observed)
+
+        result = gradient(loss, {"v": parameter},
+                          epochs=arguments.epochs, rate=arguments.rate)
+        table = base.clone()
+        table[row, col] = parameter.detach()
+        model.crop_table = table
+        with torch.inference_mode():
+            achieved = float(season_metrics(
+                model, field, forcing, actions)[..., channel].mean())
+        fitted[crop] = {arguments.param: round(float(parameter), 6)}
+        report[crop] = {"target": target, "achieved": round(achieved, 1),
+                        "fert": ferts.get(crop, arguments.fertilizer),
+                        "loss": round(result.best_loss, 6)}
+        sys.stderr.write(
+            f"{crop}: {arguments.param} {float(base[row, col]):.4g} → "
+            f"{float(parameter):.4g} · yield {achieved:.0f}/{target:.0f} kg/ha\n")
+
+    payload = {"meta": {"latitude": arguments.latitude,
+                        "longitude": arguments.longitude,
+                        "years": years, "param": arguments.param,
+                        "fertilizer": arguments.fertilizer,
+                        "offline": arguments.offline},
+               "traits": fitted, "report": report}
+    Path(arguments.output).parent.mkdir(parents=True, exist_ok=True)
+    Path(arguments.output).write_text(json.dumps(payload, indent=2) + "\n")
     sys.stderr.write(f"wrote {arguments.output}\n")
     return 0
 
@@ -511,6 +649,8 @@ def main(argv: list[str] | None = None) -> int:
             return cmd_plan(arguments)
         case "export":
             return cmd_export(arguments)
+        case "traits":
+            return cmd_traits(arguments)
         case "crawl":
             return cmd_crawl(arguments)
         case "serve":

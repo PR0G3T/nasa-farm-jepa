@@ -46,7 +46,7 @@ def _kde_transport(y: torch.Tensor, observed: torch.Tensor, r: torch.Tensor,
     return torch.nan_to_num(x)
 
 
-def score_langevin_update(state: FieldState, observed_prediction: torch.Tensor,
+def ensf_lr_update(state: FieldState, observed_prediction: torch.Tensor,
                    observed: torch.Tensor, r: torch.Tensor | float,
                    names: tuple[str, ...] = STATE_VARS,
                    channels: tuple[str, ...] | None = None,

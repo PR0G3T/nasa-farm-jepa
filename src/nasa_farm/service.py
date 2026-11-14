@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import dataclasses
 import datetime as dt
+import json
 import math
 import os
 from pathlib import Path
@@ -24,7 +25,9 @@ from nasa_farm.acquire.power import Power, series_to_forcing, series_to_wet
 from nasa_farm.acquire.soilgrid import SoilGrids
 from nasa_farm.constants import DTYPE
 from nasa_farm.forcing import ensemble, synthetic_year
-from nasa_farm.plan import enumerate_rotations, evaluate, expand_actions, recommend
+from nasa_farm.heads import OBJECTIVE_DIRECTION
+from nasa_farm.plan import (enumerate_rotations, evaluate, expand_actions,
+                            objective_matrix, recommend)
 from nasa_farm.state.soil import DEPTHS, SoilProfile
 from nasa_farm.types import Actions, Forcing
 
@@ -68,60 +71,81 @@ class PlanRequest(BaseModel):
 
 
 class SiteResult(BaseModel):
-    """Plan outcome for one point; `status='error'` keeps a batch alive."""
+    """Plan outcome for one point; `status='error'` keeps a batch alive.
+
+    The full evaluated objective matrix travels with the result — ranking
+    is a view concern, so any client re-scalarizes under its own weights
+    without re-rolling the model. `pareto`, `ranking` and `scores` are
+    indices/values into `rotations` × `objectives` rows."""
 
     point: Point
     status: Literal["ok", "error"]
     detail: str | None = None
     plans_evaluated: int = 0
     scenarios: int = 0
-    pareto: list[dict[str, Any]] = []
-    top: list[dict[str, Any]] = []
+    objectives: list[list[float]] = []
+    pareto: list[int] = []
+    ranking: list[int] = []
+    scores: list[float] = []
+    traces: list[dict[str, list[float]]] = []
     history: dict[str, Any] = {}
 
 
 class PlanResponse(BaseModel):
     results: list[SiteResult]
+    columns: list[str] = []          # objective names — matrix column order
+    directions: list[int] = []       # +1 maximize / -1 minimize, aligned
+    rotations: list[list[str]] = []  # (R, H) crop names, aligned with rows
 
 
-class _Trace:
-    """observer(t, state, fluxes) → ensemble-mean daily signals, binned weekly."""
+class _Traces:
+    """observer(t, state, fluxes) → weekly ensemble signals for every plan.
 
-    def __init__(self, days: int, device) -> None:
-        self.accumulate = torch.zeros(len(TRACE_CH), days, dtype=DTYPE, device=device)
+    Rollout rows are plan-major (R·S, scenario fastest), so view(R, S)
+    pools each plan's weather ensemble — one batched rollout produces the
+    traces that used to cost one rollout per displayed plan."""
+
+    def __init__(self, plans: int, days: int, device) -> None:
+        self.plans = plans
+        self.accumulate = torch.zeros(plans, len(TRACE_CH), days,
+                                      dtype=DTYPE, device=device)
 
     def __call__(self, t: int, state, fluxes: dict) -> None:
-        self.accumulate[0, t] = state.growing.to(DTYPE).mean()
-        self.accumulate[1, t] = fluxes["water_fac"].mean()
-        self.accumulate[2, t] = ((fluxes["water_fac"] < 0.5)
-                          & state.growing).to(DTYPE).mean()
-        self.accumulate[3, t] = (fluxes["heat_dd"] > 0).to(DTYPE).mean()
-        self.accumulate[4, t] = fluxes["frost"].to(DTYPE).mean()
+        r, s = self.plans, state.sw.shape[0] // self.plans
+        self.accumulate[:, 0, t] = state.growing.view(r, s).to(DTYPE).mean(1)
+        self.accumulate[:, 1, t] = fluxes["water_fac"].view(r, s).mean(1)
+        self.accumulate[:, 2, t] = ((fluxes["water_fac"].view(r, s) < 0.5)
+                                    & state.growing.view(r, s)).to(DTYPE).mean(1)
+        self.accumulate[:, 3, t] = (fluxes["heat_dd"].view(r, s) > 0).to(DTYPE).mean(1)
+        self.accumulate[:, 4, t] = fluxes["frost"].view(r, s).to(DTYPE).mean(1)
 
-    def result(self) -> dict[str, list[float]]:
+    def result(self) -> list[dict[str, list[float]]]:
         """Weekly bins — mean for states, max for the frost event channel."""
-        w = math.ceil(self.accumulate.shape[1] / TRACE_BIN)
-        pad = w * TRACE_BIN - self.accumulate.shape[1]
-        b = torch.nn.functional.pad(self.accumulate, (0, pad)).unflatten(1, (w, TRACE_BIN))
+        w = math.ceil(self.accumulate.shape[2] / TRACE_BIN)
+        pad = w * TRACE_BIN - self.accumulate.shape[2]
+        b = torch.nn.functional.pad(
+            self.accumulate, (0, pad)).unflatten(2, (w, TRACE_BIN))
         output = b.mean(-1)
-        output[-1] = b[-1].amax(-1)
-        return {k: [round(float(v), 3) for v in output[i]]
-                for i, k in enumerate(TRACE_CH)}
+        output[:, -1] = b[:, -1].amax(-1)
+        return [{k: [round(float(v), 3) for v in output[p, i]]
+                 for i, k in enumerate(TRACE_CH)}
+                for p in range(self.plans)]
 
 
-def _trace(model: WorldModel, field0: Field, plan_row: torch.Tensor,
-           ensemble: Forcing, irrigation: float, fertilizer: float) -> dict[str, list[float]]:
-    """One extra rollout of the recommended plan → weekly ensemble signals."""
-    s = ensemble.batch
-    field = field0.repeat(s) if field0.batch == 1 else field0
-    a = expand_actions(plan_row, model.crop_table,
+def _traces(model: WorldModel, field0: Field, plans: torch.Tensor,
+            ensemble: Forcing, irrigation: float, fertilizer: float
+            ) -> list[dict[str, list[float]]]:
+    """Every plan's weekly ensemble signals in one rollout."""
+    r, s = plans.shape[0], ensemble.batch
+    field = field0.repeat(r * s) if field0.batch == 1 else field0
+    a = expand_actions(plans, model.crop_table,
                        irr_mm_day=irrigation, n_fert_kg=fertilizer)
-    actions = Actions(a.sow.repeat_interleave(s, dim=0),
-                      a.irrigation.repeat_interleave(s, dim=0),
-                      a.n_fert.repeat_interleave(s, dim=0))
-    traits = _Trace(ensemble.days, field.state.sw.device)
+    actions = Actions(sow=a.sow.repeat_interleave(s, dim=0),
+                      irrigation=a.irrigation.repeat_interleave(s, dim=0),
+                      n_fert=a.n_fert.repeat_interleave(s, dim=0))
+    traits = _Traces(r, ensemble.days, field.state.sw.device)
     with torch.inference_mode():
-        model.rollout(field, ensemble, actions, observer=traits)
+        model.rollout(field, ensemble.repeat(r), actions, observer=traits)
     return traits.result()
 
 
@@ -159,21 +183,40 @@ def _in_nldas(p: Point) -> bool:
     return covers(p.latitude, p.longitude)
 
 
+def _lake() -> Path | None:
+    return (root := os.environ.get("NASA_FARM_LAKE")) and Path(root)
+
+
+def _soil(p: Point) -> SoilProfile | None:
+    """Stored lake soil (same product the residual trained on) — the
+    offline-capable path; live SoilGrids is the fallback."""
+    root, fid = _lake(), p.id
+    if not (root and fid):
+        return None
+    from nasa_farm.lake import Lake
+    from nasa_farm.optimize.data import soil
+    try:
+        with Lake(root, readonly=True) as L:
+            return soil(L.metadata(fid).get("soil"))
+    except (KeyError, FileNotFoundError, ValueError):
+        return None
+
+
 def _forcings(request: PlanRequest, p: Point) -> tuple[list, torch.Tensor | None]:
     """Daily forcing years + observed soil wetness (lake first, else POWER)."""
     if request.offline:
         return [synthetic_year(p.latitude, seed=y) for y in range(request.years)], None
     last = dt.date.today().year - 1
     years = list(range(last - request.years + 1, last + 1))
-    if (root := os.environ.get("NASA_FARM_LAKE")) and p.id:
+    if (root := _lake()) and p.id:
         from nasa_farm.optimize.data import forcings, wetness
         try:
-            series = forcings(Path(root), p.id, years)
-            if series and (wet := wetness(Path(root), p.id)) is not None:
+            series = forcings(root, p.id, years)
+            if series and (wet := wetness(root, p.id)) is not None:
                 return series, torch.from_numpy(wet[:len(years) * 365])
         except (KeyError, FileNotFoundError, ValueError):
             pass
-    if not request.offline and _in_nldas(p):
+    if _in_nldas(p):
         from nasa_farm.acquire.reanalysis import Reanalysis
         try:
             return Reanalysis().forcing_years(p.latitude, p.longitude, years), None
@@ -191,8 +234,9 @@ def _site(point: Point, request: PlanRequest, crops: CropLibrary,
           workers: int, device: str, compile: str) -> SiteResult:
     try:
         series, sm = _forcings(request, point)
-        source = request.source if not request.offline else (
-            "power" if request.source == "power" else "synth")
+        source = (request.source
+                  if not request.offline or request.source in ("power", "synth")
+                  else "power")
         ens = ensemble(source, point.latitude, point.longitude, (),
                        request.horizon, request.members, 0, history=series)
         if request.delta_t or request.precip_scale != 1.0:
@@ -205,13 +249,14 @@ def _site(point: Point, request: PlanRequest, crops: CropLibrary,
         elif request.offline:
             soil = SoilProfile.preset("loam", depths=depths)
         else:
-            soil = SoilGrids().profile(point.latitude, point.longitude)
+            soil = _soil(point) or SoilGrids().profile(
+                point.latitude, point.longitude)
 
         field = Field(state=initial_state(1, soil), soil=soil,
                       latitude=torch.tensor([point.latitude], dtype=DTYPE))
         model = WorldModel(crops, residual=request.residual)
-        if request.residual and (root := os.environ.get("NASA_FARM_LAKE")):
-            pt = Path(root) / "residual.pt"
+        if request.residual and (root := _lake()):
+            pt = root / "residual.pt"
             if pt.is_file():
                 model.residual.load_state_dict(
                     torch.load(pt, weights_only=True))
@@ -220,38 +265,35 @@ def _site(point: Point, request: PlanRequest, crops: CropLibrary,
                       workers=workers, device=device, compile=compile)
         record = recommend(event, weights=request.weights,
                         top_k=min(request.top_k, plans.shape[0]))
-        top = [
-            {"rotation": [crops.names[c] for c in plans[i].tolist()],
-             "score": round(float(record["scores"][i]), 4),
-             **{k: round(float(v[i]), 2)
-                for k, v in record["objectives"].items()}}
-            for i in record["ranking"].tolist()
-        ]
-        if top:
-            top[0]["trace"] = _trace(model, field, plans[record["ranking"][:1]],
-                                     ens, request.irrig, request.fertilizer)
+        mat, _ = objective_matrix(record["objectives"], record["metric_names"])
         return SiteResult(
             point=point, status="ok",
             plans_evaluated=int(plans.shape[0]), scenarios=int(ens.batch),
-            history=_history(series, dt.date.today().year - request.years, sm),
-            pareto=[
-                {"rotation": [crops.names[c] for c in plans[i].tolist()],
-                 "rank": int((record["ranking"] == i).nonzero().flatten()[0])
-                 if (record["ranking"] == i).any() else None,
-                 **{k: round(float(v[i]), 2)
-                    for k, v in record["objectives"].items()}}
-                for i in record["pareto_idx"].tolist()
-            ],
-            top=top)
+            objectives=[[round(float(v), 6) for v in row] for row in mat],
+            pareto=record["pareto_idx"].tolist(),
+            ranking=record["ranking"].tolist(),
+            scores=[round(float(v), 4) for v in record["scores"]],
+            traces=_traces(model, field, plans, ens,
+                           request.irrig, request.fertilizer),
+            history=_history(series, dt.date.today().year - request.years, sm))
     except Exception as exception:
         return SiteResult(point=point, status="error", detail=str(exception))
+
+
+def _library() -> CropLibrary:
+    """Crop trait table — with `lake/traits.json` calibration overrides
+    applied when a lake is configured (`nasa-farm traits` writes it)."""
+    crops = CropLibrary.default()
+    if (root := _lake()) and (pt := root / "traits.json").is_file():
+        crops = crops.calibrated(json.loads(pt.read_text()).get("traits", {}))
+    return crops
 
 
 def plan(request: PlanRequest, *, workers: int = 0, device: str = "auto",
          compile: str = "auto") -> PlanResponse:
     """Evaluate every plan × scenario at every point — request-level errors
     (unknown crop) raise, per-point failures degrade to status='error'."""
-    crops = CropLibrary.default()
+    crops = _library()
     unknown = [c for c in request.crops if c not in crops.names]
     if unknown:
         raise ValueError(
@@ -261,6 +303,9 @@ def plan(request: PlanRequest, *, workers: int = 0, device: str = "auto",
                                 request.horizon)
     depths = (tuple(float(d) for d in request.depths)
               if request.depths else DEPTHS)
-    return PlanResponse(results=[
-        _site(p, request, crops, plans, depths, workers, device, compile)
-        for p in request.points])
+    return PlanResponse(
+        results=[_site(p, request, crops, plans, depths, workers, device,
+                       compile) for p in request.points],
+        columns=list(OBJECTIVE_DIRECTION),
+        directions=list(OBJECTIVE_DIRECTION.values()),
+        rotations=[[crops.names[c] for c in row.tolist()] for row in plans])

@@ -42,7 +42,7 @@ class TestRStat:
     def test_var_is_diagonal(self):
         statistic = Statistic()
         statistic.update(torch.tensor([2.0, 0.0]), torch.tensor([1.0, 0.0]))
-        assert statistic.var.tolist() == pytest.approx([2.0, 0.0], abs=1e-12)
+        assert statistic.variance.tolist() == pytest.approx([2.0, 0.0], abs=1e-12)
 
 
 class TestAoei:

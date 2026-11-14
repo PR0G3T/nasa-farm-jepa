@@ -61,17 +61,17 @@ def members_to_forcing(dates: list[str],
     dates = [dates[i] for i in keep]
     n = len(dates)
 
-    def column(var: str) -> torch.Tensor:
-        api = DAILY_VARS[var] if var in DAILY_VARS else var
+    def column(variable: str) -> torch.Tensor:
+        api = DAILY_VARS[variable] if variable in DAILY_VARS else variable
         rows = []
         for i in ids:
             s = cols[i].get(api)
-            v = (torch.full((n,), _FILL.get(var, 0.0), dtype=DTYPE)
+            v = (torch.full((n,), _FILL.get(variable, 0.0), dtype=DTYPE)
                  if s is None else
                  torch.tensor([s[i] for i in keep],
-                              dtype=DTYPE).nan_to_num(_FILL.get(var, 0.0)))
-            rows.append(v.clamp(_LO.get(var, float("-inf")),
-                                _HI.get(var, float("inf"))))
+                              dtype=DTYPE).nan_to_num(_FILL.get(variable, 0.0)))
+            rows.append(v.clamp(_LO.get(variable, float("-inf")),
+                                _HI.get(variable, float("inf"))))
         return torch.stack(rows) if rows else torch.zeros(0, n, dtype=DTYPE)
 
     values = {k: column(k) for k in FORCING_VARS if k not in ("doy", "co2")}
