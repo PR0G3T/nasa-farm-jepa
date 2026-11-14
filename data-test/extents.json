@@ -277,5 +277,126 @@
   "res": "30 m (rendu WMS)",
   "date": "LF2024",
   "scene": "LF2024_EVT_CONUS"
+ },
+ "cdl_2025": {
+  "bounds_ll": [
+   -99.45,
+   40.45,
+   -98.65,
+   40.9
+  ],
+  "res": "30 m source / rendu WMS",
+  "date": "2025",
+  "scene": "cdl_2025"
+ },
+ "gaez": {
+  "bounds_ll": [
+   -99.5,
+   40.3,
+   -98.5,
+   41.1
+  ],
+  "res": "0.083\u00b0 (~9 km)",
+  "date": "GAEZ v4",
+  "scene": "res05 Suitability"
+ },
+ "gaez_maize": {
+  "bounds_ll": [
+   -100.5,
+   39.5,
+   -97.5,
+   42.0
+  ],
+  "res": "0.083\u00b0 (~9 km)",
+  "date": "GAEZ v4 2041-2070 RCP4.5",
+  "scene": "res05 Maize rainfed SI"
+ },
+ "gaez_soybean": {
+  "bounds_ll": [
+   -100.5,
+   39.5,
+   -97.5,
+   42.0
+  ],
+  "res": "0.083\u00b0 (~9 km)",
+  "date": "GAEZ v4 2041-2070 RCP4.5",
+  "scene": "res05 Soybean rainfed SI"
+ },
+ "gaez_sorghum": {
+  "bounds_ll": [
+   -100.5,
+   39.5,
+   -97.5,
+   42.0
+  ],
+  "res": "0.083\u00b0 (~9 km)",
+  "date": "GAEZ v4 2041-2070 RCP4.5",
+  "scene": "res05 Sorghum rainfed SI"
+ },
+ "gaez_wheat": {
+  "bounds_ll": [
+   -100.5,
+   39.5,
+   -97.5,
+   42.0
+  ],
+  "res": "0.083\u00b0 (~9 km)",
+  "date": "GAEZ v4 2041-2070 RCP4.5",
+  "scene": "res05 Wheat rainfed SI"
+ },
+ "gaez_alfalfa": {
+  "bounds_ll": [
+   -100.5,
+   39.5,
+   -97.5,
+   42.0
+  ],
+  "res": "0.083\u00b0 (~9 km)",
+  "date": "GAEZ v4 2041-2070 RCP4.5",
+  "scene": "res05 Alfalfa rainfed SI"
+ },
+ "prism_tmin": {
+  "bounds_ll": [
+   -102.521,
+   39.021,
+   -95.021,
+   42.521
+  ],
+  "res": "4 km",
+  "date": "2025-07-15",
+  "scene": "PRISM tmin daily"
+ },
+ "prism_ppt": {
+  "bounds_ll": [
+   -102.521,
+   39.021,
+   -95.021,
+   42.521
+  ],
+  "res": "4 km",
+  "date": "2025-07-15",
+  "scene": "PRISM ppt daily"
+ },
+ "eco_etdaily": {
+  "bounds_ll": [
+   -99.1303,
+   40.6199,
+   -98.9699,
+   40.7801
+  ],
+  "res": "70 m",
+  "date": "2025-06-07",
+  "scene": "ECOv002_L3T_JET_39237_007_14TMK_20250607T1600"
+ },
+ "smap_l3": {
+  "bounds_ll": [
+   -105,
+   36,
+   -93,
+   44
+  ],
+  "res": "9 km (grille 33 km filtr\u00e9e)",
+  "date": "2025-07-15",
+  "scene": "SPL3SMP_E R19240 AM"
  }
 }
