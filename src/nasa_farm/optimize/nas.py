@@ -1,7 +1,7 @@
 """Neural architecture search over the residual network.
 
 The residual is deliberately small — its search space is a few hundred
-points, so the SOTA method here is *not* DARTS (which is for huge spaces):
+points, so the right method here is *not* DARTS (which is for huge spaces):
 it is zero-cost proxy ranking → successive halving on short fit budgets.
 Zero-cost proxies (SynFlow, Jacobian covariance, grad-norm) score
 trainability/expressivity before any fitting, on a non-zero-init probe

@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import torch
 
+from nasa_farm.constants import DTYPE
 from nasa_farm.observe import observables
 from nasa_farm.state.field import Field
 from nasa_farm.types import Actions, Forcing
@@ -60,3 +61,28 @@ def design_schedule(model, field: Field, forcing: Forcing, actions: Actions,
             ranked.append((t, c, g))
     ranked.sort(key=lambda x: -x[2])
     return ranked[:n_pick] if n_pick is not None else ranked
+
+
+def plan_schedule(model, field: Field, forcing: Forcing, actions: Actions,
+                  days: tuple[int, ...], channels: tuple[str, ...],
+                  r: torch.Tensor | float = 1.0, n_pick: int = 5,
+                  tau: float = 7.0) -> list[tuple[int, str, float]]:
+    """Ordered acquisition calendar — greedy EIG with redundancy discount.
+
+    `design_schedule` ranks each (day, channel) independently; satellite
+    tasking needs a *sequence*: after a day is tasked, nearby days carry
+    correlated information. This applies a temporal-saturation kernel —
+    surviving candidate gains are attenuated by exp(−|t−t*|/τ) per picked
+    day — then re-greeds, so the calendar front-loads genuinely new
+    information instead of clustering at the noisiest window."""
+    ranked = design_schedule(model, field, forcing, actions, days, channels, r)
+    pool = [[t, c, g] for t, c, g in ranked]
+    out: list[tuple[int, str, float]] = []
+    while pool and len(out) < n_pick:
+        t, c, g = max(pool, key=lambda x: x[2])
+        out.append((t, c, g))
+        pool.remove([t, c, g])
+        for row in pool:
+            row[2] *= 1.0 - 0.9 * torch.exp(
+                torch.tensor(-abs(row[0] - t) / tau, dtype=DTYPE)).item()
+    return out

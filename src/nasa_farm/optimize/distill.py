@@ -56,12 +56,56 @@ def omp(F: torch.Tensor, y: torch.Tensor, k: int) -> tuple[torch.Tensor, torch.T
     return torch.tensor(idx), w
 
 
+def grow(x: torch.Tensor, y: torch.Tensor, k: int = 6,
+         rounds: int = 2) -> tuple[torch.Tensor, torch.Tensor, list[str]]:
+    """AutoSINDy-style library growth.
+
+    Start from the fixed basis; after each OMP fit, augment the library
+    with products of the *selected* terms and the first-order features —
+    the dictionary chases the structure the data actually uses, then OMP
+    refits on the grown library. Returns (indices, coefficients, names).
+    """
+    F = basis(x)
+    names = basis_names()
+    mu, sd = F.mean(0), F.std(0).clamp(min=1e-9)
+    Fn = (F - mu) / sd
+    f = x.shape[-1]
+    for _ in range(rounds + 1):
+        idx, w = omp(Fn, y, k)
+        sel = set(idx.tolist())
+        new_cols, new_names = [], []
+        for i in sel:
+            if i == 0:
+                continue
+            for j in range(1, f + 1):
+                col = Fn[:, i] * Fn[:, j]
+                if col.std() < 1e-6:
+                    continue
+                new_cols.append((col - col.mean()) / col.std())
+                new_names.append(f"{names[i]}·{names[j]}")
+        if not new_cols:
+            break
+        Fn = torch.cat([Fn] + [c.unsqueeze(-1) for c in new_cols], dim=-1)
+        names += new_names
+    idx, w = omp(Fn, y, k)
+    return idx, w, names
+
+
 def distill_residual(net, feats: torch.Tensor, k: int = 6,
+                     autogrow: bool = False,
                      ) -> dict[str, list[tuple[str, float]]]:
     """ResidualNet → {output_var: [(term, coef)]} human-readable sparse
-    equations per output channel."""
+    equations per output channel. autogrow=True grows the library from
+    selected terms (AutoSINDy-style) before the final OMP fit."""
     from nasa_farm.dynamics.residual import RESIDUAL_VARS
     y = net(feats)
+    if autogrow:
+        out: dict[str, list[tuple[str, float]]] = {}
+        for j, v in enumerate(RESIDUAL_VARS):
+            idx, w, names = grow(feats, y[:, j], k)
+            out[v] = [(names[i], float(c)) for i, c in
+                      zip(idx.tolist(), w)]
+        return out
     F = basis(feats)
     F = (F - F.mean(0)) / F.std(0).clamp(min=1e-9)
     names = basis_names()

@@ -124,6 +124,8 @@ def calibrate(spec: Spec, sc: Scene,
     cand = WorldModel(sc.crops, residual=False)
     i_c = sc.crops.index(spec.crop)
     names = tuple(spec.perturb)
+    if not names:
+        return cand, {"params": {}, "best_loss": 0.0, "epochs_run": 0}
     cols = torch.tensor([IDX[p] for p in names])
     base = cand.crop_table.detach().clone()
     lo, hi = base[i_c, cols] / _BOUND, base[i_c, cols] * _BOUND

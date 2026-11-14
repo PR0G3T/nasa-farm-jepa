@@ -55,12 +55,19 @@ class ResidualNet(nn.Module):
     def __init__(self, hidden: int = 64, depth: int = 2,
                  activation: str = "silu", layernorm: bool = False,
                  skip: bool = False, zero_init: bool = True,
-                 ctx_dim: int = 0) -> None:
+                 ctx_dim: int = 0, diffusion: bool = False) -> None:
         """ctx_dim > 0 appends a context vector (the JEPA latent z) to the
         input features — corrections can then react to what the latent
-        carries beyond the physics state."""
+        carries beyond the physics state.
+
+        diffusion=True doubles the head: the extra channels are per-variable
+        log-variance of a learned process innovation — the stochastic layer
+        that turns the physics core into a neural SDE. The caller samples
+        eps·σ only when a generator is passed; without one the step is the
+        deterministic drift, so the same module serves both modes."""
         super().__init__()
         self.ctx_dim = ctx_dim
+        self.diffusion = diffusion
         act = ACTS[activation]
         layers: list[nn.Module] = []
         d = N_FEATURES + ctx_dim
@@ -70,7 +77,7 @@ class ResidualNet(nn.Module):
                 layers.append(nn.LayerNorm(hidden))
             layers.append(act())
             d = hidden
-        layers.append(nn.Linear(d, len(RESIDUAL_VARS)))
+        layers.append(nn.Linear(d, len(RESIDUAL_VARS) * (2 if diffusion else 1)))
         self.body = nn.Sequential(*layers[:-1])
         self.head = layers[-1]
         # input → last-hidden shortcut (real projection, dims differ)
@@ -79,6 +86,11 @@ class ResidualNet(nn.Module):
         if zero_init:
             nn.init.zeros_(self.head.weight)
             nn.init.zeros_(self.head.bias)
+            if diffusion:
+                # logvar floor at init: σ = e^-6 ≈ 2.5e-3 — a fresh diffusion
+                # residual is ~the deterministic drift, noise grows only by
+                # training. Keeps the exact-physics-identity contract.
+                nn.init.constant_(self.head.bias[len(RESIDUAL_VARS):], -12.0)
         scale = torch.tensor([BOUND_SCALE[v] for v in RESIDUAL_VARS],
                              dtype=torch.float64)
         self.register_buffer("scale", scale)
@@ -98,4 +110,9 @@ class ResidualNet(nn.Module):
         h = self.body(feats)
         if self.short is not None:
             h = h + self.short(feats)
-        return torch.tanh(self.head(h)) * self.scale
+        out = self.head(h)
+        if self.diffusion:
+            mu, logvar = out.chunk(2, dim=-1)
+            return (torch.tanh(mu) * self.scale,
+                    logvar.clamp(-12.0, 2.0))
+        return torch.tanh(out) * self.scale

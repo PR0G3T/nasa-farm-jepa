@@ -69,12 +69,17 @@ def mppi(model, field: Field, forcing: Forcing, base: Actions,
          margin: torch.Tensor | float = 0.0,
          base_mu: torch.Tensor | None = None,
          sow_shifts: tuple[int, ...] = (0,),
+         horizon: int = 0, value=None, gamma: float = 1.0,
          reward=None, seed: int = 0) -> ControlResult:
     """Optimize continuous irrigation (mm/day) and N (kg/ha/day) channels.
 
     `base` supplies sow/harvest structure; forcing may be an ensemble (E>1) —
     the reward is the scenario mean, so the schedule is robust by construction.
     `reward` overrides `metric_reward` for custom objectives.
+
+    `horizon` < days truncates candidate rollouts and adds γ·`value`(s_H):
+    the ValueNet bootstrap prices the rest of the season, so search cost
+    scales with the planning horizon instead of the full year.
     """
     days = forcing.days
     years = max(1, days // 365)
@@ -103,13 +108,25 @@ def mppi(model, field: Field, forcing: Forcing, base: Actions,
             irrigation=cand[0].repeat_interleave(E, dim=0),
             n_fert=cand[1].repeat_interleave(E, dim=0))
         fld, frc = field.repeat(b), forcing.repeat(samples)
-        acc = SeasonAccumulator(b, years, device=fld.state.sw.device)
+        h = horizon if 0 < horizon < days else days
+        if h < days:
+            from nasa_farm.types import FORCING_VARS, ACTION_VARS
+            frc = Forcing(*(getattr(frc, k)[:, :h] for k in FORCING_VARS))
+            acts = Actions(*(getattr(acts, k)[:, :h] for k in ACTION_VARS))
+        acc = SeasonAccumulator(b, max(1, -(-h // 365)),
+                                device=fld.state.sw.device)
         with torch.inference_mode():
-            model.rollout(fld, frc, acts, observer=acc)
-        m = acc.result().view(samples, E, years, -1)
+            fld = model.rollout(fld, frc, acts, observer=acc)
+        m = acc.result().view(samples, E, -1, acc.result().shape[-1])
         r = (reward(m) if reward is not None
              else metric_reward(m, weights, risk, alpha, margin))
         r = r.view(samples, -1).mean(1)
+        if value is not None:
+            from nasa_farm.value import terminal_value
+            v = terminal_value(model, value, fld.state,
+                               frc.day(min(h - 1, days - 1)),
+                               acts.day(h - 1), gamma)
+            r = r + v.view(samples, E).mean(1)
         i_star = int(r.argmax())
         if float(r[i_star]) > best_r:
             best_r, best_mu = float(r[i_star]), cand[:, i_star]

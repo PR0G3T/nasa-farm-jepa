@@ -90,3 +90,48 @@ def distill(model, field: Field, forcing: Forcing, base: Actions,
         loss.backward()
         opt.step()
     return policy, teacher
+
+
+def policy_grad(model, field: Field, forcing: Forcing, base: Actions,
+                policy: PolicyNet | None = None,
+                weights: dict[str, float] | None = None,
+                risk: str = "mean", alpha: float = 0.2,
+                epochs: int = 60, lr: float = 3e-3,
+                u_scale: float = 1.0, checkpoint: int = 0,
+                seed: int = 0) -> PolicyNet:
+    """Analytic policy gradient through the differentiable dynamics.
+
+    The same closed-loop rollout `distill` runs, but the policy is scored
+    directly by `metric_reward` on the accumulated seasonal metrics and the
+    gradient flows *through the physics* — pathwise/low-variance learning
+    that PPO/SAC-style estimators cannot reach on this model class.
+    `u_scale` damps the raw softplus rates into physical bounds.
+
+    field batch B carries scenario replicas (forcing ensemble broadcast) —
+    the loss is the scenario-mean reward, so the learned policy is robust
+    by construction."""
+    from nasa_farm.control import metric_reward
+    from nasa_farm.heads import SeasonAccumulator
+
+    policy = policy or PolicyNet()
+    torch.manual_seed(seed)
+    opt = torch.optim.Adam(policy.parameters(), lr=lr)
+    years = max(1, forcing.days // 365)
+    b, days = field.batch, forcing.days
+    for _ in range(epochs):
+        opt.zero_grad(set_to_none=True)
+        fld = field
+        acc = SeasonAccumulator(b, years)
+        for t in range(days):
+            ad = base.day(t)
+            u = policy(_day_feats(model, fld.state, forcing.day(t), ad))
+            ad = {**ad, "irrigation": u[:, 0] * u_scale,
+                  "n_fert": u[:, 1] * u_scale}
+            fld, fl = model.step(fld, ad, forcing.day(t))
+            acc(t, fld.state, fl)
+        m = acc.result().unsqueeze(1)                # (B, 1, H, M)
+        reward = metric_reward(m, weights, risk, alpha).mean()
+        (-reward).backward()
+        torch.nn.utils.clip_grad_norm_(policy.parameters(), 1.0)
+        opt.step()
+    return policy

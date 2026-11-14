@@ -19,10 +19,10 @@ def _short(f: Forcing, days: int) -> Forcing:
 
 # ── forcing ──────────────────────────────────────────────────────────
 
-def test_flowgen_shapes_and_seed(warm_year):
-    from nasa_farm.forcing import fit_flow, sample_flow
-    m = fit_flow([warm_year, warm_year], epochs=5, hidden=32, seed=0)
-    a, b = (sample_flow(m, 30, 4, seed=s) for s in (1, 1))
+def test_wxgen_shapes_and_seed(warm_year):
+    from nasa_farm.forcing import fit_gen, sample_gen
+    m = fit_gen([warm_year, warm_year], epochs=5, hidden=32, seed=0)
+    a, b = (sample_gen(m, 30, 4, seed=s) for s in (1, 1))
     assert a.tmin.shape == (4, 30) and a.precip.min() >= 0
     assert torch.equal(a.tmin, b.tmin)          # seeded → reproducible
     assert (a.tmax >= a.tmin).all()
@@ -184,16 +184,16 @@ def test_swag_collect_sample_restore():
     assert not torch.equal(cur, ref)
 
 
-# ── inference: MDN posterior, symbolic distillation ──────────────────
+# ── inference: joint-flow posterior, symbolic distillation ───────────
 
-def test_mdn_recovers_gaussian():
-    from nasa_farm.optimize.mdn import fit_posterior
+def test_posterior_recovers_gaussian():
+    from nasa_farm.optimize.sbi import fit_posterior
     g = torch.Generator().manual_seed(0)
     theta = torch.randn(400, 2, generator=g, dtype=torch.float64)
     x = theta[:, :1] * 0.5 + 0.1 * torch.randn(400, 1, generator=g,
                                                dtype=torch.float64)
-    mdn = fit_posterior(theta, x, k=2, epochs=50, seed=0)
-    s = mdn.sample(x[:1], 64)
+    post = fit_posterior(theta, x, epochs=50, seed=0)
+    s = post.sample(x[:1], 64)
     assert s.shape == (64, 2)
     # posterior mean of θ0 should track x*2 within noise
     assert abs(float(s[:, 0].mean() - 2 * float(x[0, 0]))) < 1.5

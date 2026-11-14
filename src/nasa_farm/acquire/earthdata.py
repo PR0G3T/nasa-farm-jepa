@@ -48,3 +48,5 @@ ECOSTRESS_ET = EarthdataSource("ECO_L3T_JET", name="ecostress-et")
 GRACE_MASCON = EarthdataSource("TELLUS_GRAC-GRFO_MASCON_CRI_GRID_RL06.3_V4",
                                name="grace-fo-mascon")
 NISAR_GCOV = EarthdataSource("NISAR_L2_GCOV_BETA_V1", name="nisar-l2-gcov")
+NISAR_SME = EarthdataSource("NISAR_L3_SME2_BETA_V1",
+                            name="nisar-l3-soil-moisture")

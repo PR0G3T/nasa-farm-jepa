@@ -40,6 +40,7 @@ class WorldModel(nn.Module):
     def __init__(self, crops: CropLibrary | None = None, residual: bool = True,
                  latent_dim: int = 0, latent_hidden: int = 64,
                  stochastic: bool = False, ctx_dim: int = 0,
+                 diffusion: bool = False,
                  nn_dtype: torch.dtype = DTYPE,
                  seed: int | None = None) -> None:
         super().__init__()
@@ -48,7 +49,10 @@ class WorldModel(nn.Module):
         self.nn_dtype = nn_dtype
         # latent z conditions the residual: what the physics does not model
         # gets to correct the physics — the physics-anchored JEPA contract.
-        self.residual = (ResidualNet(ctx_dim=latent_dim)
+        # diffusion=True: the residual also emits process-noise variances,
+        # sampled with self._gen — learned aleatoric model uncertainty on
+        # top of forcing scenarios (neural-SDE layer).
+        self.residual = (ResidualNet(ctx_dim=latent_dim, diffusion=diffusion)
                          if residual else None)
         self.latent = (LatentDyn(latent_dim, latent_hidden, stochastic, ctx_dim)
                        if latent_dim else None)
@@ -92,7 +96,16 @@ class WorldModel(nn.Module):
         )
 
     def _apply_residual(self, state: FieldState, soil, feats: torch.Tensor) -> FieldState:
-        delta = self._nn(self.residual, feats, state.z)
+        out = self._nn(self.residual, feats, state.z)
+        if self.residual.diffusion:
+            delta, logvar = out
+            if self._gen is not None:
+                sig = (0.5 * logvar).exp() * self.residual.scale.to(DTYPE)
+                delta = delta + sig * torch.randn(
+                    delta.shape, generator=self._gen, dtype=DTYPE,
+                    device=delta.device)
+        else:
+            delta = out
         upd = dict(zip(RESIDUAL_VARS, delta.unbind(-1)))
         sw0 = (state.sw[:, 0] + upd["sw0"]).clamp(
             soil.air[:, 0], soil.sat[:, 0])
