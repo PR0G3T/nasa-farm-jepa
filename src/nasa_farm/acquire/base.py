@@ -12,7 +12,7 @@ from typing import Any, Protocol, runtime_checkable
 
 
 @dataclass(frozen=True, slots=True)
-class BBox:
+class Bounds:
     west: float
     south: float
     east: float
@@ -35,4 +35,4 @@ class DataSource(Protocol):
     name: str
     requires_auth: bool
 
-    def fetch(self, aoi: BBox | None, temporal: Temporal, **kw) -> Any: ...
+    def fetch(self, area: Bounds | None, temporal: Temporal, **keywords) -> Any: ...

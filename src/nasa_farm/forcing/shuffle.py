@@ -34,20 +34,20 @@ def ecc(fcst: torch.Tensor, tmpl: torch.Tensor) -> torch.Tensor:
     column's multiset exactly; S≠R interpolates the sorted marginal.
     """
     s, r = fcst.shape[0], tmpl.shape[0]
-    fs = fcst.sort(0).values                                    # (S, T)
+    edited = fcst.sort(0).values                                    # (S, T)
     sel = (torch.arange(s, device=fcst.device) * (r - 1)
            / max(s - 1, 1)).round().long()                      # (S,) τ(m)
     p = ranks(tmpl, 0)[sel] * (s - 1) / max(r - 1, 1)           # (S, T)
-    lo = p.floor().clamp(max=s - 1).long()
-    hi = p.ceil().long()
-    frac = p - lo.to(DTYPE)
-    return (fs.gather(0, lo)
-            + (fs.gather(0, hi) - fs.gather(0, lo)) * frac)
+    low = p.floor().clamp(max=s - 1).long()
+    high = p.ceil().long()
+    fraction = p - low.to(DTYPE)
+    return (edited.gather(0, low)
+            + (edited.gather(0, high) - edited.gather(0, low)) * fraction)
 
 
 def shuffle_forcing(fcst: Forcing, tmpl: Forcing) -> Forcing:
     """ECC per weather variable; doy/co2 pass through unshuffled."""
-    kw = {v: (ecc(getattr(fcst, v), getattr(tmpl, v)) if fcst.batch > 1
+    keywords = {v: (ecc(getattr(fcst, v), getattr(tmpl, v)) if fcst.batch > 1
               else getattr(fcst, v))
           for v in FORCING_VARS if v not in ("doy", "co2")}
-    return Forcing(**kw, doy=fcst.doy, co2=fcst.co2)
+    return Forcing(**keywords, doy=fcst.doy, co2=fcst.co2)

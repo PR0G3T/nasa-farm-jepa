@@ -17,26 +17,26 @@ from __future__ import annotations
 import torch
 
 
-class RStat:
+class Statistic:
     """Online Desroziers R estimator; `estimate` → (C, C) covariance."""
 
     def __init__(self, decay: float = 0.0) -> None:
         """decay=0 → plain running mean; >0 → exponential forgetting."""
         self.decay = decay
         self.n = 0.0
-        self.acc: torch.Tensor | None = None
+        self.accumulate: torch.Tensor | None = None
 
     def update(self, d_bg: torch.Tensor, d_an: torch.Tensor) -> None:
         """d_bg = y − Hx̄_b, d_an = y − Hx̄_a, both (C,) observation space."""
         p = torch.outer(d_bg, d_an)
-        if self.acc is None:
-            self.acc, self.n = torch.zeros_like(p), 0.0
-        self.acc.mul_(1.0 - self.decay).add_(p)
+        if self.accumulate is None:
+            self.accumulate, self.n = torch.zeros_like(p), 0.0
+        self.accumulate.mul_(1.0 - self.decay).add_(p)
         self.n = self.n * (1.0 - self.decay) + 1.0
 
     @property
     def estimate(self) -> torch.Tensor | None:
-        return None if self.acc is None else self.acc / max(self.n, 1.0)
+        return None if self.accumulate is None else self.accumulate / max(self.n, 1.0)
 
     @property
     def var(self) -> torch.Tensor | None:

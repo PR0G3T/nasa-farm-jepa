@@ -27,21 +27,21 @@ def year_features(f: Forcing) -> torch.Tensor:
     ])
 
 
-def analog_weights(hist: list[Forcing], target: Forcing | torch.Tensor,
-                   bw: float = 1.0) -> torch.Tensor:
+def analog_weights(history: list[Forcing], target: Forcing | torch.Tensor,
+                   bandwidth: float = 1.0) -> torch.Tensor:
     """(N,) normalized importance weights — Gaussian kernel on feature
     distance to the reference year (or raw feature vector)."""
     t = year_features(target) if isinstance(target, Forcing) else target
-    d = torch.stack([((year_features(h) - t) ** 2).sum() for h in hist])
-    w = torch.exp(-d / (2.0 * bw ** 2))
+    d = torch.stack([((year_features(h) - t) ** 2).sum() for h in history])
+    w = torch.exp(-d / (2.0 * bandwidth ** 2))
     return w / w.sum().clamp(min=1e-12)
 
 
-def weighted_ensemble(hist: list[Forcing], weights: torch.Tensor,
+def weighted_ensemble(history: list[Forcing], weights: torch.Tensor,
                       horizon: int, seed: int = 0) -> Forcing:
     """Resample historical years ∝ weights, tile across the horizon."""
     from nasa_farm.forcing.base import climatology_ensemble
     g = torch.Generator().manual_seed(seed)
-    pick = torch.multinomial(weights, len(hist), replacement=True,
+    pick = torch.multinomial(weights, len(history), replacement=True,
                              generator=g)
-    return climatology_ensemble([hist[i] for i in pick.tolist()], horizon)
+    return climatology_ensemble([history[i] for i in pick.tolist()], horizon)

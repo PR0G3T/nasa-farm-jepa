@@ -27,7 +27,7 @@ from nasa_farm.state.crops import CropLibrary
 from nasa_farm.state.field import Field
 
 
-class CtxNorm(nn.Module):
+class Normalizer(nn.Module):
     """Standardizer for raw site embeddings; unfit = pass-through."""
 
     def __init__(self, dim: int) -> None:
@@ -38,33 +38,33 @@ class CtxNorm(nn.Module):
         self.fitted = False
 
     @torch.no_grad()
-    def fit(self, emb: torch.Tensor) -> "CtxNorm":
-        e = emb.reshape(-1, emb.shape[-1]).to(DTYPE)
+    def fit(self, embedding: torch.Tensor) -> "CtxNorm":
+        e = embedding.reshape(-1, embedding.shape[-1]).to(DTYPE)
         if e.shape[-1] != self.dim:
             raise ValueError(f"embedding dim {e.shape[-1]} != ctx dim {self.dim}")
         self.mu.copy_(e.mean(0))
-        self.sd.copy_(e.std(0).clamp(min=1e-6))
+        self.deviation.copy_(e.std(0).clamp(min=1e-6))
         self.fitted = True
         return self
 
-    def forward(self, emb: torch.Tensor) -> torch.Tensor:
-        return (emb.to(DTYPE) - self.mu) / self.sd
+    def forward(self, embedding: torch.Tensor) -> torch.Tensor:
+        return (embedding.to(DTYPE) - self.mu) / self.deviation
 
 
-def build_ctx(emb: torch.Tensor, norm: CtxNorm | None = None,
+def build_context(embedding: torch.Tensor, norm: Normalizer | None = None,
               side: torch.Tensor | None = None) -> torch.Tensor:
     """(B, D) raw embedding (+ optional (B, S) scaled side features) → ctx.
 
     Side features are the caller's responsibility to scale (soil scalars,
     lat/90, climatology summaries); embeddings are standardized by `norm`.
     """
-    z = norm(emb) if norm is not None else emb.to(DTYPE)
+    z = norm(embedding) if norm is not None else embedding.to(DTYPE)
     if side is not None:
         z = torch.cat([z, side.to(DTYPE)], dim=-1)
     return torch.nan_to_num(z)
 
 
-class TraitHyper(nn.Module):
+class Traits(nn.Module):
     """ctx → log-multipliers on the crop trait table (regionalization).
 
     Output is tanh-bounded to ±log(bound), so the predicted table stays in
@@ -72,73 +72,73 @@ class TraitHyper(nn.Module):
     calibration uses. Bias zero-init ⇒ multiplier 1 at init (prior table).
     """
 
-    def __init__(self, ctx_dim: int, n_crops: int, n_traits: int,
+    def __init__(self, context_dimension: int, n_crops: int, n_traits: int,
                  hidden: int = 64, bound: float = 2.0) -> None:
         super().__init__()
         self.bound = math.log(bound)
         self.shape = (n_crops, n_traits)
         self.net = nn.Sequential(
-            nn.Linear(ctx_dim, hidden), nn.SiLU(),
+            nn.Linear(context_dimension, hidden), nn.SiLU(),
             nn.Linear(hidden, n_crops * n_traits))
         nn.init.zeros_(self.net[-1].weight)
         nn.init.zeros_(self.net[-1].bias)
         self.to(DTYPE)
 
-    def forward(self, ctx: torch.Tensor) -> torch.Tensor:
+    def forward(self, context: torch.Tensor) -> torch.Tensor:
         """(B, C_ctx) → (B, C, P) trait multipliers in [1/bound, bound]."""
-        d = torch.tanh(self.net(ctx.to(DTYPE))) * self.bound
-        return torch.exp(d.view(ctx.shape[0], *self.shape))
+        d = torch.tanh(self.net(context.to(DTYPE))) * self.bound
+        return torch.exp(d.view(context.shape[0], *self.shape))
 
-    def table(self, ctx: torch.Tensor, base: torch.Tensor) -> torch.Tensor:
+    def table(self, context: torch.Tensor, base: torch.Tensor) -> torch.Tensor:
         """Contextualized tables, one (C, P) per batch row."""
-        return base.unsqueeze(0) * self(ctx)
+        return base.unsqueeze(0) * self(context)
 
-    def apply(self, model, ctx: torch.Tensor) -> torch.Tensor:
+    def apply(self, model, context: torch.Tensor) -> torch.Tensor:
         """Single-field path: live-binds the predicted table to the model."""
-        tbl = self.table(ctx[:1], model.crop_table.detach())[0]
-        model.crop_table = tbl
-        return tbl
+        table = self.table(context[:1], model.crop_table.detach())[0]
+        model.crop_table = table
+        return table
 
 
-class LatentInit(nn.Module):
+class Initialization(nn.Module):
     """ctx → (z0, zh0) — informed recurrent start instead of zeros."""
 
-    def __init__(self, ctx_dim: int, z_dim: int, h_dim: int,
+    def __init__(self, context_dimension: int, z_dim: int, hidden_dimension: int,
                  hidden: int = 64) -> None:
         super().__init__()
-        self.z_dim, self.h_dim = z_dim, h_dim
-        self.z = nn.Linear(ctx_dim, z_dim)
-        self.h = nn.Sequential(nn.Linear(ctx_dim, hidden), nn.SiLU(),
-                               nn.Linear(hidden, h_dim))
+        self.z_dim, self.hidden_dimension = z_dim, hidden_dimension
+        self.z = nn.Linear(context_dimension, z_dim)
+        self.h = nn.Sequential(nn.Linear(context_dimension, hidden), nn.SiLU(),
+                               nn.Linear(hidden, hidden_dimension))
         self.to(DTYPE)
 
-    def forward(self, ctx: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
-        return self.z(ctx.to(DTYPE)), self.h(ctx.to(DTYPE))
+    def forward(self, context: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+        return self.z(context.to(DTYPE)), self.h(context.to(DTYPE))
 
 
-def condition(model, field: Field, ctx: torch.Tensor,
-              hyper: TraitHyper | None = None,
-              init: LatentInit | None = None) -> Field:
+def condition(model, field: Field, context: torch.Tensor,
+              hyper: Traits | None = None,
+              init: Initialization | None = None) -> Field:
     """Wire a context vector into field + model in one call.
 
     - field.ctx := ctx (consumed by LatentDyn when built with ctx_dim)
     - hyper: model.crop_table := predicted table
     - init: state.z/zh := predicted initial latents
     """
-    if field.batch != 1 and ctx.shape[0] == 1:
-        ctx = ctx.expand(field.batch, -1)
+    if field.batch != 1 and context.shape[0] == 1:
+        context = context.expand(field.batch, -1)
     if hyper is not None:
-        tbl = hyper.table(ctx, model.crop_table.detach())
-        model.crop_table = (tbl[0] if field.batch == 1
-                            else tbl.mean(0))
+        table = hyper.table(context, model.crop_table.detach())
+        model.crop_table = (table[0] if field.batch == 1
+                            else table.mean(0))
     if init is not None:
-        z0, h0 = init(ctx)
+        z0, h0 = init(context)
         field = Field(state=field.state.replace(z=z0, zh=h0),
-                      soil=field.soil, lat=field.lat, elev=field.elev,
-                      ctx=ctx)
+                      soil=field.soil, latitude=field.latitude, elevation=field.elevation,
+                      context=context)
         return field
-    return Field(state=field.state, soil=field.soil, lat=field.lat,
-                 elev=field.elev, ctx=ctx)
+    return Field(state=field.state, soil=field.soil, latitude=field.latitude,
+                 elevation=field.elevation, context=context)
 
 
 def lib_table(crops: CropLibrary) -> torch.Tensor:

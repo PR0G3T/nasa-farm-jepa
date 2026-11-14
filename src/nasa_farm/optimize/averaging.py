@@ -12,7 +12,7 @@ import torch
 import torch.nn as nn
 
 
-class Swag:
+class Moments:
     """Diagonal-moment accumulator over a flat parameter vector."""
 
     def __init__(self, net: nn.Module) -> None:
@@ -36,11 +36,11 @@ class Swag:
     def var(self) -> torch.Tensor:
         return (self.sq - self.mean ** 2).clamp(min=0.0)
 
-    def sample(self, gen: torch.Generator | None = None,
+    def sample(self, generation: torch.Generator | None = None,
                scale: float = 1.0) -> torch.Tensor:
         """Draw a weight vector ~ N(mean, diag(var)·scale²)."""
         return self.mean + scale * self.var.sqrt() * torch.randn(
-            self.mean.shape, generator=gen,
+            self.mean.shape, generator=generation,
             dtype=self.mean.dtype, device=self.mean.device)
 
     def load(self, flat: torch.Tensor) -> None:
@@ -53,12 +53,12 @@ class Swag:
                 off += n
 
     def predict(self, x: torch.Tensor, n: int = 20,
-                gen: torch.Generator | None = None) -> torch.Tensor:
+                generation: torch.Generator | None = None) -> torch.Tensor:
         """(n, B, O) prediction ensemble under sampled weights."""
-        cur = self._flat(self.net)
+        current = self._flat(self.net)
         outs = []
         for _ in range(n):
-            self.load(self.sample(gen))
+            self.load(self.sample(generation))
             outs.append(self.net(x))
-        self.load(cur)
+        self.load(current)
         return torch.stack(outs)

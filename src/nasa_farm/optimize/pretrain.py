@@ -24,26 +24,26 @@ def emulate(teacher, fields: list[Field], forcings: list[Forcing],
             ) -> list[ObservedTrajectory]:
     """Teacher rollouts → observation targets, one per (field, forcing) pair."""
     from nasa_farm.heads import METRICS
-    idx = {n: i for i, n in enumerate(METRICS)}
-    obs = []
+    index = {n: i for i, n in enumerate(METRICS)}
+    observed = []
     with torch.inference_mode():
         for f, w, a in zip(fields, forcings, actions):
-            pred = season_metrics(teacher, f, w, a)[0]
-            values = torch.full_like(pred, float("nan"))
+            predicted = season_metrics(teacher, f, w, a)[0]
+            values = torch.full_like(predicted, float("nan"))
             for c in channels:
-                values[:, idx[c]] = pred[:, idx[c]]
-            obs.append(ObservedTrajectory(values=values))
-    return obs
+                values[:, index[c]] = predicted[:, index[c]]
+            observed.append(ObservedTrajectory(values=values))
+    return observed
 
 
 def pretrain(student, fields: list[Field], forcings: list[Forcing],
              actions: list[Actions], targets: list[ObservedTrajectory],
-             params: dict[str, torch.Tensor], **fit_kw):
+             parameters: dict[str, torch.Tensor], **fit_kw):
     """Fit `params` so the student reproduces the teacher's metrics over the
     whole site×year set — mean trajectory χ² across all rollouts."""
     def loss():
-        tot = torch.zeros((), dtype=fields[0].state.sw.dtype)
+        total = torch.zeros((), dtype=fields[0].state.sw.dtype)
         for f, w, a, o in zip(fields, forcings, actions, targets):
-            tot = tot + trajectory_loss(season_metrics(student, f, w, a), o)
-        return tot / len(targets)
-    return fit(loss, params, **fit_kw)
+            total = total + trajectory_loss(season_metrics(student, f, w, a), o)
+        return total / len(targets)
+    return fit(loss, parameters, **fit_kw)

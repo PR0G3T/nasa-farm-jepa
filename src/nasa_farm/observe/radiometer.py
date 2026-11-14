@@ -28,9 +28,9 @@ def tb(mv: torch.Tensor, vwc: torch.Tensor, ts: torch.Tensor | float = 298.15,
     rh = ((cos - sqr) / (cos + sqr)) ** 2
     rv = ((eps * cos - sqr) / (eps * cos + sqr)) ** 2
     gam = torch.exp(-b * vwc / cos)
-    out = []
+    output = []
     for r in (rh, rv):
-        out.append(ts * ((1.0 - omega) * (1.0 - gam)
+        output.append(ts * ((1.0 - omega) * (1.0 - gam)
                          + gam * (1.0 - r)
                          + r * gam * (1.0 - omega) * (1.0 - gam)))
-    return tuple(out)
+    return tuple(output)

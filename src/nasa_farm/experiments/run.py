@@ -24,16 +24,16 @@ from pathlib import Path
 
 import torch
 
-from nasa_farm.experiments.specification import Spec
+from nasa_farm.experiments.specification import Specification
 
-_REGISTRY: dict[str, Callable[[Spec], dict]] = {}
+_REGISTRY: dict[str, Callable[[Specification], dict]] = {}
 
 
 def register(name: str):
     """`@register("name")` on a `Spec → dict` experiment runner."""
-    def deco(fn: Callable[[Spec], dict]) -> Callable[[Spec], dict]:
-        _REGISTRY[name] = fn
-        return fn
+    def deco(function: Callable[[Specification], dict]) -> Callable[[Specification], dict]:
+        _REGISTRY[name] = function
+        return function
     return deco
 
 
@@ -44,10 +44,10 @@ def experiments() -> tuple[str, ...]:
 @dataclass(frozen=True, slots=True)
 class Report:
     name: str
-    spec: dict
+    specification: dict
     results: dict
     seconds: float
-    meta: dict
+    metadata: dict
 
     def save(self, path: str | Path) -> Path:
         p = Path(path)
@@ -82,15 +82,15 @@ class Report:
         return "\n".join(rows)
 
 
-def run(name: str, spec: Spec) -> Report:
+def run(name: str, specification: Specification) -> Report:
     if name not in _REGISTRY:
         raise KeyError(
             f"unknown experiment {name!r}; have {experiments()}")
     t0 = time.perf_counter()
-    results = _REGISTRY[name](spec)
-    meta = {"python": platform.python_version(),
+    results = _REGISTRY[name](specification)
+    metadata = {"python": platform.python_version(),
             "torch": torch.__version__,
             "device": "cuda" if torch.cuda.is_available() else "cpu",
             "argv": sys.argv[1:]}
-    return Report(name=name, spec=spec.as_dict(), results=results,
-                  seconds=round(time.perf_counter() - t0, 3), meta=meta)
+    return Report(name=name, specification=specification.as_dict(), results=results,
+                  seconds=round(time.perf_counter() - t0, 3), metadata=metadata)

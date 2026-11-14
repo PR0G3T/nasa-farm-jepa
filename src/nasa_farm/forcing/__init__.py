@@ -15,15 +15,15 @@ continuations align operational ensembles to any horizon.
 """
 
 from nasa_farm.forcing.base import (
-    augment, climatology_ensemble, ensemble_of, ou_noise, synthetic_year,
+    augment, climatology_ensemble, ensemble_of, noise, synthetic_year,
     tile_to_horizon,
 )
 from nasa_farm.forcing.analog import analog_weights, weighted_ensemble
 from nasa_farm.forcing.bias import (
-    EnsBC, apply_ensbc, apply_qmap, fit_ensbc, fit_qmap,
+    Correction, apply_correction, apply_mapping, fit_correction, fit_mapping,
 )
-from nasa_farm.forcing.seam import bridge, roll_to_doy, span
-from nasa_farm.forcing.generation import WxGen, fit_gen, sample_gen
+from nasa_farm.forcing.seam import bridge, roll_to_ordinal, span
+from nasa_farm.forcing.generation import Generator, fit_gen, sample
 from nasa_farm.forcing.provide import ensemble, register
 from nasa_farm.forcing.reconcile import consensus
 from nasa_farm.forcing.shuffle import ecc, ranks, shuffle_forcing

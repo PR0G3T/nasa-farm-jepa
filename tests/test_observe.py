@@ -9,7 +9,7 @@ from nasa_farm.observe import CHANNELS, observables, sm_vol, vwc
 from nasa_farm.observe.optical import fapar, ndvi
 from nasa_farm.observe.radiometer import tb
 from nasa_farm.observe.radar import sigma0
-from nasa_farm.observe.trace import ObsTrace
+from nasa_farm.observe.trace import ObservationTrace
 from nasa_farm.state.field import Field
 from nasa_farm.types import Actions
 
@@ -71,41 +71,41 @@ class TestRadiometer:
 
 class TestObservables:
     def test_stack_shape_and_channels(self, field):
-        obs = observables(field.state, ("ndvi", "sm1", "s0v"))
-        assert obs.shape == (field.batch, 3)
-        assert torch.isfinite(obs).all()
+        observed = observables(field.state, ("ndvi", "sm1", "s0v"))
+        assert observed.shape == (field.batch, 3)
+        assert torch.isfinite(observed).all()
 
     def test_all_registered_channels_evaluable(self, field):
-        obs = observables(field.state)
-        assert obs.shape == (field.batch, len(CHANNELS))
-        assert torch.isfinite(obs).all()
+        observed = observables(field.state)
+        assert observed.shape == (field.batch, len(CHANNELS))
+        assert torch.isfinite(observed).all()
 
 
 class TestTrace:
     def test_records_every_k_days(self, physics_model, field):
         forcing = tile_to_horizon(synthetic_year(42.0, seed=1), 1)
-        tr = ObsTrace(forcing.days, ("ndvi", "sm1"), every=5)
+        traits = ObservationTrace(forcing.days, ("ndvi", "sm1"), every=5)
         physics_model.rollout(field, forcing,
-                              Actions.idle(1, forcing.days), observer=tr)
-        r = tr.result()
+                              Actions.idle(1, forcing.days), observer=traits)
+        r = traits.result()
         assert r.shape == (1, 73, 2)
         assert float(r[0, 0, 0]) == pytest.approx(0.15)  # bare soil NDVI
 
     def test_unknown_channel_raises(self):
         with pytest.raises(KeyError):
-            ObsTrace(10, ("bogus",))
+            ObservationTrace(10, ("bogus",))
 
     def test_gradients_flow_through_rollout(self, hybrid_model, field):
         """Predicted observables keep the graph — assimilation can
         differentiate series residuals back into dynamics parameters."""
         forcing = tile_to_horizon(synthetic_year(42.0, seed=1), 1)
-        tr = ObsTrace(forcing.days, ("ndvi", "sm1"), every=30)
+        traits = ObservationTrace(forcing.days, ("ndvi", "sm1"), every=30)
         hybrid_model.rollout(field, forcing,
-                             Actions.idle(1, forcing.days), observer=tr)
-        r = tr.result()
+                             Actions.idle(1, forcing.days), observer=traits)
+        r = traits.result()
         r.sum().backward()
-        grads = [p.grad for p in hybrid_model.residual.parameters()
-                 if p.grad is not None]
+        grads = [p.gradient for p in hybrid_model.residual.parameters()
+                 if p.gradient is not None]
         assert grads and all(torch.isfinite(g).all() for g in grads)
 
 

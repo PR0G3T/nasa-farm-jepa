@@ -40,9 +40,9 @@ def heat_shock(s: FieldState, soil: SoilProfile, f: dict, a: dict,
     """Heat-wave senescence: extreme tmax sheds leaf and biomass to litter."""
     excess = torch.relu(f["tmax"] - 34.0) / 6.0
     d_b = (0.05 * excess * s.biomass * s.growing).clamp(min=0.0)
-    frac = (d_b / s.biomass.clamp(min=1.0)).clamp(max=1.0)
+    fraction = (d_b / s.biomass.clamp(min=1.0)).clamp(max=1.0)
     return s.replace(biomass=s.biomass - d_b, litter=s.litter + d_b,
-                     lai=s.lai * (1.0 - frac))
+                     lai=s.lai * (1.0 - fraction))
 
 
 def n_immob(s: FieldState, soil: SoilProfile, f: dict, a: dict,
@@ -69,8 +69,8 @@ EXTRAS: dict[str, Extra] = {
 
 
 def step_extra(names: tuple[str, ...], state: FieldState, soil: SoilProfile,
-               forcing_d: dict, action_d: dict, fluxes: dict) -> FieldState:
+               forcing_day: dict, action_d: dict, fluxes: dict) -> FieldState:
     """Apply the named extra processes, in order."""
     for n in names:
-        state = EXTRAS[n](state, soil, forcing_d, action_d, fluxes)
+        state = EXTRAS[n](state, soil, forcing_day, action_d, fluxes)
     return state

@@ -66,13 +66,13 @@ class TestET0:
 class TestPenmanMonteith:
     """FAO-56 PM — the reference ET0 method."""
 
-    def pm(self, **kw):
-        args = dict(tmin=t(16.0), tmax=t(30.0), rh_mean=t(70.0), u2=t(2.5),
+    def pm(self, **keywords):
+        arguments = dict(tmin=t(16.0), tmax=t(30.0), rh_mean=t(70.0), u2=t(2.5),
                     srad=t(28.0), ra=t(40.0), elev_m=t(200.0))
-        args.update(kw)
-        return et0_penman_monteith(args["tmin"], args["tmax"], args["rh_mean"],
-                                   args["u2"], args["srad"], args["ra"],
-                                   args["elev_m"])
+        arguments.update(keywords)
+        return et0_penman_monteith(arguments["tmin"], arguments["tmax"], arguments["rh_mean"],
+                                   arguments["u2"], arguments["srad"], arguments["ra"],
+                                   arguments["elev_m"])
 
     def test_svp_reference_values(self):
         """e° at 0/20/40 °C — textbook saturation vapour pressure."""
@@ -88,7 +88,7 @@ class TestPenmanMonteith:
 
     def test_iowa_summer_magnitude(self):
         """Hand-checked ≈5.6 mm/d for humid midsummer conditions."""
-        assert float(self.pm()) == pytest.approx(5.6, rel=0.15)
+        assert float(self.pm()) == pytest.approx(5.6, relative=0.15)
 
     def test_increases_with_wind(self):
         assert float(self.pm(u2=t(0.5))) < float(self.pm(u2=t(4.0)))

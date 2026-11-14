@@ -36,14 +36,14 @@ def library(feats: torch.Tensor) -> tuple[torch.Tensor, list[str]]:
     return torch.cat([feats, hinge, prod], -1), names
 
 
-def stlsq(X: torch.Tensor, Y: torch.Tensor, lam: float = 1e-4,
-          thresh: float = 1e-3, iters: int = 10) -> torch.Tensor:
+def thresholded(X: torch.Tensor, Y: torch.Tensor, lam: float = 1e-4,
+          threshold: float = 1e-3, iters: int = 10) -> torch.Tensor:
     """Sequential thresholded least squares → (n_terms, n_out) coefs."""
     d = X.shape[1]
     eye = lam * torch.eye(d, dtype=X.dtype, device=X.device)
     coef = torch.linalg.solve(X.t() @ X + eye, X.t() @ Y)
     for _ in range(iters):
-        small = coef.abs() < thresh
+        small = coef.abs() < threshold
         coef = coef.masked_fill(small, 0.0)
         for j in range(Y.shape[1]):
             big = ~small[:, j]
@@ -60,27 +60,27 @@ def collect(model, field: Field, forcing: Forcing, actions: Actions,
     X, Y = [], []
     for t in range(forcing.days):
         feats = model._features(field.state, forcing.day(t), actions.day(t))
-        out = model._nn(model.residual, feats, field.state.z)
-        Y.append(out[0] if isinstance(out, tuple) else out)
+        output = model._nn(model.residual, feats, field.state.z)
+        Y.append(output[0] if isinstance(output, tuple) else output)
         X.append(feats)
         field, _ = model.step(field, actions.day(t), forcing.day(t), t)
     return torch.cat(X), torch.cat(Y)
 
 
 def identify(model, field: Field, forcing: Forcing, actions: Actions,
-             thresh: float = 1e-3, lam: float = 1e-4) -> dict:
+             threshold: float = 1e-3, lam: float = 1e-4) -> dict:
     """SINDy on the residual → readable per-channel equations."""
     X, Y = collect(model, field, forcing, actions)
     scale = Y.std(0).clamp(min=1e-9)
     phi, names = library(X)
-    coef = stlsq(phi, Y / scale, lam=lam, thresh=thresh).detach()
+    coef = thresholded(phi, Y / scale, lam=lam, threshold=threshold).detach()
     eqs = {}
     for j, v in enumerate(RESIDUAL_VARS):
         nz = coef[:, j].abs() > 0
         eqs[v] = {names[i]: round(float(coef[i, j]), 6)
                   for i in torch.nonzero(nz).flatten().tolist()}
-    res = (Y / scale - phi @ coef).detach().pow(2).sum()
-    tot = (Y / scale).detach().pow(2).sum()
-    r2 = 1.0 - float(res) / float(tot) if float(tot) > 1e-12 else 0.0
+    result = (Y / scale - phi @ coef).detach().pow(2).sum()
+    total = (Y / scale).detach().pow(2).sum()
+    r2 = 1.0 - float(result) / float(total) if float(total) > 1e-12 else 0.0
     return {"equations": eqs, "coef": coef, "names": names,
             "scale": scale, "r2": round(r2, 4)}

@@ -35,11 +35,11 @@ class FieldGraph:
     share_aquifer: bool = True
 
     @classmethod
-    def chain(cls, n: int, frac: float = 0.5) -> "FieldGraph":
+    def chain(cls, n: int, fraction: float = 0.5) -> "FieldGraph":
         """1-D hillside: each field passes `frac` of runoff to i+1."""
         w = torch.zeros(n, n, dtype=DTYPE)
-        idx = torch.arange(n - 1)
-        w[idx, idx + 1] = frac
+        index = torch.arange(n - 1)
+        w[index, index + 1] = fraction
         return cls(w)
 
     def weights(self, field: Field, fluxes: dict) -> torch.Tensor:
@@ -49,7 +49,7 @@ class FieldGraph:
         return FieldGraph(self.w.to(device), self.share_aquifer)
 
 
-class RouteNet(nn.Module):
+class Route(nn.Module):
     """Graph-attention edge scorer: attention logits on adjacent directed
     edges (i → j, i upstream of j) softmaxed over each source's outbound
     edges, so every field's water is conserved by construction.
@@ -69,14 +69,14 @@ class RouteNet(nn.Module):
         self.to(DTYPE)
 
     def forward(self, feats: torch.Tensor,
-                adj: torch.Tensor) -> torch.Tensor:
+                adjacency: torch.Tensor) -> torch.Tensor:
         """feats (B, F) → W (B, B) row-stochastic on `adj` (incl self)."""
         h = self.embed(feats)
         b = h.shape[0]
-        hi = h.unsqueeze(1).expand(b, b, h.shape[-1])
+        high = h.unsqueeze(1).expand(b, b, h.shape[-1])
         hj = h.unsqueeze(0).expand(b, b, h.shape[-1])
-        e = self.score(torch.cat([hi, hj], dim=-1)).squeeze(-1)
-        e = e.masked_fill(~adj, -1e30)
+        e = self.score(torch.cat([high, hj], dim=-1)).squeeze(-1)
+        e = e.masked_fill(~adjacency, -1e30)
         return torch.softmax(e, dim=-1)
 
 
@@ -85,30 +85,30 @@ class RouteGraph:
     """Learned routing: `net` produces a dynamic row-stochastic W_t on a
     fixed directed adjacency built from topography (`from_topo`)."""
 
-    adj: torch.Tensor        # (B, B) bool — directed downstream edges
-    net: RouteNet
+    adjacency: torch.Tensor        # (B, B) bool — directed downstream edges
+    net: Route
     share_aquifer: bool = True
 
     @classmethod
-    def from_topo(cls, lat: torch.Tensor, lon: torch.Tensor,
-                  elev: torch.Tensor, k: int = 3,
+    def from_topo(cls, latitude: torch.Tensor, longitude: torch.Tensor,
+                  elevation: torch.Tensor, k: int = 3,
                   hidden: int = 32,
                   seed: int | None = None) -> "RouteGraph":
         """Adjacency: each field links to its k nearest downhill neighbors
         plus itself; fields at local minima only keep their self-loop, so
         their runoff ponds locally instead of vanishing."""
-        xy = torch.stack([lat, lon], dim=-1).to(DTYPE)
+        xy = torch.stack([latitude, longitude], dim=-1).to(DTYPE)
         b = xy.shape[0]
         d = torch.cdist(xy, xy)
         _, nbr = d.topk(min(k + 1, b), dim=-1, largest=False)
-        adj = torch.zeros(b, b, dtype=torch.bool)
-        elev = elev.to(DTYPE)
+        adjacency = torch.zeros(b, b, dtype=torch.bool)
+        elevation = elevation.to(DTYPE)
         for i in range(b):
-            lo = [j for j in nbr[i].tolist()
-                  if j != i and elev[j] <= elev[i]]
-            adj[i, i] = True
-            adj[i, torch.tensor(lo or [i], dtype=torch.long)] = True
-        return cls(adj=adj, net=RouteNet(3, hidden, seed))
+            low = [j for j in nbr[i].tolist()
+                  if j != i and elevation[j] <= elevation[i]]
+            adjacency[i, i] = True
+            adjacency[i, torch.tensor(low or [i], dtype=torch.long)] = True
+        return cls(adjacency=adjacency, net=Route(3, hidden, seed))
 
     def weights(self, field: Field, fluxes: dict) -> torch.Tensor:
         s = field.state
@@ -116,28 +116,28 @@ class RouteGraph:
             [s.sw.sum(-1) / s.sw.sum(-1).max().clamp(min=1e-9),
              fluxes["runoff"] / fluxes["runoff"].max().clamp(min=1e-9),
              s.tws / s.tws.max().clamp(min=1e-9)], dim=-1)
-        return self.net(feats, self.adj)
+        return self.net(feats, self.adjacency)
 
 
 def fit_route(graph: RouteGraph, feats: torch.Tensor,
               w_ref: torch.Tensor, epochs: int = 100,
-              lr: float = 1e-3) -> dict:
+              rate: float = 1e-3) -> dict:
     """Imitation-fit the router on (features → reference matrix) pairs:
     daily flux snapshots against a routing prior or observed downstream
     arrival proportions. Returns the loss history."""
-    opt = torch.optim.Adam(graph.net.parameters(), lr=lr)
-    best, hist = float("inf"), []
+    opt = torch.optim.Adam(graph.net.parameters(), rate=rate)
+    best, history = float("inf"), []
     for _ in range(epochs):
         opt.zero_grad(set_to_none=True)
-        w = graph.net(feats.to(DTYPE), graph.adj)
+        w = graph.net(feats.to(DTYPE), graph.adjacency)
         loss = (w - w_ref).pow(2).mean()
         if not torch.isfinite(loss):
             break
         loss.backward()
         opt.step()
-        hist.append(float(loss.detach()))
-        best = min(best, hist[-1])
-    return {"best_loss": round(best, 8), "history": hist}
+        history.append(float(loss.detach()))
+        best = min(best, history[-1])
+    return {"best_loss": round(best, 8), "history": history}
 
 
 class Landscape:
@@ -154,22 +154,22 @@ class Landscape:
         self.graph = graph
         self.pending: torch.Tensor | None = None
 
-    def step(self, field: Field, action: dict, forcing_d: dict,
+    def step(self, field: Field, action: dict, forcing_day: dict,
              t: int = 0) -> tuple[Field, dict]:
         if self.pending is None:
             self.pending = torch.zeros(field.batch, dtype=DTYPE,
                                        device=field.state.sw.device)
         f2, fluxes = self.model.step(
             field, action,
-            {**forcing_d, "precip": forcing_d["precip"] + self.pending}, t)
+            {**forcing_day, "precip": forcing_day["precip"] + self.pending}, t)
         s = f2.state
         routed = self.graph.weights(f2, fluxes).t() @ fluxes["runoff"]
         self.pending = routed
         if self.graph.share_aquifer:
             mean_tws = s.tws.mean().expand_as(s.tws)
             s = s.replace(tws=s.tws + 0.5 * (mean_tws - s.tws))
-        f2 = f2.__class__(state=s, soil=f2.soil, lat=f2.lat,
-                          elev=f2.elev, ctx=f2.ctx)
+        f2 = f2.__class__(state=s, soil=f2.soil, latitude=f2.latitude,
+                          elevation=f2.elevation, context=f2.context)
         return f2, fluxes
 
     def rollout(self, field: Field, forcing, actions,

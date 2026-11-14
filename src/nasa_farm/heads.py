@@ -60,21 +60,21 @@ def day_update(state: FieldState, fluxes: dict) -> torch.Tensor:
     return torch.stack([cols[n] for n in METRICS], dim=-1)
 
 
-def fold(acc: torch.Tensor, t: int, update: torch.Tensor) -> torch.Tensor:
+def fold(accumulate: torch.Tensor, t: int, update: torch.Tensor) -> torch.Tensor:
     """acc' = acc with one daily update folded in — out-of-place, autograd-safe
     equivalent of `acc[:, h, SUM] += u` + `acc[:, h, END] = u`."""
-    h = min(t // DAYS_PER_YEAR, acc.shape[1] - 1)
-    m = acc.shape[-1]
-    sel = (torch.arange(acc.shape[1], device=acc.device) == h).to(acc.dtype)
-    end_mask = torch.zeros(m, dtype=torch.bool, device=acc.device)
+    h = min(t // DAYS_PER_YEAR, accumulate.shape[1] - 1)
+    m = accumulate.shape[-1]
+    sel = (torch.arange(accumulate.shape[1], device=accumulate.device) == h).to(accumulate.dtype)
+    end_mask = torch.zeros(m, dtype=torch.bool, device=accumulate.device)
     end_mask[END_I] = True
     sum_mask = ~end_mask
     u = update.unsqueeze(1)
-    acc = acc + sel.view(1, -1, 1) * u * sum_mask.to(u.dtype)
-    acc = torch.where(
+    accumulate = accumulate + sel.view(1, -1, 1) * u * sum_mask.to(u.dtype)
+    accumulate = torch.where(
         sel.view(1, -1, 1).bool() & end_mask.view(1, 1, -1),
-        u.expand(-1, acc.shape[1], -1), acc)
-    return acc
+        u.expand(-1, accumulate.shape[1], -1), accumulate)
+    return accumulate
 
 
 class SeasonAccumulator:
@@ -83,19 +83,19 @@ class SeasonAccumulator:
     def __init__(self, batch: int, horizon_years: int,
                  device: torch.device | str | None = None) -> None:
         self.horizon = horizon_years
-        self.acc = torch.zeros(batch, horizon_years, len(METRICS),
+        self.accumulate = torch.zeros(batch, horizon_years, len(METRICS),
                                dtype=DTYPE, device=device)
 
     def __call__(self, t: int, state: FieldState, fluxes: dict) -> None:
         h = min(t // DAYS_PER_YEAR, self.horizon - 1)
         u = day_update(state, fluxes)
-        acc = self.acc[:, h]
-        acc[:, SUM_I] += u[:, SUM_I]
-        acc[:, END_I] = u[:, END_I]
+        accumulate = self.accumulate[:, h]
+        accumulate[:, SUM_I] += u[:, SUM_I]
+        accumulate[:, END_I] = u[:, END_I]
 
     def result(self) -> torch.Tensor:
         """(B, H, M)."""
-        return self.acc
+        return self.accumulate
 
 
 def objectives(season_metrics: torch.Tensor, n_plans: int, n_scen: int,

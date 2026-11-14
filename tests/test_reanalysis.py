@@ -27,21 +27,21 @@ class TestDomain:
 
 class TestConvert:
     def test_units(self):
-        out = convert({
+        output = convert({
             "Tair": 293.15, "Tair_min": 283.15, "Tair_max": 303.15,
             "Qair": 0.008, "PSurf": 101325.0,
             "Wind_E": 3.0, "Wind_N": 4.0,
             "SWdown": 250.0, "Rainf": 5.0})
-        assert out["tmin"] == pytest.approx(10.0)
-        assert out["tmax"] == pytest.approx(30.0)
-        assert out["srad"] == pytest.approx(21.6)      # W/m² → MJ/m²/d
-        assert out["precip"] == pytest.approx(5.0)
-        assert out["u2"] == pytest.approx(5.0 * 0.748)  # hypot × FAO-56
-        assert 1.0 <= out["rh"] <= 100.0
+        assert output["tmin"] == pytest.approx(10.0)
+        assert output["tmax"] == pytest.approx(30.0)
+        assert output["srad"] == pytest.approx(21.6)      # W/m² → MJ/m²/d
+        assert output["precip"] == pytest.approx(5.0)
+        assert output["u2"] == pytest.approx(5.0 * 0.748)  # hypot × FAO-56
+        assert 1.0 <= output["rh"] <= 100.0
 
     def test_rainf_rate_converts(self):
-        out = convert({"Rainf": 5e-5, "SWdown": 0.0, "Wind_E": 0, "Wind_N": 0})
-        assert out["precip"] == pytest.approx(4.32)
+        output = convert({"Rainf": 5e-5, "SWdown": 0.0, "Wind_E": 0, "Wind_N": 0})
+        assert output["precip"] == pytest.approx(4.32)
 
     def test_rh_bounds(self):
         assert _rh(0.050, 310.0, 101325.0) == pytest.approx(100.0)

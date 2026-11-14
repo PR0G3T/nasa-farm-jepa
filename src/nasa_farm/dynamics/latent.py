@@ -26,18 +26,18 @@ LINKS: dict = {"identity": lambda t: t, "relu": torch.relu}
 (the geometry RDMReg targets)."""
 
 
-class LatentDyn(nn.Module):
+class Dynamics(nn.Module):
     """GRU transition predictor: zh' = GRU([feats, z, ctx?], zh); z' = z + head(zh')."""
 
     def __init__(self, dim: int, hidden: int = 64, stochastic: bool = False,
-                 ctx_dim: int = 0, link: str = "identity") -> None:
+                 context_dimension: int = 0, link: str = "identity") -> None:
         super().__init__()
         self.dim = dim
-        self.h_dim = hidden
+        self.hidden_dimension = hidden
         self.stochastic = stochastic
-        self.ctx_dim = ctx_dim
+        self.context_dimension = context_dimension
         self.link = LINKS[link]
-        self.gru = nn.GRUCell(N_FEATURES + dim + ctx_dim, hidden)
+        self.gru = nn.GRUCell(N_FEATURES + dim + context_dimension, hidden)
         self.head = nn.Linear(hidden, dim * (2 if stochastic else 1))
         nn.init.zeros_(self.head.weight)
         nn.init.zeros_(self.head.bias)
@@ -46,31 +46,31 @@ class LatentDyn(nn.Module):
 
     def forward(self, feats: torch.Tensor, z: torch.Tensor,
                 zh: torch.Tensor | None = None,
-                ctx: torch.Tensor | None = None,
-                gen: torch.Generator | None = None
+                context: torch.Tensor | None = None,
+                generation: torch.Generator | None = None
                 ) -> tuple[torch.Tensor, torch.Tensor]:
-        if self.ctx_dim:
-            c = ctx if ctx is not None else torch.zeros(
-                feats.shape[0], self.ctx_dim,
+        if self.context_dimension:
+            c = context if context is not None else torch.zeros(
+                feats.shape[0], self.context_dimension,
                 dtype=feats.dtype, device=feats.device)
             x = torch.cat([feats, z, c.to(feats.dtype)], dim=-1)
         else:
             x = torch.cat([feats, z], dim=-1)
         if zh is None:
-            zh = torch.zeros(feats.shape[0], self.h_dim,
+            zh = torch.zeros(feats.shape[0], self.hidden_dimension,
                              dtype=feats.dtype, device=feats.device)
         zh = self.gru(x, zh.to(feats.dtype))
-        out = self.head(zh)
+        output = self.head(zh)
         if not self.stochastic:
-            self.kl = torch.zeros((), dtype=out.dtype, device=out.device)
-            return self.link(z + out), zh
-        mu, logvar = out.chunk(2, dim=-1)
+            self.kl = torch.zeros((), dtype=output.dtype, device=output.device)
+            return self.link(z + output), zh
+        mu, logvar = output.chunk(2, dim=-1)
         logvar = logvar.clamp(-8.0, 4.0)
-        sig = (0.5 * logvar).exp()
-        eps = torch.randn(mu.shape, generator=gen,
+        signal = (0.5 * logvar).exp()
+        eps = torch.randn(mu.shape, generator=generation,
                           dtype=mu.dtype, device=mu.device)
-        self.kl = 0.5 * (mu.pow(2) + sig.pow(2) - logvar - 1.0).mean()
-        return self.link(z + mu + sig * eps), zh
+        self.kl = 0.5 * (mu.pow(2) + signal.pow(2) - logvar - 1.0).mean()
+        return self.link(z + mu + signal * eps), zh
 
     def seed(self, z: torch.Tensor) -> torch.Tensor:
         """Obs embedding → initial latent state (identity for a flat
@@ -78,36 +78,36 @@ class LatentDyn(nn.Module):
         return z
 
     def unroll(self, feats_seq: torch.Tensor, z: torch.Tensor,
-               zh: torch.Tensor | None = None, ctx: torch.Tensor | None = None,
-               gen: torch.Generator | None = None) -> torch.Tensor:
+               zh: torch.Tensor | None = None, context: torch.Tensor | None = None,
+               generation: torch.Generator | None = None) -> torch.Tensor:
         """Multi-step rollout of the predictor alone. feats_seq (T, B, F)."""
         zs = []
         for t in range(feats_seq.shape[0]):
-            z, zh = self(feats_seq[t], z, zh, ctx, gen)
+            z, zh = self(feats_seq[t], z, zh, context, generation)
             zs.append(z)
         return torch.stack(zs)
 
 
-class ObsEncoder(nn.Module):
+class ObservationEncoder(nn.Module):
     """obs-vector → z. Trained so `encode(obs_t)` is the JEPA target the
     predictor `LatentDyn` chases along the rollout. The LayerNorm keeps the
     embedding scale O(1): the characteristic-function SIGReg saturates on
     exploded embeddings (its gradient vanishes before it can pull the
     scale back), so the bound must be architectural, not just a loss."""
 
-    def __init__(self, obs_dim: int, z_dim: int, hidden: int = 64) -> None:
+    def __init__(self, observed_dimension: int, z_dim: int, hidden: int = 64) -> None:
         super().__init__()
         self.net = nn.Sequential(
-            nn.Linear(obs_dim, hidden), nn.SiLU(),
+            nn.Linear(observed_dimension, hidden), nn.SiLU(),
             nn.Linear(hidden, z_dim), nn.LayerNorm(z_dim),
         )
         self.to(torch.float64)
 
-    def forward(self, obs: torch.Tensor) -> torch.Tensor:
-        return self.net(obs)
+    def forward(self, observed: torch.Tensor) -> torch.Tensor:
+        return self.net(observed)
 
 
-def sigreg(z: torch.Tensor, directions: torch.Tensor | None = None,
+def regularization(z: torch.Tensor, directions: torch.Tensor | None = None,
            n_dirs: int = 32, freqs: tuple[float, ...] = (1.0, 2.0, 4.0),
            seed: int = 0) -> torch.Tensor:
     """Sketched Isotropic Gaussian Regularization (LeJEPA).
@@ -132,7 +132,7 @@ def sigreg(z: torch.Tensor, directions: torch.Tensor | None = None,
     return ((phi_re - target) ** 2 + phi_im ** 2).mean()
 
 
-def jepa_loss(z_obs: torch.Tensor, z_pred: torch.Tensor,
+def embedding_loss(z_observed: torch.Tensor, z_pred: torch.Tensor,
               sig_weight: float = 1.0, kl: torch.Tensor | float = 0.0,
               kl_weight: float = 0.0, sig_seed: int = 0,
               z_reg: torch.Tensor | None = None) -> torch.Tensor:
@@ -144,11 +144,11 @@ def jepa_loss(z_obs: torch.Tensor, z_pred: torch.Tensor,
     (the online embeddings) when given — LeJEPA regularizes the online
     side since EMA targets carry no gradient — else falls back to z_obs.
     """
-    pred = (z_pred - z_obs.detach()).pow(2).mean()
+    predicted = (z_pred - z_observed.detach()).pow(2).mean()
     kl_term = kl if isinstance(kl, torch.Tensor) else torch.tensor(
         float(kl), dtype=z_pred.dtype, device=z_pred.device)
-    reg = z_obs if z_reg is None else z_reg
-    return pred + sig_weight * sigreg(reg.reshape(-1, reg.shape[-1]),
+    regularization = z_observed if z_reg is None else z_reg
+    return predicted + sig_weight * regularization(regularization.reshape(-1, regularization.shape[-1]),
                                       seed=sig_seed) + kl_weight * kl_term
 
 
@@ -173,9 +173,9 @@ class TargetEncoder(nn.Module):
         for t, o in zip(self.net.parameters(), online.parameters()):
             t.mul_(self.decay).add_(o, alpha=1.0 - self.decay)
 
-    def forward(self, obs: torch.Tensor) -> torch.Tensor:
+    def forward(self, observed: torch.Tensor) -> torch.Tensor:
         with torch.no_grad():
-            return self.net(obs)
+            return self.net(observed)
 
 
 class PatchEncoder(nn.Module):
@@ -204,64 +204,64 @@ class PatchEncoder(nn.Module):
         return self.net(patch)
 
 
-class TopKSAE(nn.Module):
+class Autoencoder(nn.Module):
     """Top-k sparse autoencoder over latents — decomposes z into a sparse
     dictionary of candidate factors (mechanistic interpretability):
     `features(z)` exposes which sparse units are active, `recon` keeps the
     decomposition lossless. Top-k activation gives a fixed activation
     budget without an L1 knob to tune."""
 
-    def __init__(self, dim: int, n_feat: int, topk: int,
+    def __init__(self, dim: int, feature_count: int, topk: int,
                  seed: int | None = None) -> None:
         super().__init__()
         if seed is not None:
             torch.manual_seed(seed)
         self.topk = topk
-        self.enc = nn.Linear(dim, n_feat)
-        self.dec = nn.Linear(n_feat, dim, bias=False)
+        self.encoder = nn.Linear(dim, feature_count)
+        self.decoder = nn.Linear(feature_count, dim, bias=False)
         self.bias = nn.Parameter(torch.zeros(dim, dtype=torch.float64))
         with torch.no_grad():
-            self.dec.weight.div_(
-                self.dec.weight.norm(dim=0, keepdim=True) + 1e-9)
+            self.decoder.weight.div_(
+                self.decoder.weight.norm(dim=0, keepdim=True) + 1e-9)
         self.to(torch.float64)
 
     def features(self, z: torch.Tensor) -> torch.Tensor:
         """Sparse activations (…, F): top-k ReLU units per row."""
-        a = self.enc(z - self.bias)
-        v, idx = a.topk(self.topk, dim=-1)
-        return torch.zeros_like(a).scatter_(-1, idx, v.clamp_min(0.0))
+        a = self.encoder(z - self.bias)
+        v, index = a.topk(self.topk, dim=-1)
+        return torch.zeros_like(a).scatter_(-1, index, v.clamp_min(0.0))
 
     def forward(self, z: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         f = self.features(z)
-        return f @ self.dec.weight.t() + self.bias, f
+        return f @ self.decoder.weight.t() + self.bias, f
 
 
-def sae_fit(sae: TopKSAE, z_stream: torch.Tensor, epochs: int = 100,
-            lr: float = 1e-3, verbose: bool = False) -> dict:
+def fit_autoencoder(autoencoder: Autoencoder, z_stream: torch.Tensor, epochs: int = 100,
+            rate: float = 1e-3, verbose: bool = False) -> dict:
     """Adam fit of the dictionary on a (N, K) latent stream; returns the
     final reconstruction error and per-unit firing rates — dead features
     are visible directly in `rate`."""
     zs = z_stream.reshape(-1, z_stream.shape[-1])
-    opt = torch.optim.Adam(sae.parameters(), lr=lr)
-    best, hist = float("inf"), []
-    for ep in range(1, epochs + 1):
+    opt = torch.optim.Adam(autoencoder.parameters(), rate=rate)
+    best, history = float("inf"), []
+    for evaporation in range(1, epochs + 1):
         opt.zero_grad(set_to_none=True)
-        recon, f = sae(zs)
+        recon, f = autoencoder(zs)
         loss = (recon - zs).pow(2).mean()
         if not torch.isfinite(loss):
             break
         loss.backward()
         opt.step()
         with torch.no_grad():
-            sae.dec.weight.div_(
-                sae.dec.weight.norm(dim=0, keepdim=True) + 1e-9)
+            autoencoder.decoder.weight.div_(
+                autoencoder.decoder.weight.norm(dim=0, keepdim=True) + 1e-9)
         v = float(loss.detach())
-        hist.append(v)
+        history.append(v)
         best = min(best, v)
-        if verbose and ep % 25 == 0:
-            print(f"  epoch {ep}: sae {v:.5f}")
-    rate = (sae.features(zs) > 0).to(zs.dtype).mean(0)
-    return {"best_loss": round(best, 8), "history": hist,
+        if verbose and evaporation % 25 == 0:
+            print(f"  epoch {evaporation}: sae {v:.5f}")
+    rate = (autoencoder.features(zs) > 0).to(zs.dtype).mean(0)
+    return {"best_loss": round(best, 8), "history": history,
             "rate": rate.detach()}
 
 
@@ -275,7 +275,7 @@ OPS: dict[str, tuple[int, ...]] = {
 sub-dynamics per physics subprocess."""
 
 
-class FactorDyn(nn.Module):
+class Factor(nn.Module):
     """Factored latent: one independent sub-dynamics per feature group.
 
     Each factor owns a GRU over (its feature columns, its z slot[, ctx])
@@ -285,14 +285,14 @@ class FactorDyn(nn.Module):
     """
 
     def __init__(self, dim: int, parts: dict[str, tuple[int, ...]],
-                 hidden: int = 64, ctx_dim: int = 0) -> None:
+                 hidden: int = 64, context_dimension: int = 0) -> None:
         super().__init__()
         self.parts = dict(parts)
         self.part_dim, self.hp = dim, hidden
-        self.dim, self.h_dim = dim * len(parts), hidden * len(parts)
-        self.ctx_dim = ctx_dim
+        self.dim, self.hidden_dimension = dim * len(parts), hidden * len(parts)
+        self.context_dimension = context_dimension
         self.cell = nn.ModuleDict(
-            {n: nn.GRUCell(len(c) + dim + ctx_dim, hidden)
+            {n: nn.GRUCell(len(c) + dim + context_dimension, hidden)
              for n, c in parts.items()})
         self.head = nn.ModuleDict(
             {n: nn.Linear(hidden, dim) for n in parts})
@@ -307,20 +307,20 @@ class FactorDyn(nn.Module):
 
     def forward(self, feats: torch.Tensor, z: torch.Tensor,
                 zh: torch.Tensor | None = None,
-                ctx: torch.Tensor | None = None,
-                gen: torch.Generator | None = None
+                context: torch.Tensor | None = None,
+                generation: torch.Generator | None = None
                 ) -> tuple[torch.Tensor, torch.Tensor]:
         if zh is None:
-            zh = torch.zeros(feats.shape[0], self.h_dim,
+            zh = torch.zeros(feats.shape[0], self.hidden_dimension,
                              dtype=feats.dtype, device=feats.device)
-        if self.ctx_dim and ctx is None:
-            ctx = torch.zeros(feats.shape[0], self.ctx_dim,
+        if self.context_dimension and context is None:
+            context = torch.zeros(feats.shape[0], self.context_dimension,
                               dtype=feats.dtype, device=feats.device)
         zs, hs = [], []
         for i, (name, cols) in enumerate(self.parts.items()):
             zk = self._slot(z, i, self.part_dim)
             x = torch.cat([feats[:, list(cols)], zk] +
-                          ([ctx.to(feats.dtype)] if self.ctx_dim else []), -1)
+                          ([context.to(feats.dtype)] if self.context_dimension else []), -1)
             hk = self.cell[name](x, self._slot(zh, i, self.hp).to(feats.dtype))
             zs.append(zk + self.head[name](hk))
             hs.append(hk)
@@ -331,10 +331,10 @@ class FactorDyn(nn.Module):
         return z
 
     def unroll(self, feats_seq: torch.Tensor, z: torch.Tensor,
-               zh: torch.Tensor | None = None, ctx: torch.Tensor | None = None,
-               gen: torch.Generator | None = None) -> torch.Tensor:
+               zh: torch.Tensor | None = None, context: torch.Tensor | None = None,
+               generation: torch.Generator | None = None) -> torch.Tensor:
         zs = []
         for t in range(feats_seq.shape[0]):
-            z, zh = self(feats_seq[t], z, zh, ctx, gen)
+            z, zh = self(feats_seq[t], z, zh, context, generation)
             zs.append(z)
         return torch.stack(zs)

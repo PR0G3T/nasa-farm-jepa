@@ -40,8 +40,8 @@ class TestEnsemble:
         assert torch.equal(f.doy[0, :365], f.doy[0, 365:730])
 
     def test_ensemble_batch(self):
-        ens = ensemble_of([synthetic_year(40.0, seed=s) for s in range(4)])
-        assert ens.batch == 4 and ens.days == 365
+        ensemble = ensemble_of([synthetic_year(40.0, seed=s) for s in range(4)])
+        assert ensemble.batch == 4 and ensemble.days == 365
 
     def test_climatology_shift(self):
         years = [synthetic_year(40.0, seed=s) for s in range(3)]

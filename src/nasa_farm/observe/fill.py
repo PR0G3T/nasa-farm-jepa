@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import datetime as dt
 
-import numpy as np
+import numpy as numpy
 import torch
 
 from nasa_farm.constants import DTYPE
@@ -56,39 +56,39 @@ def _reweight(y: torch.Tensor, z: torch.Tensor, w: torch.Tensor,
     return torch.where(under, w * floor, w)
 
 
-def _day_of(dates: np.ndarray) -> np.ndarray:
+def _day_of(dates: numpy.ndarray) -> numpy.ndarray:
     """yyyymmdd → ordinal day index within the series' own span."""
     d0 = dt.date(dates.min() // 10000, dates.min() // 100 % 100,
                  dates.min() % 100).toordinal()
-    out = np.empty(len(dates), np.int64)
+    output = numpy.empty(len(dates), numpy.int64)
     for i, d in enumerate(dates):
-        out[i] = (dt.date(d // 10000, d // 100 % 100, d % 100).toordinal()
+        output[i] = (dt.date(d // 10000, d // 100 % 100, d % 100).toordinal()
                   - d0)
-    return out
+    return output
 
 
-def fill_series(dates: np.ndarray, values: np.ndarray,
-                weights: np.ndarray | None = None, lam: float = 100.0,
-                envelope: int = 0) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+def fill_series(dates: numpy.ndarray, values: numpy.ndarray,
+                weights: numpy.ndarray | None = None, lam: float = 100.0,
+                envelope: int = 0) -> tuple[numpy.ndarray, numpy.ndarray, numpy.ndarray]:
     """Irregular obs → regular daily grid.
 
     Returns (day_index, filled, obs_weight): obs_weight=0 marks filled
     cells — downstream losses can mask or down-weight them.
     """
-    dates = np.asarray(dates, np.int64)
-    idx = _day_of(dates)
-    n = int(idx.max()) + 1
-    v = np.asarray(values, np.float64)
-    w_in = np.ones_like(v) if weights is None else np.asarray(weights, np.float64)
-    w_in = np.where(np.isfinite(v), w_in, 0.0)
-    num = np.zeros(n); den = np.zeros(n)
-    np.add.at(num, idx, w_in * np.nan_to_num(v))
-    np.add.at(den, idx, w_in)
+    dates = numpy.asarray(dates, numpy.int64)
+    index = _day_of(dates)
+    n = int(index.max()) + 1
+    v = numpy.asarray(values, numpy.float64)
+    w_in = numpy.ones_like(v) if weights is None else numpy.asarray(weights, numpy.float64)
+    w_in = numpy.where(numpy.isfinite(v), w_in, 0.0)
+    number = numpy.zeros(n); den = numpy.zeros(n)
+    numpy.add.at(number, index, w_in * numpy.nan_to_num(v))
+    numpy.add.at(den, index, w_in)
     w = den.clip(0.0, 1.0)
-    y = np.where(den > 0, num / np.maximum(den, 1e-12), np.nan)
+    y = numpy.where(den > 0, number / numpy.maximum(den, 1e-12), numpy.nan)
     wt, yt = torch.from_numpy(w), torch.from_numpy(y)
     for _ in range(envelope):
         z = whittaker(yt, wt, lam)
         wt = _reweight(yt, z, wt)
     z = whittaker(yt, wt, lam)
-    return np.arange(n), z.numpy(), w
+    return numpy.arange(n), z.numpy(), w

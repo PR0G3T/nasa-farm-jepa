@@ -37,7 +37,7 @@ class FieldState:
     crop: torch.Tensor         # long — index into CropLibrary, −1 = bare
     growing: torch.Tensor      # bool — crop in the ground
     harvested: torch.Tensor    # bool — current crop already terminated
-    vern: torch.Tensor         # d — chilling days accumulated this crop cycle
+    vernalization: torch.Tensor         # d — chilling days accumulated this crop cycle
     heat_acc: torch.Tensor     # °C·d — reproductive heat load this crop cycle
     z: torch.Tensor | None = None   # (B, K) free latent dims; None = off
     zh: torch.Tensor | None = None  # (B, H) recurrent latent hidden state
@@ -52,15 +52,15 @@ class FieldState:
     def n_layers(self) -> int:
         return self.sw.shape[1]
 
-    def _map(self, fn) -> "FieldState":
+    def _map(self, function) -> "FieldState":
         """Apply fn to every tensor field, preserving static metadata."""
         return replace(self, **{
-            f: (fn(v) if isinstance(v, torch.Tensor) else v)
+            f: (function(v) if isinstance(v, torch.Tensor) else v)
             for f in self.__dataclass_fields__
             if (v := getattr(self, f)) is not None})
 
-    def replace(self, **kw) -> "FieldState":
-        return replace(self, **kw)
+    def replace(self, **keywords) -> "FieldState":
+        return replace(self, **keywords)
 
     def clone(self) -> "FieldState":
         return self._map(lambda v: v.clone())
@@ -79,36 +79,36 @@ class Field:
 
     state: FieldState
     soil: SoilProfile
-    lat: torch.Tensor               # (B,) degrees
-    elev: torch.Tensor | None = None  # (B,) meters; None → 200 m assumed
-    ctx: torch.Tensor | None = None   # (B, C) static site embedding
+    latitude: torch.Tensor               # (B,) degrees
+    elevation: torch.Tensor | None = None  # (B,) meters; None → 200 m assumed
+    context: torch.Tensor | None = None   # (B, C) static site embedding
 
     @property
     def batch(self) -> int:
         return self.state.batch
 
     def elev_or_default(self) -> torch.Tensor:
-        if self.elev is not None:
-            return self.elev
-        return torch.full((self.batch,), 200.0, dtype=self.lat.dtype,
-                          device=self.lat.device)
+        if self.elevation is not None:
+            return self.elevation
+        return torch.full((self.batch,), 200.0, dtype=self.latitude.dtype,
+                          device=self.latitude.device)
 
     def repeat(self, n: int) -> "Field":
         return Field(
             state=self.state.repeat(n),
             soil=self.soil.repeat(n),
-            lat=self.lat.repeat(n),
-            elev=self.elev.repeat(n) if self.elev is not None else None,
-            ctx=self.ctx.repeat(n, 1) if self.ctx is not None else None,
+            latitude=self.latitude.repeat(n),
+            elevation=self.elevation.repeat(n) if self.elevation is not None else None,
+            context=self.context.repeat(n, 1) if self.context is not None else None,
         )
 
     def to(self, device: torch.device | str) -> "Field":
         return Field(
             state=self.state.to(device),
             soil=self.soil.to(device),
-            lat=self.lat.to(device),
-            elev=self.elev.to(device) if self.elev is not None else None,
-            ctx=self.ctx.to(device) if self.ctx is not None else None,
+            latitude=self.latitude.to(device),
+            elevation=self.elevation.to(device) if self.elevation is not None else None,
+            context=self.context.to(device) if self.context is not None else None,
         )
 
 
@@ -121,7 +121,7 @@ def initial_state(
     litter0: float = 500.0,
     fill_frac: float = 0.85,
     z_dim: int = 0,
-    h_dim: int = 0,
+    hidden_dimension: int = 0,
 ) -> FieldState:
     """FieldState at simulation start, soils filled to `fill_frac` of
     available water. SOC splits 15 % active / 85 % stable (typical
@@ -130,7 +130,7 @@ def initial_state(
 
     sw = (soil.wp + fill_frac * (soil.fc - soil.wp)).expand(batch, -1).clone()
     if soc0 is None:
-        soc_tot = (14_000.0 * soil.om[:, 0]).expand(batch)
+        soc_tot = (14_000.0 * soil.organic[:, 0]).expand(batch)
     else:
         soc_tot = torch.full((batch,), soc0, dtype=DTYPE)
     return FieldState(
@@ -143,9 +143,9 @@ def initial_state(
         crop=torch.full((batch,), -1, dtype=torch.long),
         growing=torch.zeros(batch, dtype=torch.bool),
         harvested=torch.zeros(batch, dtype=torch.bool),
-        vern=t(0.0), heat_acc=t(0.0),
+        vernalization=t(0.0), heat_acc=t(0.0),
         z=torch.zeros(batch, z_dim, dtype=DTYPE) if z_dim else None,
-        zh=torch.zeros(batch, h_dim, dtype=DTYPE) if h_dim else None,
+        zh=torch.zeros(batch, hidden_dimension, dtype=DTYPE) if hidden_dimension else None,
         depth=tuple(float(d) for d in soil.depth),
         tair=t(12.0),
     )

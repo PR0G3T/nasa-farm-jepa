@@ -26,12 +26,12 @@ from nasa_farm.constants import DAYS_PER_YEAR, DTYPE
 from nasa_farm.dynamics.model import WorldModel
 from nasa_farm.heads import (METRICS, OBJECTIVE_DIRECTION,
                              SeasonAccumulator, objectives)
-from nasa_farm.hardware import capabilities as caps
-from nasa_farm.hardware import memory as mem
+from nasa_farm.hardware import capabilities as capabilities
+from nasa_farm.hardware import memory as memory
 from nasa_farm.hardware import probe
-from nasa_farm.hardware import scheduler as sched
-from nasa_farm.hardware import telemetry as thermo
-from nasa_farm.state.crops import IDX
+from nasa_farm.hardware import scheduler as schedule
+from nasa_farm.hardware import telemetry as telemetry
+from nasa_farm.state.crops import INDEX
 from nasa_farm.state.field import Field
 from nasa_farm.state.soil import SoilProfile
 from nasa_farm.types import ACTION_VARS, Actions, FORCING_VARS, Forcing
@@ -53,27 +53,27 @@ def expand_actions(plans: torch.Tensor, crop_table: torch.Tensor,
     """
     r, h = plans.shape
     days = h * DAYS_PER_YEAR
-    dev = plans.device
-    sow = torch.full((r, days), -1, dtype=torch.long, device=dev)
-    irr = torch.zeros(r, days, dtype=DTYPE, device=dev)
-    fert = torch.zeros(r, days, dtype=DTYPE, device=dev)
-    sow_doy = crop_table[plans, IDX["sow_doy"]].long()          # (R, H)
+    device = plans.device
+    sow = torch.full((r, days), -1, dtype=torch.long, device=device)
+    irrigation = torch.zeros(r, days, dtype=DTYPE, device=device)
+    fertilizer = torch.zeros(r, days, dtype=DTYPE, device=device)
+    sow_doy = crop_table[plans, INDEX["sow_doy"]].long()          # (R, H)
     for y in range(h):
         day0 = y * DAYS_PER_YEAR
         sow_day = day0 + (sow_doy[:, y] - 1).clamp(min=0, max=DAYS_PER_YEAR - 1)
-        rows = torch.arange(r, device=dev)
+        rows = torch.arange(r, device=device)
         sow[rows, sow_day] = plans[:, y]
         if irr_mm_day > 0:
             for d in range(irr_window):
-                idx = (sow_day + d).clamp(max=days - 1)
+                index = (sow_day + d).clamp(max=days - 1)
                 after = sow_day + d
                 mask = after < day0 + DAYS_PER_YEAR
-                irr[rows[mask], idx[mask]] += irr_mm_day
+                irrigation[rows[mask], index[mask]] += irr_mm_day
         if n_fert_kg > 0:
             fday = (sow_day + fert_delay).clamp(max=days - 1)
             mask = sow_day + fert_delay < day0 + DAYS_PER_YEAR
-            fert[rows[mask], fday[mask]] += n_fert_kg
-    return Actions(sow=sow, irrigation=irr, n_fert=fert)
+            fertilizer[rows[mask], fday[mask]] += n_fert_kg
+    return Actions(sow=sow, irrigation=irrigation, n_fert=fertilizer)
 
 
 @dataclass(frozen=True, slots=True)
@@ -107,19 +107,19 @@ def _resolve(device: str | torch.device) -> torch.device | None:
     if d.type == "cpu":
         return d
     d = torch.device(d.type, 0 if d.index is None else d.index)
-    if d not in caps.accelerators():
+    if d not in capabilities.accelerators():
         raise RuntimeError(f"device {d} is not a usable accelerator")
     return d
 
 
 def _core(model: WorldModel, field: Field, forcing: Forcing,
-          actions: Actions, acc: SeasonAccumulator) -> torch.Tensor:
+          actions: Actions, accumulate: SeasonAccumulator) -> torch.Tensor:
     """The capturable kernel of a block: reset the accumulator, roll out,
     return metrics. No host reads of device data — graph-safe."""
-    acc.acc.zero_()
+    accumulate.accumulate.zero_()
     with torch.inference_mode():
-        model.rollout(field, forcing, actions, observer=acc)
-    return acc.result()
+        model.rollout(field, forcing, actions, observer=accumulate)
+    return accumulate.result()
 
 
 def _expand_ri(plans: torch.Tensor, crop_table: torch.Tensor, s: int,
@@ -132,30 +132,30 @@ def _expand_ri(plans: torch.Tensor, crop_table: torch.Tensor, s: int,
 
 
 def _rollout_metrics(model: WorldModel, field0: Field, plans: torch.Tensor,
-                     forcing_ens: Forcing, irr_mm_day: float,
+                     forcing_ensemble: Forcing, irr_mm_day: float,
                      n_fert_kg: float) -> torch.Tensor:
     """One contiguous plan block → raw seasonal metrics (r_c·S, H, M)."""
     r, h = plans.shape
-    s = forcing_ens.batch
+    s = forcing_ensemble.batch
     field = field0.repeat(r * s) if field0.batch == 1 else field0
     actions = _expand_ri(plans, model.crop_table, s, irr_mm_day, n_fert_kg)
-    forcing = forcing_ens.repeat(r)
-    acc = SeasonAccumulator(r * s, h, device=field.state.sw.device)
-    return _core(model, field, forcing, actions, acc)
+    forcing = forcing_ensemble.repeat(r)
+    accumulate = SeasonAccumulator(r * s, h, device=field.state.sw.device)
+    return _core(model, field, forcing, actions, accumulate)
 
 
 def _shard(model: WorldModel, field0: Field, plans: torch.Tensor,
-           ens: Forcing, irr_mm_day: float,
+           ensemble: Forcing, irr_mm_day: float,
            n_fert_kg: float) -> torch.Tensor:
     """Pool-mappable block worker — module-level so interpreter pools can
     pickle it. OMP is capped per shard: dispatch-bound ops only contend."""
-    prev = torch.get_num_threads()
+    previous = torch.get_num_threads()
     torch.set_num_threads(1)
     try:
-        return _rollout_metrics(model, field0, plans, ens,
+        return _rollout_metrics(model, field0, plans, ensemble,
                                 irr_mm_day, n_fert_kg)
     finally:
-        torch.set_num_threads(prev)
+        torch.set_num_threads(previous)
 
 
 def _field_slice(field: Field, a: int, b: int) -> Field:
@@ -165,14 +165,14 @@ def _field_slice(field: Field, a: int, b: int) -> Field:
         state=field.state._map(lambda v: v[a:b]),
         soil=SoilProfile(
             depth=soil.depth, sand=soil.sand[a:b], clay=soil.clay[a:b],
-            om=soil.om[a:b], sat=soil.sat[a:b], fc=soil.fc[a:b],
+            organic=soil.organic[a:b], sat=soil.sat[a:b], fc=soil.fc[a:b],
             wp=soil.wp[a:b], air=soil.air[a:b]),
-        lat=field.lat[a:b],
-        elev=field.elev[a:b] if field.elev is not None else None,
-        ctx=field.ctx[a:b] if field.ctx is not None else None)
+        latitude=field.latitude[a:b],
+        elevation=field.elevation[a:b] if field.elevation is not None else None,
+        context=field.context[a:b] if field.context is not None else None)
 
 
-def _block_ctx(lane: sched.Lane, start: int, k: int, s: int,
+def _block_ctx(lane: schedule.Lane, start: int, k: int, s: int,
                h: int) -> tuple[Field, Forcing, SeasonAccumulator]:
     """Per-block expansion: repeated template field or pre-batched slice,
     scenario-repeated forcing, and the metric accumulator.
@@ -183,32 +183,32 @@ def _block_ctx(lane: sched.Lane, start: int, k: int, s: int,
     also keeps the entry alive through the captured closure).
     """
     key = (0 if lane.field.batch == 1 else start, k)
-    ent = lane.ctx.get(key)
+    ent = lane.context.get(key)
     if ent is None:
-        fld = (lane.field.repeat(k * s) if lane.field.batch == 1
+        field = (lane.field.repeat(k * s) if lane.field.batch == 1
                else _field_slice(lane.field, start * s, (start + k) * s))
-        frc = lane.ens.repeat(k)
-        acc = SeasonAccumulator(k * s, h, device=lane.device)
-        if len(lane.ctx) >= 4:
-            lane.ctx.pop(next(iter(lane.ctx)))
-        lane.ctx[key] = ent = (fld, frc, acc)
+        forcing = lane.ensemble.repeat(k)
+        accumulate = SeasonAccumulator(k * s, h, device=lane.device)
+        if len(lane.context) >= 4:
+            lane.context.population(next(iter(lane.context)))
+        lane.context[key] = ent = (field, forcing, accumulate)
     return ent
 
 
-def _graphed(lane: sched.Lane, start: int, k: int, s: int, h: int):
+def _graphed(lane: schedule.Lane, start: int, k: int, s: int, h: int):
     """Closure captured into a graph: lazily pins this shape's ctx, then
     rebuilds Actions around the graph's static input buffers."""
     state: dict = {}
 
-    def fn(*t: torch.Tensor) -> torch.Tensor:
+    def function(*t: torch.Tensor) -> torch.Tensor:
         if "ctx" not in state:
             state["ctx"] = _block_ctx(lane, start, k, s, h)
-        fld, frc, acc = state["ctx"]
-        return _core(lane.model, fld, frc, Actions(*t), acc)
-    return fn
+        field, forcing, accumulate = state["ctx"]
+        return _core(lane.model, field, forcing, Actions(*t), accumulate)
+    return function
 
 
-def _accel_block(lane: sched.Lane, start: int, block: torch.Tensor,
+def _accelerator_block(lane: schedule.Lane, start: int, block: torch.Tensor,
                  irr_mm_day: float, n_fert_kg: float) -> torch.Tensor:
     """Accelerator lane work: stage plans, expand actions eagerly (the
     data-dependent indexing is not capturable), then run the core —
@@ -217,22 +217,22 @@ def _accel_block(lane: sched.Lane, start: int, block: torch.Tensor,
           if lane.comp_s is not None else nullcontext())
     with cm:
         k, h = block.shape
-        s = lane.ens.batch
+        s = lane.ensemble.batch
         plans_d = lane.stage.in_(block)
         acts = _expand_ri(plans_d, lane.model.crop_table, s,
                           irr_mm_day, n_fert_kg)
         acts_t = tuple(getattr(acts, n) for n in ACTION_VARS)
         if lane.use_graph and lane.graphs is not None \
                 and lane.field.batch == 1:
-            rep = lane.graphs.get((k, s, lane.ens.days),
+            rep = lane.graphs.get((k, s, lane.ensemble.days),
                                   _graphed(lane, start, k, s, h), acts_t)
             if rep is not None:
                 return rep(*acts_t)
-        fld, frc, acc = _block_ctx(lane, start, k, s, h)
-        return _core(lane.model, fld, frc, acts, acc)
+        field, forcing, accumulate = _block_ctx(lane, start, k, s, h)
+        return _core(lane.model, field, forcing, acts, accumulate)
 
 
-def _cpu_block(lane: sched.Lane, start: int, block: torch.Tensor,
+def _processor_block(lane: schedule.Lane, start: int, block: torch.Tensor,
                irr_mm_day: float, n_fert_kg: float) -> torch.Tensor:
     """CPU lane work: pool-sharded when a pool exists, serial otherwise.
     `step` is pure — zero shared mutation between shards."""
@@ -241,21 +241,21 @@ def _cpu_block(lane: sched.Lane, start: int, block: torch.Tensor,
         parts = lane.pool.map(
             _shard, itertools.repeat(lane.model),
             itertools.repeat(lane.field), chunks,
-            itertools.repeat(lane.ens), itertools.repeat(irr_mm_day),
+            itertools.repeat(lane.ensemble), itertools.repeat(irr_mm_day),
             itertools.repeat(n_fert_kg))
         return torch.cat(list(parts), dim=0)
-    s = lane.ens.batch
-    fld = (lane.field if lane.field.batch == 1
+    s = lane.ensemble.batch
+    field = (lane.field if lane.field.batch == 1
            else _field_slice(lane.field, start * s,
                              (start + block.shape[0]) * s))
-    return _rollout_metrics(lane.model, fld, block, lane.ens,
+    return _rollout_metrics(lane.model, field, block, lane.ensemble,
                             irr_mm_day, n_fert_kg)
 
 
-def _lane(model: WorldModel, field0: Field, ens: Forcing,
+def _lane(model: WorldModel, field0: Field, ensemble: Forcing,
           device: torch.device, workers: int, do_compile: bool,
           mem_budget: float, r: int, s: int, h: int, days: int,
-          irr_mm_day: float, n_fert_kg: float) -> sched.Lane:
+          irr_mm_day: float, n_fert_kg: float) -> schedule.Lane:
     """Build one compute endpoint: private model copy on the device,
     per-lane streams/staging/pool, memory-sized block cap, work fn."""
     ml = copy.deepcopy(model).to(device)
@@ -266,45 +266,45 @@ def _lane(model: WorldModel, field0: Field, ens: Forcing,
                 ml.step, mode="max-autotune-no-cudagraphs", dynamic=True)
         except Exception:
             pass  # compiled step is an optimization; eager is equivalent
-    lane = sched.make_lane(device, workers)
+    lane = schedule.make_lane(device, workers)
     lane.model = ml
     lane.field = field0.to(device)
-    lane.ens = ens.to(device)
+    lane.ensemble = ensemble.to(device)
     lane.block_rows = lane.cap_rows = min(r, max(1, int(
-        mem.avail(device, mem_budget) // _row_bytes(days, h)) // s))
-    lane.fn = ((lambda l, start, blk: _accel_block(
-        l, start, blk, irr_mm_day, n_fert_kg)) if lane.accel
-        else (lambda l, start, blk: _cpu_block(
+        memory.available(device, mem_budget) // _row_bytes(days, h)) // s))
+    lane.function = ((lambda l, start, blk: _accelerator_block(
+        l, start, blk, irr_mm_day, n_fert_kg)) if lane.accelerator
+        else (lambda l, start, blk: _processor_block(
             l, start, blk, irr_mm_day, n_fert_kg)))
     return lane
 
 
-def _measure(lanes: list[sched.Lane], model: WorldModel,
-             plans: torch.Tensor, ens: Forcing, workers: int) -> None:
+def _measure(lanes: list[schedule.Lane], model: WorldModel,
+             plans: torch.Tensor, ensemble: Forcing, workers: int) -> None:
     """Fill lane.rate / lane.use_graph — from the persistent probe cache
     when the signature is known, else by timing the real block path."""
-    sig = probe.signature(model, plans, ens, workers)
-    pplans = probe.probe_plans(plans, ens)
-    head = probe.probe_ens(ens, FORCING_VARS)
+    signal = probe.signature(model, plans, ensemble, workers)
+    pplans = probe.probe_plans(plans, ensemble)
+    head = probe.probe_ensemble(ensemble, FORCING_VARS)
     for lane in lanes:
-        hit = probe.lookup(sig, lane.name)
+        hit = probe.lookup(signal, lane.name)
         if hit is not None:
             lane.rate, lane.use_graph = hit
             continue
-        full = lane.ens
-        lane.ens = head.to(lane.device)
+        full = lane.ensemble
+        lane.ensemble = head.to(lane.device)
         try:
             lane.rate, lane.use_graph = probe.measure(lane, pplans)
         finally:
-            lane.ens = full
-            lane.ctx.clear()          # probe-horizon ctx must not leak
+            lane.ensemble = full
+            lane.context.clear()          # probe-horizon ctx must not leak
             if lane.graphs is not None:
                 lane.graphs = type(lane.graphs)(lane.device)
         if lane.rate > 0:
-            probe.store(sig, lane.name, lane.rate, lane.use_graph)
+            probe.store(signal, lane.name, lane.rate, lane.use_graph)
 
 
-def _prune(lanes: list[sched.Lane]) -> list[sched.Lane]:
+def _prune(lanes: list[schedule.Lane]) -> list[schedule.Lane]:
     """Drop lanes that failed their probe and accel lanes too slow to pay
     their own setup. The CPU lane is never pruned on slowness — it is the
     universal fallback tail of the OOM ladder."""
@@ -316,14 +316,14 @@ def _prune(lanes: list[sched.Lane]) -> list[sched.Lane]:
         return []
     top = max(l.rate for l in live)
     keep = [l for l in live
-            if not l.accel or l.rate >= _LANE_MIN_SHARE * top]
+            if not l.accelerator or l.rate >= _LANE_MIN_SHARE * top]
     for l in live:
         if l not in keep:
             l.close()
     return keep
 
 
-def _size_blocks(lanes: list[sched.Lane], r: int, probe_days: int,
+def _size_blocks(lanes: list[schedule.Lane], r: int, probe_days: int,
                  days: int) -> None:
     """Uniform per-lane block rows ∝ measured rate — equal *block times*
     bound the tail straggler, uniformity maximizes graph/ctx reuse."""
@@ -355,7 +355,7 @@ def _save_compile_cache() -> None:
         pass
 
 
-def _telemetry(lanes: list[sched.Lane], mons: dict[str, thermo.Monitor],
+def _telemetry(lanes: list[schedule.Lane], mons: dict[str, telemetry.Monitor],
                r: int, s: int, days: int) -> dict:
     fd = r * s * days
     j = sum(m.joules() for m in mons.values())
@@ -372,7 +372,7 @@ def _telemetry(lanes: list[sched.Lane], mons: dict[str, thermo.Monitor],
 
 
 def evaluate(model: WorldModel, field0: Field, plans: torch.Tensor,
-             forcing_ens: Forcing, irr_mm_day: float = 0.0,
+             forcing_ensemble: Forcing, irr_mm_day: float = 0.0,
              n_fert_kg: float = 0.0, workers: int = 0,
              device: str | torch.device = "auto",
              compile: str = "auto", mem_budget: float = 0.6,
@@ -396,8 +396,8 @@ def evaluate(model: WorldModel, field0: Field, plans: torch.Tensor,
     - telemetry dict (optional): energy (J), J/field-day, per-lane rates.
     """
     r, h = plans.shape
-    s = forcing_ens.batch
-    days = forcing_ens.days
+    s = forcing_ensemble.batch
+    days = forcing_ensemble.days
     if days != h * DAYS_PER_YEAR:
         raise ValueError(
             f"forcing horizon {days}d ≠ plans horizon {h * DAYS_PER_YEAR}d")
@@ -415,40 +415,40 @@ def evaluate(model: WorldModel, field0: Field, plans: torch.Tensor,
     do_compile = (compile == "on" or
                   (compile == "auto" and r * s * days >= _COMPILE_FIELD_DAYS))
     cpu_w = 1 if field0.batch != 1 or do_compile else (
-        workers if workers else caps.cpu_workers(r * s))
+        workers if workers else capabilities.processor_workers(r * s))
 
-    kw = dict(do_compile=do_compile, mem_budget=mem_budget,
+    keywords = dict(do_compile=do_compile, mem_budget=mem_budget,
               r=r, s=s, h=h, days=days,
               irr_mm_day=irr_mm_day, n_fert_kg=n_fert_kg)
     if explicit is not None:
-        lanes = [_lane(model, field0, forcing_ens, explicit,
-                       cpu_w if explicit.type == "cpu" else 1, **kw)]
+        lanes = [_lane(model, field0, forcing_ensemble, explicit,
+                       cpu_w if explicit.type == "cpu" else 1, **keywords)]
         for l in lanes:
-            l.use_graph = l.accel and l.graphs is not None
+            l.use_graph = l.accelerator and l.graphs is not None
     elif not probe.worth(r, s, days):
-        lanes = [_lane(model, field0, forcing_ens, torch.device("cpu"),
-                       cpu_w, **kw)]
+        lanes = [_lane(model, field0, forcing_ensemble, torch.device("cpu"),
+                       cpu_w, **keywords)]
     else:
-        lanes = [_lane(model, field0, forcing_ens, d,
-                       cpu_w if d.type == "cpu" else 1, **kw)
-                 for d in caps.lanes(DTYPE)]
-        _measure(lanes, model, plans, forcing_ens, cpu_w)
+        lanes = [_lane(model, field0, forcing_ensemble, d,
+                       cpu_w if d.type == "cpu" else 1, **keywords)
+                 for d in capabilities.lanes(DTYPE)]
+        _measure(lanes, model, plans, forcing_ensemble, cpu_w)
         lanes = _prune(lanes)
         if not lanes:
             raise RuntimeError("every compute lane failed its probe")
         _size_blocks(lanes, r, min(probe._PROBE_DAYS, days), days)
 
-    accel = any(l.accel for l in lanes)
-    out = torch.empty(
+    accelerator = any(l.accelerator for l in lanes)
+    output = torch.empty(
         (r * s, h, len(METRICS)), dtype=DTYPE,
-        pin_memory=accel and torch.cuda.is_available())
-    mons = {l.name: thermo.Monitor(l.device) for l in lanes if l.accel}
+        pin_memory=accelerator and torch.cuda.is_available())
+    mons = {l.name: telemetry.Monitor(l.device) for l in lanes if l.accelerator}
     try:
         with ExitStack() as stack:
             for l in lanes:
                 if l.name in mons:
-                    l.thermo = stack.enter_context(mons[l.name])
-            sched.run(lanes, plans, out, s)
+                    l.telemetry = stack.enter_context(mons[l.name])
+            schedule.run(lanes, plans, output, s)
         if do_compile:
             _save_compile_cache()
     finally:
@@ -457,15 +457,15 @@ def evaluate(model: WorldModel, field0: Field, plans: torch.Tensor,
     if telemetry is not None:
         telemetry.update(_telemetry(lanes, mons, r, s, days))
 
-    metrics = out.reshape(r, s, h, -1)
-    return Evaluation(metrics=metrics, objectives=objectives(out, r, s))
+    metrics = output.reshape(r, s, h, -1)
+    return Evaluation(metrics=metrics, objectives=objectives(output, r, s))
 
 
-def objective_matrix(obj: dict[str, torch.Tensor],
+def objective_matrix(object: dict[str, torch.Tensor],
                      keys: tuple[str, ...] | None = None) -> tuple[torch.Tensor, torch.Tensor]:
     """Stack objectives → (R, M) and direction signs (M,) (+1 maximize)."""
-    keys = keys or tuple(obj.keys())
-    mat = torch.stack([obj[k] for k in keys], dim=1)
+    keys = keys or tuple(object.keys())
+    mat = torch.stack([object[k] for k in keys], dim=1)
     signs = torch.tensor([OBJECTIVE_DIRECTION[k] for k in keys], dtype=DTYPE)
     return mat, signs
 

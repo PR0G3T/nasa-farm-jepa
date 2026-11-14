@@ -15,8 +15,8 @@ footprint is already smaller than the field.
 
 from __future__ import annotations
 
-import numpy as np
-import xarray as xr
+import numpy as numpy
+import xarray as xarray
 
 KM_PER_DEG = 111.195
 
@@ -25,72 +25,77 @@ _COORD_NAMES = (("lat", "lon"), ("latitude", "longitude"),
                 ("cell_lat", "cell_lon"))
 
 
-def _coords(ds: xr.Dataset, var: str) -> tuple[np.ndarray, np.ndarray]:
+def _coords(ds: xarray.Dataset, var: str) -> tuple[numpy.ndarray, numpy.ndarray]:
     """(lat, lon) arrays broadcast onto the var's spatial grid."""
-    da = ds[var]
-    for la, lo in _COORD_NAMES:
-        if la in ds and lo in ds:
-            lat, lon = ds[la].values, ds[lo].values
-            if lat.ndim == 1 and la in da.dims and lo in da.dims:
-                lat, lon = np.meshgrid(lat, lon, indexing="ij")
-                if da.dims.index(la) > da.dims.index(lo):
-                    lat, lon = lat.T, lon.T
-            return np.asarray(lat, np.float64), np.asarray(lon, np.float64)
+    data = ds[var]
+    for la, low in _COORD_NAMES:
+        if la in ds and low in ds:
+            latitude, longitude = ds[la].values, ds[low].values
+            if latitude.ndim == 1 and la in data.dims and low in data.dims:
+                latitude, longitude = numpy.meshgrid(latitude, longitude, indexing="ij")
+                if data.dims.index(la) > data.dims.index(low):
+                    latitude, longitude = latitude.T, longitude.T
+            return numpy.asarray(latitude, numpy.float64), numpy.asarray(longitude, numpy.float64)
     raise KeyError(f"no lat/lon coords among {[v for v in ds][:12]}")
 
 
-def dist_km(glat: np.ndarray, glon: np.ndarray,
-            lat: float, lon: float) -> np.ndarray:
+def dist_km(glat: numpy.ndarray, glon: numpy.ndarray,
+            latitude: float, longitude: float) -> numpy.ndarray:
     """Equirectangular great-circle distance, km — exact within footprints."""
-    dy = (glat - lat) * KM_PER_DEG
-    dx = (glon - lon) * KM_PER_DEG * np.cos(np.deg2rad(lat))
-    return np.hypot(dx, dy)
+    dy = (glat - latitude) * KM_PER_DEG
+    dx = (glon - longitude) * KM_PER_DEG * numpy.cos(numpy.deg2rad(latitude))
+    return numpy.hypot(dx, dy)
 
 
-def kernel(d: np.ndarray, radius_km: float) -> np.ndarray:
+def kernel(d: numpy.ndarray, radius_km: float) -> numpy.ndarray:
     """Gaussian footprint response; hard cutoff at the nominal radius."""
     sigma = radius_km / 2.0
-    return np.where(d <= radius_km, np.exp(-0.5 * (d / sigma) ** 2), 0.0)
+    return numpy.where(d <= radius_km, numpy.exp(-0.5 * (d / sigma) ** 2), 0.0)
 
 
-def _grid(ds: xr.Dataset, var: str, lat: float, lon: float,
-          radius_km: float, conf: np.ndarray | None,
-          ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """(values, kernel weights, per-pixel confidence) on the var's grid."""
+def prep(ds: xarray.Dataset, var: str,
+         confidence: numpy.ndarray | None = None) -> tuple:
+    """Pre-materialized (values, glat, glon, conf) grid — one dataset read
+    for any number of point queries via `at`."""
     glat, glon = _coords(ds, var)
-    w = kernel(dist_km(glat, glon, lat, lon), radius_km)
-    c = np.ones_like(w) if conf is None else np.asarray(conf, np.float64)
-    return np.asarray(ds[var].values, np.float64), w, c
+    return (numpy.asarray(ds[var].values, numpy.float64), glat, glon,
+            None if confidence is None else numpy.asarray(confidence, numpy.float64))
 
 
-def sample(ds: xr.Dataset, var: str, lat: float, lon: float,
-           radius_km: float = 0.0, conf: np.ndarray | None = None) -> float:
+def at(grid: tuple, latitude: float, longitude: float,
+       radius_km: float) -> tuple[float, float]:
+    """(footprint-weighted value, coverage) at one point on a `prep` grid —
+    the dist/kernel math runs once per call instead of twice."""
+    v, glat, glon, c = grid
+    w = kernel(dist_km(glat, glon, latitude, longitude), radius_km)
+    c = numpy.ones_like(w) if c is None else c
+    ok = numpy.isfinite(v) & (c > 0.0) & (w > 0.0)
+    val = float((w[ok] * c[ok] * v[ok]).sum() / (w[ok] * c[ok]).sum()) \
+        if ok.any() else float("nan")
+    total = w.sum()
+    covariance = float((w * c * ok).sum() / total) if total > 0.0 else 0.0
+    return val, covariance
+
+
+def sample(ds: xarray.Dataset, var: str, latitude: float, longitude: float,
+           radius_km: float = 0.0, confidence: numpy.ndarray | None = None) -> float:
     """Footprint-weighted estimate at (lat, lon); NaN when nothing valid."""
     if radius_km <= 0.0:
-        return _nearest(ds, var, lat, lon)
-    v, w, c = _grid(ds, var, lat, lon, radius_km, conf)
-    ok = np.isfinite(v) & (c > 0.0) & (w > 0.0)
-    if not ok.any():
-        return float("nan")
-    return float((w[ok] * c[ok] * v[ok]).sum() / (w[ok] * c[ok]).sum())
+        return _nearest(ds, var, latitude, longitude)
+    return at(prep(ds, var, confidence), latitude, longitude, radius_km)[0]
 
 
-def coverage(ds: xr.Dataset, var: str, lat: float, lon: float,
-             radius_km: float, conf: np.ndarray | None = None) -> float:
+def coverage(ds: xarray.Dataset, var: str, latitude: float, longitude: float,
+             radius_km: float, confidence: numpy.ndarray | None = None) -> float:
     """Fraction of kernel mass over valid cells — the stored obs weight."""
-    v, w, c = _grid(ds, var, lat, lon, radius_km, conf)
-    tot = w.sum()
-    if tot <= 0.0:
-        return 0.0
-    ok = np.isfinite(v) & (c > 0.0)
-    return float((w * c * ok).sum() / tot)
+    return at(prep(ds, var, confidence), latitude, longitude, radius_km)[1]
 
 
-def _nearest(ds: xr.Dataset, var: str, lat: float, lon: float) -> float:
+def _nearest(ds: xarray.Dataset, var: str, latitude: float, longitude: float) -> float:
     """Nearest-point sample — regular (lat/lon dims) or 2-D grids."""
-    da = ds[var]
-    if "lat" in da.dims and "lon" in da.dims:
-        return float(da.sel(lat=lat, lon=lon, method="nearest").values.ravel()[0])
+    data = ds[var]
+    if "lat" in data.dims and "lon" in data.dims:
+        return float(data.sel(latitude=latitude, longitude=longitude, method="nearest").values.ravel()[0])
     glat, glon = _coords(ds, var)
-    flat = np.nanargmin((glat - lat) ** 2 + (glon - lon) ** 2)
-    return float(da.values.flat[flat])
+    flat = numpy.nanargmin((glat - latitude) ** 2 + (glon - longitude) ** 2)
+    return float(data.values.flat[flat])

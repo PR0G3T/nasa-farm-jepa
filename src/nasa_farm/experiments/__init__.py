@@ -6,7 +6,7 @@ tree; `run` wraps it in a `Report` with full provenance.
 """
 
 from nasa_farm.experiments.run import Report, experiments, register, run
-from nasa_farm.experiments.specification import Spec
+from nasa_farm.experiments.specification import Specification
 from nasa_farm.experiments import (  # noqa: F401
     adapt, assimilation, benchmark, counterfactual, discover, embedding,
     intervention, scale, twin,

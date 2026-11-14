@@ -26,13 +26,13 @@ FORCING_VARS = ("tmin", "tmax", "srad", "precip", "rh", "u2")
 FILL_VALUE = -999.0
 
 
-def request_params(lat: float, lon: float, temporal: Temporal,
+def request_params(latitude: float, longitude: float, temporal: Temporal,
                    parameters: tuple[str, ...] = PARAMETERS) -> dict:
     return {
         "parameters": ",".join(parameters),
         "community": "AG",
-        "latitude": lat,
-        "longitude": lon,
+        "latitude": latitude,
+        "longitude": longitude,
         "start": temporal.start.replace("-", ""),
         "end": temporal.end.replace("-", ""),
         "format": "JSON",
@@ -57,34 +57,34 @@ class PowerClient:
     def __init__(self, client: httpx.Client | None = None, timeout: float = 120.0) -> None:
         self._client = client or httpx.Client(timeout=timeout)
 
-    def fetch(self, aoi: None, temporal: Temporal, *,
-              lat: float, lon: float,
+    def fetch(self, area: None, temporal: Temporal, *,
+              latitude: float, longitude: float,
               parameters: tuple[str, ...] = PARAMETERS) -> dict[str, dict[str, float]]:
-        resp = self._client.get(BASE_URL, params=request_params(lat, lon, temporal, parameters))
-        resp.raise_for_status()
-        return parse_daily(resp.json(), parameters)
+        response = self._client.get(BASE_URL, parameters=request_params(latitude, longitude, temporal, parameters))
+        response.raise_for_status()
+        return parse_daily(response.json(), parameters)
 
-    def data_year(self, lat: float, lon: float, year: int) -> dict[str, dict[str, float]]:
+    def data_year(self, latitude: float, longitude: float, year: int) -> dict[str, dict[str, float]]:
         """Raw daily series for one calendar year — all PARAMETERS."""
         return self.fetch(None, Temporal(f"{year}-01-01", f"{year}-12-31"),
-                          lat=lat, lon=lon)
+                          latitude=latitude, longitude=longitude)
 
-    def forcing_year(self, lat: float, lon: float, year: int) -> Forcing:
+    def forcing_year(self, latitude: float, longitude: float, year: int) -> Forcing:
         """One 365-day Forcing for a calendar year (B=1)."""
-        return series_to_forcing(self.data_year(lat, lon, year), year)
+        return series_to_forcing(self.data_year(latitude, longitude, year), year)
 
-    def data_years(self, lat: float, lon: float, years: list[int],
+    def data_years(self, latitude: float, longitude: float, years: list[int],
                    workers: int = 8) -> list[dict[str, dict[str, float]]]:
         """Fetch calendar years in parallel — pure I/O, near-linear speedup."""
         if len(years) <= 2 or workers <= 1:
-            return [self.data_year(lat, lon, y) for y in years]
+            return [self.data_year(latitude, longitude, y) for y in years]
         with ThreadPoolExecutor(max_workers=min(workers, len(years))) as pool:
-            return list(pool.map(lambda y: self.data_year(lat, lon, y), years))
+            return list(pool.map(lambda y: self.data_year(latitude, longitude, y), years))
 
-    def forcing_years(self, lat: float, lon: float, years: list[int],
+    def forcing_years(self, latitude: float, longitude: float, years: list[int],
                       workers: int = 8) -> list[Forcing]:
         return [series_to_forcing(d, y)
-                for d, y in zip(self.data_years(lat, lon, years, workers), years)]
+                for d, y in zip(self.data_years(latitude, longitude, years, workers), years)]
 
 
 def vars_to_forcing(data: dict[str, dict[str, float]], year: int) -> Forcing:
@@ -94,19 +94,19 @@ def vars_to_forcing(data: dict[str, dict[str, float]], year: int) -> Forcing:
     days = [d for d in days if not (d.month == 2 and d.day == 29)]
     keys = [d.strftime("%Y%m%d") for d in days]
 
-    def col(var: str, default: float) -> torch.Tensor:
+    def column(var: str, default: float) -> torch.Tensor:
         s = data.get(var, {})
-        vals = [s.get(k, float("nan")) for k in keys]
-        t = torch.tensor(vals, dtype=DTYPE)
+        values = [s.get(k, float("nan")) for k in keys]
+        t = torch.tensor(values, dtype=DTYPE)
         return torch.nan_to_num(t, nan=default)
 
     return Forcing(
-        tmin=col("tmin", 5.0).unsqueeze(0),
-        tmax=col("tmax", 15.0).unsqueeze(0),
-        srad=col("srad", 12.0).unsqueeze(0).clamp(min=0.1),
-        precip=col("precip", 0.0).unsqueeze(0).clamp(min=0.0),
-        rh=col("rh", 70.0).unsqueeze(0).clamp(1.0, 100.0),
-        u2=col("u2", 2.0).unsqueeze(0).clamp(min=0.2),
+        tmin=column("tmin", 5.0).unsqueeze(0),
+        tmax=column("tmax", 15.0).unsqueeze(0),
+        srad=column("srad", 12.0).unsqueeze(0).clamp(min=0.1),
+        precip=column("precip", 0.0).unsqueeze(0).clamp(min=0.0),
+        rh=column("rh", 70.0).unsqueeze(0).clamp(1.0, 100.0),
+        u2=column("u2", 2.0).unsqueeze(0).clamp(min=0.2),
         doy=torch.arange(1, DAYS_PER_YEAR + 1, dtype=DTYPE).unsqueeze(0),
     )
 

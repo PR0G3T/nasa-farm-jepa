@@ -21,8 +21,8 @@ from nasa_farm.optimize.space import Space
 from nasa_farm.optimize.trainer import FitResult, fit
 
 
-def gradient_hpo(loss_fn: Callable[[], torch.Tensor],
-                 params: dict[str, torch.Tensor],
+def gradient(loss_fn: Callable[[], torch.Tensor],
+                 parameters: dict[str, torch.Tensor],
                  **fit_kw) -> FitResult:
     """First-order HPO: optimize leaf tensors through rollout gradients.
 
@@ -30,7 +30,7 @@ def gradient_hpo(loss_fn: Callable[[], torch.Tensor],
     (e.g. a live-bound `trait_leaf(model)`), so each step's gradient is an
     exact d(loss)/d(param) through the full trajectory.
     """
-    return fit(loss_fn, params, **fit_kw)
+    return fit(loss_fn, parameters, **fit_kw)
 
 
 @dataclass(slots=True)
@@ -65,7 +65,7 @@ def successive_halving(
     return trials
 
 
-def blackbox_hpo(
+def blackbox(
         objective: Callable[[dict, int], float],
         space: Space,
         n_trials: int = 32,
@@ -88,19 +88,19 @@ def blackbox_hpo(
 
 
 def _optuna_objective(objective, trial, space: Space):
-    cfg = {}
-    for p in space.params:
+    config = {}
+    for p in space.parameters:
         if p.categorical:
-            cfg[p.name] = trial.suggest_categorical(p.name, list(p.choices))
+            config[p.name] = trial.suggest_categorical(p.name, list(p.choices))
         elif p.integer:
-            cfg[p.name] = trial.suggest_int(p.name, int(p.low), int(p.high),
+            config[p.name] = trial.suggest_int(p.name, int(p.low), int(p.high),
                                             log=p.log)
         else:
-            cfg[p.name] = trial.suggest_float(p.name, p.low, p.high, log=p.log)
-    return objective(cfg, 0)
+            config[p.name] = trial.suggest_float(p.name, p.low, p.high, log=p.log)
+    return objective(config, 0)
 
 
-def optuna_hpo(objective: Callable[[dict, int], float],
+def optuna(objective: Callable[[dict, int], float],
                space: Space, n_trials: int = 50, seed: int = 0,
                directions: list[str] | None = None) -> HPOResult:
     """Optuna path — multivariate TPE (single-objective) or NSGA-II
@@ -117,10 +117,10 @@ def optuna_hpo(objective: Callable[[dict, int], float],
                    n_trials=n_trials)
     multi = len(study.directions) > 1
     bt = study.best_trials[0] if multi else study.best_trial
-    trials = [Trial(t.params,
+    trials = [Trial(t.parameters,
                     (t.values[0] if multi else t.value)
                     if (t.values or t.value is not None) else float("inf"))
               for t in study.trials]
-    return HPOResult(best_config=bt.params,
+    return HPOResult(best_config=bt.parameters,
                      best_value=bt.values[0] if multi else bt.value,
                      trials=trials)

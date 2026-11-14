@@ -16,8 +16,8 @@ import torch
 def whiten(h: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     """Zero-mean identity-covariance transform. Returns (hw, mean, W)."""
     mean = h.mean(0)
-    cov = (h - mean).t() @ (h - mean) / (h.shape[0] - 1)
-    evals, evecs = torch.linalg.eigh(cov)
+    covariance = (h - mean).t() @ (h - mean) / (h.shape[0] - 1)
+    evals, evecs = torch.linalg.eigh(covariance)
     W = evecs @ torch.diag(evals.clamp(min=1e-12).rsqrt()) @ evecs.t()
     return (h - mean) @ W, mean, W
 
@@ -27,11 +27,11 @@ def jacobians(h: torch.Tensor, x: torch.Tensor, k: int = 16,
     """Local dx/dh Jacobians via kNN ridge fits → (n, p, d)."""
     n = h.shape[0]
     k = min(k + 1, n)
-    idx = torch.cdist(h, h).topk(k, largest=False).indices
-    nbr_h = h[idx]                                     # (n, k, d)
+    index = torch.cdist(h, h).topk(k, largest=False).indices
+    nbr_h = h[index]                                     # (n, k, d)
     A = torch.cat([torch.ones(n, k, 1, dtype=h.dtype, device=h.device),
                    nbr_h], -1)
-    Y = x[idx]                                         # (n, k, p)
+    Y = x[index]                                         # (n, k, p)
     ata = A.transpose(1, 2) @ A + lam * torch.eye(
         A.shape[-1], dtype=h.dtype, device=h.device)
     beta = torch.linalg.solve(ata, A.transpose(1, 2) @ Y)
@@ -55,7 +55,7 @@ def _rotate_pair(J: torch.Tensor, R: torch.Tensor, i: int, j: int,
     R[:, i], R[:, j] = Ri * ct - Rj * st, Ri * st + Rj * ct
 
 
-def dsreg(h: torch.Tensor, x: torch.Tensor, k: int = 16,
+def rotation(h: torch.Tensor, x: torch.Tensor, k: int = 16,
           sweeps: int = 12, grid: int = 128,
           ) -> tuple[torch.Tensor, torch.Tensor, dict]:
     """Fit the sparsest-dependency rotation. Returns (R, z_tilde, report).
@@ -63,13 +63,13 @@ def dsreg(h: torch.Tensor, x: torch.Tensor, k: int = 16,
     h (n, d) frozen representation; x (n, p) observations it came from.
     z_tilde = whiten(h) @ R — individual latents up to sign/permutation.
     """
-    hw, _, _ = whiten(h)
-    J = jacobians(hw, x, k)
-    d = hw.shape[1]
-    R = torch.eye(d, dtype=hw.dtype, device=hw.device)
+    hardware, _, _ = whiten(h)
+    J = jacobians(hardware, x, k)
+    d = hardware.shape[1]
+    R = torch.eye(d, dtype=hardware.dtype, device=hardware.device)
     for _ in range(sweeps):
         for i in range(d):
             for j in range(i + 1, d):
                 _rotate_pair(J, R, i, j, grid)
     loss = float(J.abs().mean())
-    return R, hw @ R, {"loss": round(loss, 8)}
+    return R, hardware @ R, {"loss": round(loss, 8)}

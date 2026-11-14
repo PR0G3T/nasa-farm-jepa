@@ -18,7 +18,7 @@ import torch
 
 from nasa_farm.constants import DTYPE
 from nasa_farm.dynamics.model import WorldModel
-from nasa_farm.experiments.specification import Spec
+from nasa_farm.experiments.specification import Specification
 from nasa_farm.forcing import (
     augment, climatology_ensemble, synthetic_year, tile_to_horizon,
 )
@@ -28,7 +28,7 @@ from nasa_farm.optimize.targets import (
 )
 from nasa_farm.optimize.trainer import fit, leaf
 from nasa_farm.plan import expand_actions
-from nasa_farm.state.crops import IDX, CropLibrary
+from nasa_farm.state.crops import INDEX, CropLibrary
 from nasa_farm.state.field import Field, initial_state
 from nasa_farm.state.soil import SoilProfile
 from nasa_farm.types import Actions, Forcing
@@ -40,7 +40,7 @@ _TRUTH_SEED_OFFSET = 7919  # decorrelates the realization from the ensemble
 class Scene:
     crops: CropLibrary
     field: Field
-    forcing_t: Forcing    # (R, T) — held-out realizations truth/obs live on
+    forcing_time: Forcing    # (R, T) — held-out realizations truth/obs live on
     forcing_e: Forcing    # (S, T) — the predictive weather ensemble
     actions: Actions      # (1, T) — spec.crop sown every year at its DOY
     truth: WorldModel     # prior traits × spec.perturb on spec.crop
@@ -49,60 +49,60 @@ class Scene:
     def realization(self, i: int = 0) -> Forcing:
         """Row i of the held-out realizations — the calibration season."""
         from nasa_farm.types import FORCING_VARS
-        return Forcing(*(getattr(self.forcing_t, k)[i:i + 1]
+        return Forcing(*(getattr(self.forcing_time, k)[i:i + 1]
                          for k in FORCING_VARS))
 
 
-def _forcings(spec: Spec) -> tuple[Forcing, Forcing]:
+def _forcings(specification: Specification) -> tuple[Forcing, Forcing]:
     """(realizations, ensemble). POWER: the last `realizations` requested
     years are held out, earlier years form the climatology ensemble.
     Synthetic: seeds decorrelated from the ensemble's — a forecast
     ensemble is never centered on the truth."""
-    if spec.years:
+    if specification.years:
         from nasa_farm.acquire.power import PowerClient
-        hist = PowerClient().forcing_years(spec.lat, spec.lon, list(spec.years))
-        r = min(spec.realizations, len(hist))
-        return (Forcing.concat([tile_to_horizon(y, spec.horizon)
-                                for y in hist[-r:]]),
-                climatology_ensemble(hist[:-r] or hist[-r:], spec.horizon))
-    base = tile_to_horizon(synthetic_year(spec.lat, seed=spec.seed),
-                           spec.horizon)
+        history = PowerClient().forcing_years(specification.latitude, specification.longitude, list(specification.years))
+        r = min(specification.realizations, len(history))
+        return (Forcing.concat([tile_to_horizon(y, specification.horizon)
+                                for y in history[-r:]]),
+                climatology_ensemble(history[:-r] or history[-r:], specification.horizon))
+    base = tile_to_horizon(synthetic_year(specification.latitude, seed=specification.seed),
+                           specification.horizon)
     truth = Forcing.concat([
         tile_to_horizon(
-            synthetic_year(spec.lat,
-                           seed=spec.seed + _TRUTH_SEED_OFFSET + k),
-            spec.horizon)
-        for k in range(spec.realizations)])
-    return truth, augment(base, spec.members - 1, seed=spec.seed)
+            synthetic_year(specification.latitude,
+                           seed=specification.seed + _TRUTH_SEED_OFFSET + k),
+            specification.horizon)
+        for k in range(specification.realizations)])
+    return truth, augment(base, specification.members - 1, seed=specification.seed)
 
 
-def scene(spec: Spec) -> Scene:
+def scene(specification: Specification) -> Scene:
     crops = CropLibrary.default()
-    soil = SoilProfile.preset(spec.soil, depths=spec.depths)
+    soil = SoilProfile.preset(specification.soil, depths=specification.depths)
     field = Field(initial_state(1, soil), soil,
-                  torch.tensor([spec.lat], dtype=DTYPE))
-    forcing_t, forcing_e = _forcings(spec)
-    i_c = crops.index(spec.crop)
+                  torch.tensor([specification.latitude], dtype=DTYPE))
+    forcing_time, forcing_e = _forcings(specification)
+    i_c = crops.index(specification.crop)
     actions = expand_actions(
-        torch.tensor([[i_c] * spec.horizon]), crops.table)
+        torch.tensor([[i_c] * specification.horizon]), crops.table)
 
-    tbl = crops.table.clone()
-    for p, s in spec.perturb.items():
-        tbl[i_c, IDX[p]] *= s
-    truth = WorldModel(CropLibrary(table=tbl, names=crops.names),
-                       residual=False, extra=spec.extra)
-    return Scene(crops=crops, field=field, forcing_t=forcing_t,
+    table = crops.table.clone()
+    for p, s in specification.perturb.items():
+        table[i_c, INDEX[p]] *= s
+    truth = WorldModel(CropLibrary(table=table, names=crops.names),
+                       residual=False, extra=specification.extra)
+    return Scene(crops=crops, field=field, forcing_time=forcing_time,
                  forcing_e=forcing_e, actions=actions, truth=truth,
                  prior=WorldModel(crops, residual=False))
 
 
-def observe(spec: Spec, sc: Scene) -> ObservedTrajectory:
+def observe(specification: Specification, sc: Scene) -> ObservedTrajectory:
     """Sparse noisy seasonal obs of the truth rollout on the calibration
     realization — the same `ObservedTrajectory` contract real
     yield/remote-sensing series fill."""
     return synthetic_observation(sc.truth, sc.field, sc.realization(0),
-                                 sc.actions, spec.channels,
-                                 noise=spec.noise, seed=spec.seed)
+                                 sc.actions, specification.observed_channels,
+                                 noise=specification.noise, seed=specification.seed)
 
 
 _BOUND = 2.0
@@ -111,8 +111,8 @@ plausibility band around literature values keeps calibration physical
 (no harvest index > 1, no negative GDD)."""
 
 
-def calibrate(spec: Spec, sc: Scene,
-              obs: ObservedTrajectory) -> tuple[WorldModel, dict]:
+def calibrate(specification: Specification, sc: Scene,
+              observed: ObservedTrajectory) -> tuple[WorldModel, dict]:
     """Variational calibration: gradient-fit the perturbed trait cells of
     spec.crop through the rollout on the calibration realization. Returns
     the fitted model plus a per-parameter start/truth/fitted/recovery
@@ -121,42 +121,42 @@ def calibrate(spec: Spec, sc: Scene,
     Parameters are optimized in an unconstrained logit space and mapped
     through a sigmoid into the factor-BOUND plausibility band, so the
     estimator can never leave physically meaningful ranges."""
-    cand = WorldModel(sc.crops, residual=False)
-    i_c = sc.crops.index(spec.crop)
-    names = tuple(spec.perturb)
+    candidate = WorldModel(sc.crops, residual=False)
+    i_c = sc.crops.index(specification.crop)
+    names = tuple(specification.perturb)
     if not names:
-        return cand, {"params": {}, "best_loss": 0.0, "epochs_run": 0}
-    cols = torch.tensor([IDX[p] for p in names])
-    base = cand.crop_table.detach().clone()
-    lo, hi = base[i_c, cols] / _BOUND, base[i_c, cols] * _BOUND
+        return candidate, {"params": {}, "best_loss": 0.0, "epochs_run": 0}
+    cols = torch.tensor([INDEX[p] for p in names])
+    base = candidate.crop_table.detach().clone()
+    low, high = base[i_c, cols] / _BOUND, base[i_c, cols] * _BOUND
     # sigmoid(−ln2) = 1/3 → fitted == prior exactly at init
     w = leaf(torch.full((len(names),), -math.log(2.0), dtype=DTYPE))
     forcing_t0 = sc.realization(0)
 
     def loss() -> torch.Tensor:
-        tbl = base.clone()
-        tbl[i_c, cols] = lo + (hi - lo) * torch.sigmoid(w)
-        cand.crop_table = tbl
+        table = base.clone()
+        table[i_c, cols] = low + (high - low) * torch.sigmoid(w)
+        candidate.crop_table = table
         return trajectory_loss(
-            season_metrics(cand, sc.field, forcing_t0, sc.actions), obs)
+            season_metrics(candidate, sc.field, forcing_t0, sc.actions), observed)
 
-    res = fit(loss, {"w": w}, epochs=spec.epochs, lr=spec.lr)
+    result = fit(loss, {"w": w}, epochs=specification.epochs, rate=specification.rate)
     with torch.no_grad():
-        fitted = lo + (hi - lo) * torch.sigmoid(w)
-        tbl = base.clone()
-        tbl[i_c, cols] = fitted
-        cand.crop_table = tbl
+        fitted = low + (high - low) * torch.sigmoid(w)
+        table = base.clone()
+        table[i_c, cols] = fitted
+        candidate.crop_table = table
 
     truth_tbl = sc.truth.crop_table
-    params = {}
+    parameters = {}
     for j, p in enumerate(names):
         start, truth_v, fit_v = (float(base[i_c, cols[j]]),
                                  float(truth_tbl[i_c, cols[j]]),
                                  float(fitted[j].detach()))
         span = truth_v - start
-        params[p] = {
+        parameters[p] = {
             "start": start, "truth": truth_v, "fitted": fit_v,
             "recovery_pct": round(100 * (fit_v - start) / span, 2)
             if abs(span) > 1e-12 else 100.0}
-    return cand, {"params": params, "best_loss": round(res.best_loss, 8),
-                  "epochs_run": res.epochs_run}
+    return candidate, {"params": parameters, "best_loss": round(result.best_loss, 8),
+                  "epochs_run": result.epochs_run}

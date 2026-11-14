@@ -18,21 +18,23 @@ import urllib.request
 from dataclasses import dataclass, field
 from typing import Any
 
-import xarray as xr
+import xarray as xarray
 
-from nasa_farm.acquire.base import BBox, Temporal
+from nasa_farm.acquire.base import Bounds, Temporal
 from nasa_farm.acquire.earthdata import (
     ECOSTRESS_MET, ECOSTRESS_SEB, NISAR_SME, SMAP_L4, EarthdataSource,
     granule_day,
 )
-from nasa_farm.acquire.quality import FLAG_QC, SMAP_QC, QcSpec
-from nasa_farm.acquire.support import coverage as _cov, sample as _smp
+from nasa_farm.acquire.quality import FLAG_QC, SMAP_QC, Quality
+from nasa_farm.acquire.support import (
+    at as _at, coverage as _cov, prep as _prep, sample as _smp,
+)
 
 WORLD = (-180.0, -90.0, 180.0, 90.0)
 
 
 @dataclass(frozen=True, slots=True)
-class Spec:
+class Specification:
     """One satellite product → one lake `obs` channel.
 
     `vars` are candidate dataset names resolved in order (products rename
@@ -42,48 +44,59 @@ class Spec:
     """
 
     source: EarthdataSource
-    obs: str
+    observed: str
     vars: tuple[str, ...]
     radius_km: float = 0.0
-    qc: QcSpec | None = None
+    quality: Quality | None = None
     workers: int = 4
     limit: int = 10_000
     bbox: tuple[float, float, float, float] = WORLD
     span: tuple[str, str] = ("2015-01-01", "2030-01-01")
 
-    def var(self, ds: xr.Dataset) -> str | None:
+    def var(self, ds: xarray.Dataset) -> str | None:
         return next((v for v in self.vars if v in ds), None)
 
-    def _conf(self, ds: xr.Dataset):
-        return self.qc.mask(ds) if self.qc else None
+    def _conf(self, ds: xarray.Dataset):
+        return self.quality.mask(ds) if self.quality else None
 
-    def read(self, ds: xr.Dataset, lat: float, lon: float) -> float:
+    def prep(self, ds: xarray.Dataset) -> tuple | None:
+        """Materialized grid for this product — one read, many points."""
+        if (v := self.var(ds)) is None:
+            return None
+        return _prep(ds, v, self._conf(ds))
+
+    def at(self, grid: tuple, latitude: float, longitude: float
+           ) -> tuple[float, float]:
+        """(footprint-weighted value, coverage) on a `prep` grid."""
+        return _at(grid, latitude, longitude, self.radius_km)
+
+    def read(self, ds: xarray.Dataset, latitude: float, longitude: float) -> float:
         """Footprint-weighted value at the point; NaN when unsupported."""
         if (v := self.var(ds)) is None:
             return float("nan")
-        return _smp(ds, v, lat, lon, self.radius_km, self._conf(ds))
+        return _smp(ds, v, latitude, longitude, self.radius_km, self._conf(ds))
 
-    def coverage(self, ds: xr.Dataset, lat: float, lon: float) -> float:
+    def coverage(self, ds: xarray.Dataset, latitude: float, longitude: float) -> float:
         """Kernel-mass fraction over valid cells — the stored obs weight."""
         if (v := self.var(ds)) is None:
             return 0.0
-        return _cov(ds, v, lat, lon, self.radius_km, self._conf(ds))
+        return _cov(ds, v, latitude, longitude, self.radius_km, self._conf(ds))
 
-    def day_of(self, ds: xr.Dataset) -> int:
+    def day_of(self, ds: xarray.Dataset) -> int:
         """yyyymmdd — parsed from the granule id fetch() stashed in attrs."""
         return granule_day(ds.attrs.get("granule_id", ""))
 
 
-SMAP_SM = Spec(SMAP_L4, obs="sm", vars=("soil_moisture",),
-               radius_km=18.0, qc=SMAP_QC)
-NISAR_SM = Spec(NISAR_SME, obs="sme2", radius_km=0.2, qc=FLAG_QC,
+SMAP_SM = Specification(SMAP_L4, observed="sm", vars=("soil_moisture",),
+               radius_km=18.0, quality=SMAP_QC)
+NISAR_SM = Specification(NISAR_SME, observed="sme2", radius_km=0.2, quality=FLAG_QC,
                 vars=("soil_moisture", "soilMoisture", "soil_moisture_pmi",
                       "PMI", "DSG", "TSR"),
                 span=("2025-06-01", "2030-01-01"))
-ECO_ET = Spec(ECOSTRESS_SEB, obs="et", vars=("ETdaily", "EVAPOTRANSPIRATION"),
-              radius_km=0.5, qc=FLAG_QC, span=("2018-07-01", "2030-01-01"))
-ECO_LST = Spec(ECOSTRESS_MET, obs="lst", vars=("LST", "LST_Day", "LST_Night"),
-               radius_km=0.5, qc=FLAG_QC, span=("2018-07-01", "2030-01-01"))
+ECO_ET = Specification(ECOSTRESS_SEB, observed="et", vars=("ETdaily", "EVAPOTRANSPIRATION"),
+              radius_km=0.5, quality=FLAG_QC, span=("2018-07-01", "2030-01-01"))
+ECO_LST = Specification(ECOSTRESS_MET, observed="lst", vars=("LST", "LST_Day", "LST_Night"),
+               radius_km=0.5, quality=FLAG_QC, span=("2018-07-01", "2030-01-01"))
 
 SPECS = {"smap": SMAP_SM, "nisar": NISAR_SM,
          "ecostress-seb": ECO_ET, "ecostress-met": ECO_LST}
@@ -98,13 +111,13 @@ class GeeSource:
     name: str = "gee"
     requires_auth: bool = True
 
-    def fetch(self, aoi: BBox | None, temporal: Temporal, *,
+    def fetch(self, area: Bounds | None, temporal: Temporal, *,
               count: int = 10) -> list[dict[str, Any]]:
         ee.Initialize()
         coll = ee.ImageCollection(self.collection).select(*self.bands) \
             .filterDate(temporal.start, temporal.end).limit(count)
-        if aoi is not None:
-            coll = coll.filterBounds(ee.Geometry.BBox(*aoi.as_tuple()))
+        if area is not None:
+            coll = coll.filterBounds(ee.Geometry.Bounds(*area.as_tuple()))
         return coll.getInfo()["features"]
 
 
@@ -127,22 +140,22 @@ class OpenETClient:
     requires_auth: bool = True
     _headers: dict[str, str] = field(default_factory=dict)
 
-    def _get(self, path: str, params: dict[str, Any]) -> Any:
+    def _get(self, path: str, parameters: dict[str, Any]) -> Any:
         import json
-        q = urllib.parse.urlencode(params)
-        req = urllib.request.Request(f"{self.base_url}/{path}?{q}",
+        q = urllib.parse.urlencode(parameters)
+        request = urllib.request.Request(f"{self.base_url}/{path}?{q}",
                                      headers={"Authorization": self.api_key or ""})
-        with urllib.request.urlopen(req, timeout=30) as r:
+        with urllib.request.urlopen(request, timeout=30) as r:
             return json.load(r)
 
-    def fetch(self, aoi: BBox | None, temporal: Temporal, *,
+    def fetch(self, area: Bounds | None, temporal: Temporal, *,
               model: str = "Ensemble", variable: str = "ET",
               interval: str = "daily", units: str = "mm",
-              **kw: Any) -> Any:
-        if aoi is None:
+              **keywords: Any) -> Any:
+        if area is None:
             raise ValueError("OpenET point queries require a bbox centroid")
-        lon, lat = (aoi.west + aoi.east) / 2, (aoi.south + aoi.north) / 2
+        longitude, latitude = (area.west + area.east) / 2, (area.south + area.north) / 2
         return self._get("raster/timeseries/point", {
-            "lon": lon, "lat": lat, "model": model, "variable": variable,
+            "lon": longitude, "lat": latitude, "model": model, "variable": variable,
             "start_date": temporal.start, "end_date": temporal.end,
-            "interval": interval, "units": units, **kw})
+            "interval": interval, "units": units, **keywords})

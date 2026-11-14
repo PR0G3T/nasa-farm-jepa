@@ -12,16 +12,16 @@ acquisition calendars.
 """
 
 from nasa_farm.assimilation.kalman import (
-    Observation, STATE_VARS, assimilate, enkf_update,
+    Observation, STATE_VARS, assimilate, kalman_update,
 )
-from nasa_farm.assimilation.error import RStat, aoei
-from nasa_farm.assimilation.score import ensf_update
+from nasa_farm.assimilation.error import Statistic, aoei
+from nasa_farm.assimilation.score import score_update
 from nasa_farm.assimilation.latent import (
-    FilterNet, ensf_lr_update, fit_filter, net_update,
+    Filter, score_langevin_update, fit_filter, network_update,
 )
-from nasa_farm.assimilation.langevin import ula_posterior
-from nasa_farm.assimilation.design import design_schedule, eig, plan_schedule
-from nasa_farm.assimilation.smooth import esv_smooth
+from nasa_farm.assimilation.langevin import langevin_posterior
+from nasa_farm.assimilation.design import design_schedule, eigen, plan_schedule
+from nasa_farm.assimilation.smooth import ensemble_smooth
 
 __all__ = [
     "FilterNet", "Observation", "RStat", "STATE_VARS", "aoei",

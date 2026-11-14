@@ -29,19 +29,19 @@ def _client(status: int = 200) -> SoilGridClient:
 
 
 def test_request_params_multivalued():
-    params = dict(request_params(41.0, -93.0))
-    assert params["lat"] == "41.0" and params["depth"] == "0-30cm"
+    parameters = dict(request_params(41.0, -93.0))
+    assert parameters["lat"] == "41.0" and parameters["depth"] == "0-30cm"
 
 
 def test_parse_units():
-    out = parse(PAYLOAD)
-    assert out["mean"]["clay"] == pytest.approx(22.0)
-    assert out["mean"]["sand"] == pytest.approx(42.0)
-    assert out["mean"]["soc"] == pytest.approx(1.2)      # dg/kg → g/kg
-    assert out["mean"]["bdod"] == pytest.approx(1.4)     # cg/cm³ → g/cm³
-    assert out["mean"]["phh2o"] == pytest.approx(6.8)    # pH×10 → pH
-    assert out["Q0.05"]["clay"] == pytest.approx(15.0)
-    assert out["Q0.95"]["sand"] == pytest.approx(50.0)
+    output = parse(PAYLOAD)
+    assert output["mean"]["clay"] == pytest.approx(22.0)
+    assert output["mean"]["sand"] == pytest.approx(42.0)
+    assert output["mean"]["soc"] == pytest.approx(1.2)      # dg/kg → g/kg
+    assert output["mean"]["bdod"] == pytest.approx(1.4)     # cg/cm³ → g/cm³
+    assert output["mean"]["phh2o"] == pytest.approx(6.8)    # pH×10 → pH
+    assert output["Q0.05"]["clay"] == pytest.approx(15.0)
+    assert output["Q0.95"]["sand"] == pytest.approx(50.0)
 
 
 def test_sample_flat_dict():
@@ -75,16 +75,16 @@ def test_profile_fallback():
 
 
 def test_bounds_ordered():
-    lo, mid, hi = _client().bounds(41.0, -93.0)
-    assert float(lo.clay[0, 0]) < float(mid.clay[0, 0]) \
-        < float(hi.clay[0, 0])
+    low, mid, high = _client().bounds(41.0, -93.0)
+    assert float(low.clay[0, 0]) < float(mid.clay[0, 0]) \
+        < float(high.clay[0, 0])
     assert float(mid.clay[0, 0]) == pytest.approx(21.0)
 
 
 def test_profiles_ensemble_within_bounds():
     c = _client()
-    lo, _, hi = c.bounds(41.0, -93.0)
+    low, _, high = c.bounds(41.0, -93.0)
     s = c.profiles(41.0, -93.0, 16, seed=0)
     assert s.batch == 16
-    assert (s.clay >= lo.clay.min() - 1e-9).all() \
-        and (s.clay <= hi.clay.max() + 1e-9).all()
+    assert (s.clay >= low.clay.min() - 1e-9).all() \
+        and (s.clay <= high.clay.max() + 1e-9).all()

@@ -14,37 +14,37 @@ import torch
 from nasa_farm.dynamics.model import WorldModel
 from nasa_farm.experiments.run import register
 from nasa_farm.experiments.scene import scene
-from nasa_farm.experiments.specification import Spec
-from nasa_farm.observe.trace import ObsTrace
+from nasa_farm.experiments.specification import Specification
+from nasa_farm.observe.trace import ObservationTrace
 from nasa_farm.optimize.identification import identify
 from nasa_farm.optimize.trainer import fit
 
 
 @register("discover")
-def run(spec: Spec) -> dict:
-    torch.manual_seed(spec.seed)
-    sc = scene(spec)
-    f0, ch = sc.realization(0), spec.obs_channels
-    gen = torch.Generator().manual_seed(spec.seed + 63)
+def run(specification: Specification) -> dict:
+    torch.manual_seed(specification.seed)
+    sc = scene(specification)
+    f0, ch = sc.realization(0), specification.observed_channels
+    generation = torch.Generator().manual_seed(specification.seed + 63)
 
-    tr = ObsTrace(f0.days, ch, spec.obs_every)
+    traits = ObservationTrace(f0.days, ch, specification.cadence)
     with torch.inference_mode():
-        sc.truth.rollout(sc.field, f0, sc.actions, observer=tr)
-    obs_tgt = tr.result() * (1.0 + spec.noise * torch.randn(
-        tr.result().shape, generator=gen, dtype=tr.result().dtype))
+        sc.truth.rollout(sc.field, f0, sc.actions, observer=traits)
+    targets = traits.result() * (1.0 + specification.noise * torch.randn(
+        traits.result().shape, generator=generation, dtype=traits.result().dtype))
 
-    m = WorldModel(sc.crops, residual=True, seed=spec.seed)
-    params = {f"p{i}": p for i, p in enumerate(m.residual.parameters())}
-    scale = obs_tgt.std(dim=1, keepdim=True).clamp(min=1e-6)
+    m = WorldModel(sc.crops, residual=True, seed=specification.seed)
+    parameters = {f"p{i}": p for i, p in enumerate(m.residual.parameters())}
+    scale = targets.std(dim=1, keepdim=True).clamp(min=1e-6)
 
     def loss() -> torch.Tensor:
-        tr2 = ObsTrace(f0.days, ch, spec.obs_every)
+        tr2 = ObservationTrace(f0.days, ch, specification.cadence)
         m.rollout(sc.field, f0, sc.actions, observer=tr2)
-        return (((tr2.result() - obs_tgt) / scale) ** 2).mean()
+        return (((tr2.result() - targets) / scale) ** 2).mean()
 
-    res = fit(loss, params, epochs=spec.epochs, lr=spec.lr)
+    result = fit(loss, parameters, epochs=specification.epochs, rate=specification.rate)
     rep = identify(m, sc.field, f0, sc.actions)
-    return {"fit_loss": round(res.best_loss, 8),
+    return {"fit_loss": round(result.best_loss, 8),
             "r2_symbolic": rep["r2"],
             "equations": rep["equations"],
-            "extra": list(spec.extra)}
+            "extra": list(specification.extra)}

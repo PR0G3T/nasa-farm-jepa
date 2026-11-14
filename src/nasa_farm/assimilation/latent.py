@@ -20,20 +20,20 @@ from __future__ import annotations
 import torch
 import torch.nn as nn
 
-from nasa_farm.assimilation.kalman import STATE_VARS, _get_var, _put_vars
+from nasa_farm.assimilation.kalman import STATE_VARS, _get_variable, _put_variables
 from nasa_farm.constants import DTYPE
 from nasa_farm.metrics import energy_score
 from nasa_farm.state.field import Field, FieldState
 
 
-def _kde_transport(y: torch.Tensor, obs: torch.Tensor, r: torch.Tensor,
-                   steps: int, lr: float, bw: float | None) -> torch.Tensor:
+def _kde_transport(y: torch.Tensor, observed: torch.Tensor, r: torch.Tensor,
+                   steps: int, rate: float, bandwidth: float | None) -> torch.Tensor:
     """Analysis members in obs space: Langevin on log [KDE prior · N(obs,R)].
 
     y (B, C) forecast obs members → (B, C) analysis members."""
     b = y.shape[0]
     scale = y.std(0).clamp(min=1e-6)
-    h = (bw if bw is not None else 1.0) * scale * b ** (-1.0 / (y.shape[1] + 4))
+    h = (bandwidth if bandwidth is not None else 1.0) * scale * b ** (-1.0 / (y.shape[1] + 4))
     x = y.clone()
     for _ in range(steps):
         d = (x.unsqueeze(1) - x.unsqueeze(0)) / h
@@ -41,37 +41,37 @@ def _kde_transport(y: torch.Tensor, obs: torch.Tensor, r: torch.Tensor,
         den = dens.sum(1, keepdim=True).clamp(min=1e-9)
         prior = (dens / den).unsqueeze(-1) * d * h
         score_prior = prior.sum(1) - prior.sum(0)
-        score_like = (obs - x) / r
-        x = x + lr * (score_prior + score_like)
+        score_like = (observed - x) / r
+        x = x + rate * (score_prior + score_like)
     return torch.nan_to_num(x)
 
 
-def ensf_lr_update(state: FieldState, obs_pred: torch.Tensor,
-                   obs: torch.Tensor, r: torch.Tensor | float,
-                   var_names: tuple[str, ...] = STATE_VARS,
-                   steps: int = 30, lr: float = 0.05,
-                   bw: float | None = None) -> FieldState:
+def score_langevin_update(state: FieldState, observed_prediction: torch.Tensor,
+                   observed: torch.Tensor, r: torch.Tensor | float,
+                   names: tuple[str, ...] = STATE_VARS,
+                   steps: int = 30, rate: float = 0.05,
+                   bandwidth: float | None = None) -> FieldState:
     """EnSF-LR analysis.
 
     state: (B,) ensemble; obs_pred: (B, C) predicted observables;
     obs: (C,) measurement; r: error variance (scalar or (C,))."""
-    x = torch.stack([_get_var(state, n) for n in var_names], dim=-1)
+    x = torch.stack([_get_variable(state, n) for n in names], dim=-1)
     r_t = torch.as_tensor(r, dtype=x.dtype, device=x.device)
     # 1) nonlinear obs-space transport → analysis obs members
-    ya = _kde_transport(obs_pred, obs, r_t.clamp(min=1e-12), steps, lr, bw)
+    ya = _kde_transport(observed_prediction, observed, r_t.clamp(min=1e-12), steps, rate, bandwidth)
     # 2) prior cross-covariance regression into all state channels
-    xm, ym = x.mean(0), obs_pred.mean(0)
-    xa, yp = x - xm, obs_pred - ym
+    xm, ym = x.mean(0), observed_prediction.mean(0)
+    xa, yp = x - xm, observed_prediction - ym
     cxy = xa.t() @ yp / (x.shape[0] - 1)
     cyy = yp.t() @ yp / (x.shape[0] - 1)
     gain = torch.linalg.solve(
         cyy + 1e-6 * torch.eye(cyy.shape[0], dtype=cyy.dtype), cxy.t()).t()
-    xn = x + (ya - obs_pred) @ gain.t()
+    xn = x + (ya - observed_prediction) @ gain.t()
     xn = torch.nan_to_num(xn).clamp(min=0.0)
-    return _put_vars(state, var_names, xn)
+    return _put_variables(state, names, xn)
 
 
-class FilterNet(nn.Module):
+class Filter(nn.Module):
     """Permutation-invariant learned analysis filter (PSEF-style).
 
     Each member is featurized as [state (V), obs_pred (C), obs (C), r (C)];
@@ -90,21 +90,21 @@ class FilterNet(nn.Module):
         self.to(DTYPE)
 
     def forward(self, x: torch.Tensor, ypred: torch.Tensor,
-                obs: torch.Tensor, r: torch.Tensor) -> torch.Tensor:
+                observed: torch.Tensor, r: torch.Tensor) -> torch.Tensor:
         """x (B,V), ypred (B,C), obs (C,), r (C,) → analysis (B,V)."""
         b = x.shape[0]
         z = self.phi(torch.cat(
-            [x, ypred, obs.expand(b, -1), r.expand(b, -1)], dim=-1))
-        ctx = z.mean(0, keepdim=True).expand(b, -1)
-        return x + self.psi(torch.cat([z, ctx], dim=-1))
+            [x, ypred, observed.expand(b, -1), r.expand(b, -1)], dim=-1))
+        context = z.mean(0, keepdim=True).expand(b, -1)
+        return x + self.psi(torch.cat([z, context], dim=-1))
 
 
 def fit_filter(model, field: Field, forcing, actions,
                channels: tuple[str, ...], every: int = 10,
-               members: int = 16, epochs: int = 60, lr: float = 1e-3,
+               members: int = 16, epochs: int = 60, rate: float = 1e-3,
                noise: float = 0.05, spread: float = 0.15,
-               var_names: tuple[str, ...] = STATE_VARS,
-               seed: int = 0) -> FilterNet:
+               names: tuple[str, ...] = STATE_VARS,
+               seed: int = 0) -> Filter:
     """Train FilterNet on energy score against model-generated analyses.
 
     Each training example: roll the model to an obs day (truth state s*),
@@ -114,28 +114,28 @@ def fit_filter(model, field: Field, forcing, actions,
     """
     from nasa_farm.observe import observables
 
-    gen = torch.Generator().manual_seed(seed)
-    snap: list[tuple[FieldState, torch.Tensor, torch.Tensor]] = []
+    generation = torch.Generator().manual_seed(seed)
+    snapshot: list[tuple[FieldState, torch.Tensor, torch.Tensor]] = []
     f = field
     with torch.inference_mode():
         for t in range(forcing.days):
             f, _ = model.step(f, actions.day(t), forcing.day(t), t)
             if t % every == every - 1:
                 truth = torch.stack(
-                    [_get_var(f.state, n)[0] for n in var_names])
+                    [_get_variable(f.state, n)[0] for n in names])
                 o = observables(f.state, channels)[0]
-                snap.append((f.state.clone(), truth, o))
+                snapshot.append((f.state.clone(), truth, o))
 
-    net = FilterNet(len(var_names), len(channels))
-    opt = torch.optim.Adam(net.parameters(), lr=lr)
-    scale = torch.tensor([1.0] * len(var_names), dtype=DTYPE)
-    hist = []
+    net = Filter(len(names), len(channels))
+    opt = torch.optim.Adam(net.parameters(), rate=rate)
+    scale = torch.tensor([1.0] * len(names), dtype=DTYPE)
+    history = []
     for _ in range(epochs):
         total = torch.zeros((), dtype=DTYPE)
-        for st, truth, o in snap:
-            x0 = torch.stack([_get_var(st, n)[0] for n in var_names])
+        for st, truth, o in snapshot:
+            x0 = torch.stack([_get_variable(st, n)[0] for n in names])
             jitter = 1.0 + spread * torch.randn(
-                (members, x0.shape[0]), generator=gen, dtype=DTYPE)
+                (members, x0.shape[0]), generator=generation, dtype=DTYPE)
             x = (x0 * jitter).clamp(min=0.0)
             ps = FieldState(
                 sw=st.sw.repeat(members, 1), n_min=st.n_min.repeat(members),
@@ -148,31 +148,31 @@ def fit_filter(model, field: Field, forcing, actions,
                 cum_yield=st.cum_yield.repeat(members),
                 crop=st.crop.repeat(members), growing=st.growing.repeat(members),
                 harvested=st.harvested.repeat(members),
-                vern=st.vern.repeat(members), heat_acc=st.heat_acc.repeat(members),
+                vernalization=st.vernalization.repeat(members), heat_acc=st.heat_acc.repeat(members),
                 z=None, zh=None, depth=st.depth, tair=st.tair.repeat(members))
-            ps = _put_vars(ps, var_names, x)
+            ps = _put_variables(ps, names, x)
             ypred = observables(ps, channels)
             std = (noise * o.abs()).clamp(min=1e-3)
-            obs = o + torch.randn(o.shape, generator=gen, dtype=DTYPE) * std
-            xa = net(x, ypred, obs, std ** 2)
+            observed = o + torch.randn(o.shape, generator=generation, dtype=DTYPE) * std
+            xa = net(x, ypred, observed, std ** 2)
             total = total + energy_score(xa.unsqueeze(1), truth.unsqueeze(0))
         opt.zero_grad(set_to_none=True)
-        (total / len(snap)).backward()
+        (total / len(snapshot)).backward()
         torch.nn.utils.clip_grad_norm_(net.parameters(), 1.0)
         opt.step()
-        hist.append(float(total / len(snap)))
-    net._fit_history = hist
+        history.append(float(total / len(snapshot)))
+    net._fit_history = history
     return net
 
 
-def net_update(net: FilterNet, var_names: tuple[str, ...] = STATE_VARS):
+def network_update(net: Filter, names: tuple[str, ...] = STATE_VARS):
     """Wrap a fitted FilterNet into an `assimilate(update=...)` callable."""
-    def update(state: FieldState, obs_pred: torch.Tensor, obs: torch.Tensor,
+    def update(state: FieldState, observed_prediction: torch.Tensor, observed: torch.Tensor,
                r: torch.Tensor | float, **_kw) -> FieldState:
-        x = torch.stack([_get_var(state, n) for n in var_names], dim=-1)
+        x = torch.stack([_get_variable(state, n) for n in names], dim=-1)
         r_t = torch.as_tensor(r, dtype=x.dtype, device=x.device) \
-            .expand(obs.numel())
-        xa = net(x, obs_pred, obs, r_t.clamp(min=1e-12))
-        return _put_vars(state, var_names,
+            .expand(observed.numel())
+        xa = net(x, observed_prediction, observed, r_t.clamp(min=1e-12))
+        return _put_variables(state, names,
                          torch.nan_to_num(xa).clamp(min=0.0))
     return update

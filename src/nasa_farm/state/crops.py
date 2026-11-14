@@ -40,7 +40,7 @@ PARAMS: tuple[str, ...] = (
     "co2_resp",     # — RUE elasticity to CO2 (C3 ≈ 0.2, C4 ≈ 0.05)
 )
 P = len(PARAMS)
-IDX = {name: i for i, name in enumerate(PARAMS)}
+INDEX = {name: i for i, name in enumerate(PARAMS)}
 
 _LIBRARY: dict[str, list[float]] = {
     #            tbase topt gdd_em gdd_lai gdd_sen gdd_mat lai  kext rue  kc   rf2  leg fix  ndem   HI   res  sow  pp   crit vern fl   heat sus   kill  co2
@@ -89,18 +89,18 @@ class CropLibrary:
     def get(self, name: str) -> torch.Tensor:
         return self.table[self.index(name)]
 
-    def col(self, param: str) -> torch.Tensor:
-        return self.table[:, IDX[param]]
+    def column(self, param: str) -> torch.Tensor:
+        return self.table[:, INDEX[param]]
 
     @property
     def n_crops(self) -> int:
         return self.table.shape[0]
 
     def is_perennial(self, crop_idx: torch.Tensor) -> torch.Tensor:
-        return self.table[crop_idx.clamp(min=0), IDX["gdd_mat"]] > 1e8
+        return self.table[crop_idx.clamp(min=0), INDEX["gdd_mat"]] > 1e8
 
     def mixture(self, name: str, a: str, b: str,
-                frac: float = 0.5) -> "CropLibrary":
+                fraction: float = 0.5) -> "CropLibrary":
         """Append a composite cultivar row = frac·a + (1−frac)·b.
 
         Mixtures and intercrops enter the model as data, not code: the
@@ -108,11 +108,11 @@ class CropLibrary:
         traits interpolate; sow_doy rounds to the weighted day.
         """
         i, j = self.index(a), self.index(b)
-        row = frac * self.table[i] + (1.0 - frac) * self.table[j]
+        row = fraction * self.table[i] + (1.0 - fraction) * self.table[j]
         row = row.clone()
-        row[IDX["sow_doy"]] = row[IDX["sow_doy"]].round()
+        row[INDEX["sow_doy"]] = row[INDEX["sow_doy"]].round()
         table = torch.cat([self.table, row.unsqueeze(0)], dim=0)
         var = None if self.var is None else torch.cat(
-            [self.var, (frac * self.var[i] + (1.0 - frac) * self.var[j])
+            [self.var, (fraction * self.var[i] + (1.0 - fraction) * self.var[j])
              .unsqueeze(0)], dim=0)
         return CropLibrary(table=table, names=self.names + (name,), var=var)

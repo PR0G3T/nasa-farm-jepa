@@ -11,17 +11,17 @@ class TestIrrigation:
     def test_dry_no_rain_is_zero(self):
         sm = torch.full((60,), 0.25, dtype=DTYPE)
         p = torch.zeros(60, dtype=DTYPE)
-        out = infer_irrigation(sm, p)
-        assert float(out.max()) == pytest.approx(0.0, abs=1.0)
+        output = infer_irrigation(sm, p)
+        assert float(output.max()) == pytest.approx(0.0, abs=1.0)
 
     def test_step_without_rain_detected(self):
         """A 0.1 jump over 200 mm of soil ≈ 20 mm unexplained input."""
         sm = torch.full((60,), 0.25, dtype=DTYPE)
         sm[20:] = 0.35
         p = torch.zeros(60, dtype=DTYPE)
-        out = infer_irrigation(sm, p, depth_mm=200.0)
-        assert 18.0 < float(out[20]) < 25.0
-        assert float(out[:20].sum()) < 1.0
+        output = infer_irrigation(sm, p, depth_mm=200.0)
+        assert 18.0 < float(output[20]) < 25.0
+        assert float(output[:20].sum()) < 1.0
 
     def test_rain_covering_rise_is_zero(self):
         """Rain that already explains the wetting leaves no irrigation."""
@@ -29,16 +29,16 @@ class TestIrrigation:
         sm[20:] = 0.30
         p = torch.zeros(60, dtype=DTYPE)
         p[20] = 40.0
-        out = infer_irrigation(sm, p, depth_mm=200.0)
-        assert float(out[20]) < 1.0
+        output = infer_irrigation(sm, p, depth_mm=200.0)
+        assert float(output[20]) < 1.0
 
     def test_small_residuals_clipped(self):
         """Sub-mm balance noise must not become phantom events."""
         g = torch.Generator().manual_seed(0)
         sm = 0.25 + 0.001 * torch.randn(60, generator=g, dtype=DTYPE)
         p = torch.zeros(60, dtype=DTYPE)
-        out = infer_irrigation(sm, p, min_mm=1.0)
-        assert float(out.max()) < 1.0
+        output = infer_irrigation(sm, p, min_mm=1.0)
+        assert float(output.max()) < 1.0
 
     def test_monotone_in_storage_gain(self):
         """Bigger unexplained wetting steps → bigger detected volumes."""
@@ -74,9 +74,9 @@ class TestActions:
         coh = torch.full((120,), 0.8, dtype=DTYPE)
         coh[45] = 0.2                           # disturbance dip near green-up
         base = infer_actions(ndvi, t, crop_idx=2)
-        ref = infer_actions(ndvi, t, crop_idx=2, coh=coh)
+        reference = infer_actions(ndvi, t, crop_idx=2, coh=coh)
         d_base = int((base.sow[0] == 2).nonzero()[0])
-        d_ref = int((ref.sow[0] == 2).nonzero()[0])
+        d_ref = int((reference.sow[0] == 2).nonzero()[0])
         assert d_ref == 45 and d_ref != d_base
 
     def test_no_signals_stays_zero(self):

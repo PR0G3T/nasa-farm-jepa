@@ -41,8 +41,8 @@ class TestIntervalCoverage:
         y = torch.randn(1200, generator=g, dtype=DTYPE)
         cal, test = y[:200], y[200:]
         scores = cal.abs()
-        lo, hi = interval(torch.zeros(test.shape, dtype=DTYPE), scores, 0.1)
-        c = coverage(test, lo, hi)
+        low, high = interval(torch.zeros(test.shape, dtype=DTYPE), scores, 0.1)
+        c = coverage(test, low, high)
         assert 0.85 <= c <= 0.96
 
     def test_split_conformal_per_channel(self):
@@ -51,8 +51,8 @@ class TestIntervalCoverage:
             * torch.tensor([1.0, 5.0], dtype=DTYPE)
         cal, test = y[:200], y[200:]
         sc = SplitConformal(alpha=0.1).fit(torch.zeros_like(cal), cal)
-        lo, hi = sc.bound(torch.zeros_like(test))
-        assert lo.shape == test.shape
+        low, high = sc.bound(torch.zeros_like(test))
+        assert low.shape == test.shape
         for c in range(2):
-            assert 0.85 <= coverage(test[:, c], lo[:, c], hi[:, c]) <= 0.97
-        assert (hi - lo)[:, 1].mean() > (hi - lo)[:, 0].mean() * 3.0
+            assert 0.85 <= coverage(test[:, c], low[:, c], high[:, c]) <= 0.97
+        assert (high - low)[:, 1].mean() > (high - low)[:, 0].mean() * 3.0

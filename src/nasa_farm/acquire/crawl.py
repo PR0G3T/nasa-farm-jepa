@@ -26,9 +26,9 @@ from itertools import groupby
 from pathlib import Path
 from typing import Callable, Iterable
 
-import numpy as np
+import numpy as numpy
 
-from nasa_farm.acquire.base import BBox, Temporal
+from nasa_farm.acquire.base import Bounds, Temporal
 from nasa_farm.acquire.power import CANON, PowerClient
 from nasa_farm.acquire.soilgrid import SoilGridClient
 from nasa_farm.lake import Lake
@@ -55,17 +55,17 @@ def _power(fields: list[dict], lake: Lake, years: list[int],
     for f in fields:
         raw = client.data_years(f["lat"], f["lon"], years, workers)
         keys = _day_keys(years)
-        dates = np.array(
-            [int(k) for y in years for k in keys[y]], np.int32)
-        with lake.tx():
+        dates = numpy.array(
+            [int(k) for y in years for k in keys[y]], numpy.int32)
+        with lake.transaction():
             for param in raw[0]:
-                vals = np.array(
-                    [d.get(param, {}).get(k, np.nan)
+                values = numpy.array(
+                    [d.get(param, {}).get(k, numpy.nan)
                      for d, y in zip(raw, years) for k in keys[y]],
-                    np.float32)
-                grp, var = ("obs", "smg") if param == "GWETROOT" \
+                    numpy.float32)
+                group, var = ("obs", "smg") if param == "GWETROOT" \
                     else ("forcing", CANON.get(param, param))
-                lake.put(f["id"], grp, var, dates, vals, "power")
+                lake.put(f["id"], group, var, dates, values, "power")
         log(f"power {f['id']} ok")
 
 
@@ -82,12 +82,12 @@ def _nldas(fields: list[dict], lake: Lake, years: list[int], log) -> None:
     """NLDAS-3 daily forcing → canonical shards; one open per day feeds
     every in-domain field. Days accumulate in memory per field and flush
     with their marks in one tx per month — no read-modify-write per day."""
-    from nasa_farm.acquire import nldas
-    na = [f for f in fields if nldas.covers(f["lat"], f["lon"])]
+    from nasa_farm.acquire import reanalysis as reanalysis
+    na = [f for f in fields if reanalysis.covers(f["lat"], f["lon"])]
     if not na:
         log("nldas: no fields in domain")
         return
-    fs = nldas._fs()
+    edited = reanalysis._fs()
     days = [dt.date(years[0], 1, 1) + dt.timedelta(i)
             for i in range((dt.date(years[-1], 12, 31)
                             - dt.date(years[0], 1, 1)).days + 1)]
@@ -95,43 +95,43 @@ def _nldas(fields: list[dict], lake: Lake, years: list[int], log) -> None:
         pend: dict[str, dict[str, list]] = {f["id"]: {} for f in na}
         marked: list[str] = []
         for day in mdays:
-            key = nldas.day_url(day)
+            key = reanalysis.day_url(day)
             if lake.has_granule(key):
                 continue
             try:
-                ds = nldas.open_day(day, fs)
+                ds = reanalysis.open_day(day, edited)
             except (OSError, KeyError, ValueError) as e:
                 log(f"nldas {day} skip ({e})")
                 continue
             di = int(day.strftime("%Y%m%d"))
             with ds:
                 for f in na:
-                    raw = {v: nldas.sample(ds, v, f["lat"], f["lon"])
-                           for v in nldas.VARS if v in ds}
-                    for var, val in nldas.convert(raw).items():
+                    raw = {v: reanalysis.sample(ds, v, f["lat"], f["lon"])
+                           for v in reanalysis.VARS if v in ds}
+                    for var, val in reanalysis.convert(raw).items():
                         slot = pend[f["id"]].setdefault(var, ([], []))
                         slot[0].append(di)
                         slot[1].append(val)
             marked.append(key)
         if not marked:
             continue
-        with lake.tx():
-            for fid, acc in pend.items():
-                for var, (ds_, vs) in acc.items():
-                    lake.put(fid, "forcing", var, np.array(ds_, np.int32),
-                             np.array(vs, np.float32), "nldas3")
+        with lake.transaction():
+            for fid, accumulate in pend.items():
+                for var, (ds_, vs) in accumulate.items():
+                    lake.put(fid, "forcing", var, numpy.array(ds_, numpy.int32),
+                             numpy.array(vs, numpy.float32), "nldas3")
             for key in marked:
                 lake.mark_granule(key, "nldas3")
         log(f"nldas {y}-{m:02d} ok")
 
 
-def _aoi(spec, fields: list[dict]) -> BBox | None:
+def _aoi(specification, fields: list[dict]) -> Bounds | None:
     """Field-union bbox ∩ the product's domain — None when disjoint."""
-    w = max(min(f["lon"] for f in fields), spec.bbox[0])
-    s = max(min(f["lat"] for f in fields), spec.bbox[1])
-    e = min(max(f["lon"] for f in fields), spec.bbox[2])
-    n = min(max(f["lat"] for f in fields), spec.bbox[3])
-    return None if w > e or s > n else BBox(w, s, e, n)
+    w = max(min(f["lon"] for f in fields), specification.bbox[0])
+    s = max(min(f["lat"] for f in fields), specification.bbox[1])
+    e = min(max(f["lon"] for f in fields), specification.bbox[2])
+    n = min(max(f["lat"] for f in fields), specification.bbox[3])
+    return None if w > e or s > n else Bounds(w, s, e, n)
 
 
 def _granule(work):
@@ -139,57 +139,56 @@ def _granule(work):
     serializes lake writes."""
     import socket
     socket.setdefaulttimeout(300)
-    spec, g, fields = work
+    specification, g, fields = work
     from nasa_farm.observe import fetch
     try:
-        ds = fetch(spec.source, g)
+        ds = fetch(specification.source, g)
         with ds:
-            if spec.var(ds) is None:
+            if (grid := specification.prep(ds)) is None:
                 return g.id, "skip (no var)"
-            out = {}
+            output = {}
             for f in fields:
-                v, w = spec.read(ds, f["lat"], f["lon"]), \
-                    spec.coverage(ds, f["lat"], f["lon"])
-                if np.isfinite(v) and w > 0.0:
-                    out[f["id"]] = (float(v), float(w))
-            return g.id, (spec.day_of(ds), out)
+                v, w = specification.at(grid, f["lat"], f["lon"])
+                if numpy.isfinite(v) and w > 0.0:
+                    output[f["id"]] = (v, w)
+            return g.id, (specification.day_of(ds), output)
     except (OSError, ValueError, KeyError, RuntimeError) as e:
         return g.id, f"skip ({type(e).__name__})"
 
 
-def _granules(spec, fields: list[dict], lake: Lake,
+def _granules(specification, fields: list[dict], lake: Lake,
               temporal: Temporal, log) -> None:
     """Satellite granules → obs series + coverage weights — one tx per
     granule (all field puts + the mark), so re-crawl never re-opens."""
-    aoi, span = _aoi(spec, fields), Temporal(
-        max(temporal.start, spec.span[0]),
-        min(temporal.end, spec.span[1]))
-    if aoi is None or span.start > span.end:
-        log(f"{spec.obs}: fields outside product domain")
+    area, span = _aoi(specification, fields), Temporal(
+        max(temporal.start, specification.span[0]),
+        min(temporal.end, specification.span[1]))
+    if area is None or span.start > span.end:
+        log(f"{specification.observed}: fields outside product domain")
         return
-    todo = [g for g in spec.source.search(aoi, span, spec.limit)
+    todo = [g for g in specification.source.search(area, span, specification.limit)
             if not lake.has_granule(g.id)]
-    log(f"{spec.obs}: {len(todo)} granules to fetch")
+    log(f"{specification.observed}: {len(todo)} granules to fetch")
     if not todo:
         return
 
-    def work(g): return _granule((spec, g, fields))
-    with ThreadPoolExecutor(max_workers=spec.workers) as pool:
+    def work(g): return _granule((specification, g, fields))
+    with ThreadPoolExecutor(max_workers=specification.workers) as pool:
         for gid, got in pool.map(work, todo):
             if not isinstance(got, tuple):
-                log(f"{spec.obs} {gid} {got}")
+                log(f"{specification.observed} {gid} {got}")
                 continue
-            day, vals = got
-            di = np.array([day], np.int32)
-            src = spec.source.short_name
-            with lake.tx():
-                for fid, (v, w) in vals.items():
-                    lake.put(fid, "obs", spec.obs, di,
-                             np.array([v], np.float32), src)
-                    lake.put(fid, "obs", f"{spec.obs}_w", di,
-                             np.array([w], np.float32), src)
-                lake.mark_granule(gid, src)
-            log(f"{spec.obs} {gid} ok")
+            day, values = got
+            di = numpy.array([day], numpy.int32)
+            source = specification.source.short_name
+            with lake.transaction():
+                for fid, (v, w) in values.items():
+                    lake.put(fid, "obs", specification.observed, di,
+                             numpy.array([v], numpy.float32), source)
+                    lake.put(fid, "obs", f"{specification.observed}_w", di,
+                             numpy.array([w], numpy.float32), source)
+                lake.mark_granule(gid, source)
+            log(f"{specification.observed} {gid} ok")
 
 
 def crawl(fields: Iterable[dict], root: Path | str, years: list[int],
@@ -197,12 +196,12 @@ def crawl(fields: Iterable[dict], root: Path | str, years: list[int],
           log: Callable[[str], None] = print,
           power: PowerClient | None = None,
           soil: SoilGridClient | None = None) -> None:
-    """Fetch everything `sources` covers for `fields` into `lake.database`."""
+    """Fetch everything `sources` covers for `fields` into `lake.db`."""
     root, fields = Path(root), [dict(f) for f in fields]
     temporal = Temporal(f"{years[0]}-01-01", f"{years[-1]}-12-31")
     root.mkdir(parents=True, exist_ok=True)
     with Lake(root) as lake:
-        with lake.tx():
+        with lake.transaction():
             for f in fields:
                 lake.field(f["id"], f["lat"], f["lon"], f.get("name", ""))
         if "power" in sources:
@@ -211,6 +210,6 @@ def crawl(fields: Iterable[dict], root: Path | str, years: list[int],
             _soil(fields, lake, log, soil)
         if "nldas" in sources:
             _nldas(fields, lake, years, log)
-        for name, spec in GRANULE_SPECS.items():
+        for name, specification in GRANULE_SPECS.items():
             if name in sources:
-                _granules(spec, fields, lake, temporal, log)
+                _granules(specification, fields, lake, temporal, log)

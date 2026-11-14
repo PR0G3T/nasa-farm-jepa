@@ -22,8 +22,8 @@ from typing import Callable
 import torch
 
 from nasa_farm.hardware import graphs as _graphs
-from nasa_farm.hardware import memory as mem
-from nasa_farm.hardware import streams as pipe
+from nasa_farm.hardware import memory as memory
+from nasa_farm.hardware import streams as streams
 from nasa_farm.hardware import pool as _pool
 from nasa_farm.hardware import telemetry as _thermo
 
@@ -31,14 +31,14 @@ _OOM_PATTERNS = ("out of memory", "can't allocate", "cannot allocate",
                  "cudaerror memoryallocation")
 
 
-def is_oom(exc: BaseException) -> bool:
-    if isinstance(exc, MemoryError):
+def out_of_memory(exception: BaseException) -> bool:
+    if isinstance(exception, MemoryError):
         return True
     cuda_oom = getattr(torch, "OutOfMemoryError", None)
-    if cuda_oom is not None and isinstance(exc, cuda_oom):
+    if cuda_oom is not None and isinstance(exception, cuda_oom):
         return True
-    msg = str(exc).lower()
-    return any(p in msg for p in _OOM_PATTERNS)
+    message = str(exception).lower()
+    return any(p in message for p in _OOM_PATTERNS)
 
 
 @dataclass
@@ -52,22 +52,22 @@ class Lane:
     cap_rows: int = 1 << 30
     rate: float = 0.0
     use_graph: bool = False
-    fn: Callable | None = None
+    function: Callable | None = None
     model: object = None
     field: object = None
-    ens: object = None
+    ensemble: object = None
     pool: Executor | None = None
     comp_s: object = None
     copy_s: object = None
-    stage: pipe.Stage | None = None
+    stage: streams.Stage | None = None
     graphs: _graphs.Cache | None = None
-    ctx: dict = _dc_field(default_factory=dict)
+    context: dict = _dc_field(default_factory=dict)
     mem_pool: object = None
-    thermo: _thermo.Monitor | None = None
+    telemetry: _thermo.Monitor | None = None
     alive: bool = True
 
     @property
-    def accel(self) -> bool:
+    def accelerator(self) -> bool:
         return self.device.type != "cpu"
 
     def close(self) -> None:
@@ -76,19 +76,19 @@ class Lane:
 
 
 def make_lane(device: torch.device, workers: int,
-              thermo: _thermo.Monitor | None = None) -> Lane:
+              telemetry: _thermo.Monitor | None = None) -> Lane:
     """Wire a lane's hardware-facing resources: streams + pinned stage +
     graph cache + OOM reserve pool on accelerators, a pinned worker pool
     on CPU."""
-    comp_s, copy_s = pipe.streams(device)
+    comp_s, copy_s = streams.streams(device)
     lane = Lane(
         name=device_label(device), device=device, workers=workers,
         comp_s=comp_s, copy_s=copy_s,
-        stage=pipe.Stage(device, copy_s, comp_s),
+        stage=streams.Stage(device, copy_s, comp_s),
         graphs=(_graphs.Cache(device) if device.type == "cuda"
                 else None),
-        mem_pool=mem.reserve_pool(device),
-        thermo=thermo,
+        mem_pool=memory.reserve_pool(device),
+        telemetry=telemetry,
     )
     if device.type == "cpu" and workers > 1:
         lane.pool = _pool.make(workers)
@@ -101,7 +101,7 @@ def device_label(device: torch.device) -> str:
 
 
 def run(lanes: list[Lane], plans: torch.Tensor,
-        out: torch.Tensor, scen: int) -> None:
+        output: torch.Tensor, scen: int) -> None:
     """Drive `lanes` over the rows of `plans`, writing each block's
     metrics into ``out[start*s : end*s]``.
 
@@ -112,27 +112,27 @@ def run(lanes: list[Lane], plans: torch.Tensor,
     lock = threading.Lock()
     abort = threading.Event()
     errors: list[BaseException] = []
-    pos = [0]
+    position = [0]
 
     def take(lane: Lane) -> tuple[int, int]:
         """Steady state: uniform pulls (max graph/ctx reuse). Tail zone
         (remaining fits in one round of blocks): fair-share split so no
         lane idles while another straggles."""
         with lock:
-            rem = n_rows - pos[0]
-            if rem <= 0:
+            remaining = n_rows - position[0]
+            if remaining <= 0:
                 return 0, 0
             live = max(1, sum(1 for l in lanes if l.alive))
-            k = (lane.block_rows if rem > lane.block_rows * live
-                 else max(1, rem // live))
-            k = min(k, rem)
-            start = pos[0]
-            pos[0] += k
+            k = (lane.block_rows if remaining > lane.block_rows * live
+                 else max(1, remaining // live))
+            k = min(k, remaining)
+            start = position[0]
+            position[0] += k
             return start, k
 
     def give_back(k: int) -> None:
         with lock:
-            pos[0] -= k
+            position[0] -= k
 
     def shrink(lane: Lane) -> bool:
         """OOM recovery. True → lane keeps working with less."""
@@ -148,7 +148,7 @@ def run(lanes: list[Lane], plans: torch.Tensor,
             lane.block_rows = lane.cap_rows
             return True
         lane.alive = False
-        mem.empty(lane.device)
+        memory.empty(lane.device)
         return False
 
     def drive(lane: Lane) -> None:
@@ -158,25 +158,25 @@ def run(lanes: list[Lane], plans: torch.Tensor,
                 return
             block = plans[start:start + k]
             try:
-                res = lane.fn(lane, start, block)
-            except Exception as exc:
-                if not is_oom(exc):
-                    errors.append(exc)
+                result = lane.function(lane, start, block)
+            except Exception as exception:
+                if not out_of_memory(exception):
+                    errors.append(exception)
                     abort.set()
                     return
                 give_back(k)
                 if not shrink(lane) and not any(l.alive for l in lanes):
-                    errors.append(exc)
+                    errors.append(exception)
                     abort.set()
                 continue
             try:
-                _store(lane, out, start, k, scen, res)
-            except Exception as exc:
-                errors.append(exc)
+                _store(lane, output, start, k, scen, result)
+            except Exception as exception:
+                errors.append(exception)
                 abort.set()
                 return
 
-    drivers = [threading.Thread(target=drive, args=(l,), daemon=True,
+    drivers = [threading.Thread(target=drive, arguments=(l,), daemon=True,
                                 name=f"nasa-farm-{l.name}")
                for l in lanes if l.alive]
     for t in drivers:
@@ -192,14 +192,14 @@ def run(lanes: list[Lane], plans: torch.Tensor,
         raise errors[0]
 
 
-def _store(lane: Lane, out: torch.Tensor, start: int, k: int,
-           scen: int, res: torch.Tensor) -> None:
-    dst = out[start * scen:(start + k) * scen]
+def _store(lane: Lane, output: torch.Tensor, start: int, k: int,
+           scen: int, result: torch.Tensor) -> None:
+    destination = output[start * scen:(start + k) * scen]
     if lane.copy_s is not None:
-        res.record_stream(lane.copy_s)
+        result.record_stream(lane.copy_s)
         with torch.cuda.stream(lane.copy_s):
             lane.copy_s.wait_stream(lane.comp_s)
-            dst.copy_(res, non_blocking=True)
+            destination.copy_(result, non_blocking=True)
         lane.copy_s.synchronize()
     else:
-        dst.copy_(res)
+        destination.copy_(result)

@@ -32,7 +32,7 @@ def _env(key: str, default: str) -> str:
     return os.environ.get(f"NASA_FARM_{key}", default)
 
 
-class _TTLCache:
+class _TimedCache:
     """Bounded LRU + TTL; key = canonical request JSON (output is a pure
     function of the request, so a hit is exact)."""
 
@@ -44,15 +44,15 @@ class _TTLCache:
         hit = self._d.get(key)
         if hit is None:
             return None
-        ts, res = hit
+        ts, result = hit
         if time.monotonic() - ts > self.ttl:
-            self._d.pop(key, None)
+            self._d.population(key, None)
             return None
         self._d.move_to_end(key)
-        return res
+        return result
 
-    def put(self, key: str, res: PlanResponse) -> None:
-        self._d[key] = (time.monotonic(), res)
+    def put(self, key: str, result: PlanResponse) -> None:
+        self._d[key] = (time.monotonic(), result)
         self._d.move_to_end(key)
         while len(self._d) > self.size:
             self._d.popitem(last=False)
@@ -62,7 +62,7 @@ def create_app() -> FastAPI:
     app = FastAPI(title="nasa-farm", version=__version__)
     app.add_middleware(GZipMiddleware, minimum_size=1024)
     jobs = asyncio.Semaphore(int(_env("JOBS", "1")))
-    cache = _TTLCache(int(_env("CACHE", "128")),
+    cache = _TimedCache(int(_env("CACHE", "128")),
                       float(_env("CACHE_TTL", "86400")))
 
     @app.get("/healthz")
@@ -70,33 +70,33 @@ def create_app() -> FastAPI:
         return {"status": "ok", "version": __version__}
 
     @app.get("/v1/meta")
-    async def meta() -> dict:
+    async def metadata() -> dict:
         return {"version": __version__,
                 "crops": list(CropLibrary.default().names),
                 "metrics": list(METRICS),
                 "objectives": OBJECTIVE_DIRECTION}
 
     @app.post("/v1/plan")
-    async def v1_plan(req: PlanRequest, request: Request) -> PlanResponse:
-        key = req.model_dump_json()
+    async def v1_plan(body: PlanRequest, request: Request) -> PlanResponse:
+        key = body.model_dump_json()
         hit = cache.get(key)
         if hit is not None:
             request.state.cached = True
             return hit
         try:
             async with jobs:
-                res = await asyncio.to_thread(plan, req)
-        except ValueError as exc:
-            raise HTTPException(status_code=400, detail=str(exc))
-        cache.put(key, res)
-        return res
+                result = await asyncio.to_thread(plan, body)
+        except ValueError as exception:
+            raise HTTPException(status_code=400, detail=str(exception))
+        cache.put(key, result)
+        return result
 
     @app.middleware("http")
     async def cache_header(request: Request, call_next):
-        res = await call_next(request)
+        result = await call_next(request)
         if getattr(request.state, "cached", False):
-            res.headers["x-cache"] = "hit"
-        return res
+            result.headers["x-cache"] = "hit"
+        return result
 
     return app
 
@@ -108,7 +108,7 @@ def tunnel(port: int, binary: str = "cloudflared") -> subprocess.Popen:
     """Spawn `cloudflared tunnel --url http://localhost:port`; stream its log
     to stderr and announce the public URL once assigned."""
     try:
-        proc = subprocess.Popen(
+        process = subprocess.Popen(
             [binary, "tunnel", "--url", f"http://localhost:{port}",
              "--no-autoupdate"],
             stderr=subprocess.PIPE, text=True)
@@ -118,11 +118,11 @@ def tunnel(port: int, binary: str = "cloudflared") -> subprocess.Popen:
             "https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/")
 
     def watch() -> None:
-        assert proc.stderr is not None
-        for line in proc.stderr:
+        assert process.stderr is not None
+        for line in process.stderr:
             sys.stderr.write(line)
             if m := TUNNEL_URL.search(line):
                 sys.stderr.write(f"\npublic api: {m.group(0)}\n\n")
 
     threading.Thread(target=watch, daemon=True).start()
-    return proc
+    return process

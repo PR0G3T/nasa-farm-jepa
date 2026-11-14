@@ -17,9 +17,9 @@ from nasa_farm.constants import DAYS_PER_YEAR, DTYPE
 from nasa_farm.types import Forcing
 
 
-def ou_noise(b: int, t: int, rho: float, gen: torch.Generator) -> torch.Tensor:
+def noise(b: int, t: int, rho: float, generation: torch.Generator) -> torch.Tensor:
     """Unit-variance AR(1) noise (b, t) — temporally correlated perturbations."""
-    e = torch.randn(b, t, generator=gen, dtype=DTYPE)
+    e = torch.randn(b, t, generator=generation, dtype=DTYPE)
     k = min(t, 60)
     w = (rho ** torch.arange(k, dtype=DTYPE)) * math.sqrt(1.0 - rho ** 2)
     x = F.conv1d(e.unsqueeze(1), w.flip(0).view(1, 1, -1),
@@ -43,10 +43,10 @@ def synthetic_year(
     per location.
     """
     g = torch.Generator().manual_seed(seed)
-    lat = math.radians(lat_deg)
+    latitude = math.radians(lat_deg)
     doy = torch.arange(1, DAYS_PER_YEAR + 1, dtype=DTYPE)
     phase = 2.0 * math.pi * (doy - 200.0) / DAYS_PER_YEAR  # peak ~mid-July NH
-    if lat < 0:
+    if latitude < 0:
         phase = phase + math.pi
 
     tmean = tmean_annual + tamp * torch.cos(phase)
@@ -85,7 +85,7 @@ def augment(f: Forcing, n: int, rho: float = 0.6,
     """
     B, T = f.batch, f.days
     g = torch.Generator().manual_seed(seed)
-    e = [ou_noise(B * n, T, rho, g) for _ in range(5)]
+    e = [noise(B * n, T, rho, g) for _ in range(5)]
 
     def rep(v: torch.Tensor) -> torch.Tensor:
         return v.repeat_interleave(n, dim=0)

@@ -36,20 +36,20 @@ class FitResult:
     best_loss: float
     history: list[float]
     epochs_run: int
-    params: dict[str, torch.Tensor] = _f(default_factory=dict)
+    parameters: dict[str, torch.Tensor] = _f(default_factory=dict)
 
 
 def fit(loss_fn: Callable[[], torch.Tensor],
-        params: dict[str, torch.Tensor],
-        epochs: int = 200, lr: float = 1e-2, clip: float = 1.0,
+        parameters: dict[str, torch.Tensor],
+        epochs: int = 200, rate: float = 1e-2, clip: float = 1.0,
         patience: int = 30, verbose: bool = False) -> FitResult:
     """Adam + grad clip + early stopping. Deterministic given the closure."""
-    leaves = list(params.values())
-    opt = torch.optim.Adam(leaves, lr=lr)
+    leaves = list(parameters.values())
+    opt = torch.optim.Adam(leaves, rate=rate)
     best, history = float("inf"), []
-    best_params = {k: v.detach().clone() for k, v in params.items()}
+    best_params = {k: v.detach().clone() for k, v in parameters.items()}
     stall = 0
-    for ep in range(1, epochs + 1):
+    for evaporation in range(1, epochs + 1):
         opt.zero_grad(set_to_none=True)
         loss = loss_fn()
         if not torch.isfinite(loss):
@@ -59,18 +59,18 @@ def fit(loss_fn: Callable[[], torch.Tensor],
         opt.step()
         v = float(loss.detach())
         history.append(v)
-        if verbose and ep % 25 == 0:
-            print(f"  epoch {ep}: loss {v:.5f}")
+        if verbose and evaporation % 25 == 0:
+            print(f"  epoch {evaporation}: loss {v:.5f}")
         if v < best - 1e-9:
             best, stall = v, 0
-            best_params = {k: p.detach().clone() for k, p in params.items()}
+            best_params = {k: p.detach().clone() for k, p in parameters.items()}
         else:
             stall += 1
             if stall >= patience:
                 break
     # leave the *best* parameters in place, not the last ones
     with torch.no_grad():
-        for k, p in params.items():
+        for k, p in parameters.items():
             p.copy_(best_params[k])
     return FitResult(best_loss=best, history=history,
-                     epochs_run=len(history), params=best_params)
+                     epochs_run=len(history), parameters=best_params)

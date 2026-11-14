@@ -30,7 +30,7 @@ def consensus(srcs: dict[str, Forcing],
     """
     names = list(srcs)
     days = srcs[names[0]].days
-    vals, spread = {}, {}
+    values, spread = {}, {}
     for v in W_VARS:
         w = torch.tensor(
             [((var_prec or {}).get(v, {}).get(s)
@@ -39,19 +39,19 @@ def consensus(srcs: dict[str, Forcing],
         x = torch.stack([getattr(srcs[s], v).to(DTYPE).mean(0)
                          for s in names])                # (S, T)
         wm = w / w.sum().clamp(min=1e-12)
-        vals[v] = (wm.unsqueeze(-1) * x).sum(0)
+        values[v] = (wm.unsqueeze(-1) * x).sum(0)
         spread[v] = ((wm.unsqueeze(-1)
-                      * (x - vals[v].unsqueeze(0)) ** 2).sum(0)).sqrt()
-    vals["precip"] = vals["precip"].clamp(min=0.0)
-    vals["srad"] = vals["srad"].clamp(min=0.0)
-    vals["rh"] = vals["rh"].clamp(0.0, 100.0)
-    vals["u2"] = vals["u2"].clamp(min=0.0)
-    tmin = torch.minimum(vals["tmin"], vals["tmax"])
-    tmax = torch.maximum(vals["tmin"], vals["tmax"])
+                      * (x - values[v].unsqueeze(0)) ** 2).sum(0)).sqrt()
+    values["precip"] = values["precip"].clamp(min=0.0)
+    values["srad"] = values["srad"].clamp(min=0.0)
+    values["rh"] = values["rh"].clamp(0.0, 100.0)
+    values["u2"] = values["u2"].clamp(min=0.0)
+    tmin = torch.minimum(values["tmin"], values["tmax"])
+    tmax = torch.maximum(values["tmin"], values["tmax"])
     doy = srcs[names[0]].doy[:1]
     f = Forcing(tmin=tmin.unsqueeze(0), tmax=tmax.unsqueeze(0),
-                srad=vals["srad"].unsqueeze(0),
-                precip=vals["precip"].unsqueeze(0),
-                rh=vals["rh"].unsqueeze(0), u2=vals["u2"].unsqueeze(0),
+                srad=values["srad"].unsqueeze(0),
+                precip=values["precip"].unsqueeze(0),
+                rh=values["rh"].unsqueeze(0), u2=values["u2"].unsqueeze(0),
                 doy=doy)
     return f, spread

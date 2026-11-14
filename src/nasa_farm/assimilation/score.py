@@ -11,37 +11,37 @@ from __future__ import annotations
 
 import torch
 
-from nasa_farm.assimilation.kalman import STATE_VARS, _get_var, _put_vars
+from nasa_farm.assimilation.kalman import STATE_VARS, _get_variable, _put_variables
 from nasa_farm.state.field import FieldState
 
 
-def ensf_update(state: FieldState, obs_pred: torch.Tensor,
-                obs: torch.Tensor, r: torch.Tensor | float,
-                var_names: tuple[str, ...] = STATE_VARS,
-                steps: int = 30, lr: float = 0.05,
-                bw: float | None = None) -> FieldState:
+def score_update(state: FieldState, observed_prediction: torch.Tensor,
+                observed: torch.Tensor, r: torch.Tensor | float,
+                names: tuple[str, ...] = STATE_VARS,
+                steps: int = 30, rate: float = 0.05,
+                bandwidth: float | None = None) -> FieldState:
     """Kernel-score transport analysis.
 
     state: (B,) ensemble; obs_pred: (B, C) predicted observations;
     obs: (C,) measurement; r: observation-error variance.
     """
-    x = torch.stack([_get_var(state, n) for n in var_names], dim=-1)
+    x = torch.stack([_get_variable(state, n) for n in names], dim=-1)
     b = state.batch
     r_t = torch.as_tensor(r, dtype=x.dtype, device=x.device)
-    xm, ym = x.mean(0), obs_pred.mean(0)
-    xa, ya = x - xm, obs_pred - ym
+    xm, ym = x.mean(0), observed_prediction.mean(0)
+    xa, ya = x - xm, observed_prediction - ym
     cxy = xa.t() @ ya / (b - 1)
-    cyy = ya.t() @ ya / (b - 1) + torch.diag(r_t.expand(obs.numel()))
+    cyy = ya.t() @ ya / (b - 1) + torch.diag(r_t.expand(observed.numel()))
     k = torch.linalg.solve(cyy, cxy.t()).t()
-    xn = x + (obs - obs_pred) @ k.t()                # deterministic EnKF shift
+    xn = x + (observed - observed_prediction) @ k.t()                # deterministic EnKF shift
 
     scale = xn.std(0).clamp(min=1e-6)
-    h = (bw if bw is not None else 1.0) * scale * b ** (-1.0 / (x.shape[1] + 4))
+    h = (bandwidth if bandwidth is not None else 1.0) * scale * b ** (-1.0 / (x.shape[1] + 4))
     for _ in range(steps):
         d = (xn.unsqueeze(1) - xn.unsqueeze(0)) / h
         dens = torch.exp(-0.5 * (d ** 2).sum(-1))    # (B, B) kernel affinity
         den = dens.sum(1, keepdim=True).clamp(min=1e-9)
         pull = (dens / den).unsqueeze(-1) * d * h    # KDE-score transport
-        xn = xn + lr * (pull.sum(1) - pull.sum(0))
+        xn = xn + rate * (pull.sum(1) - pull.sum(0))
     xn = torch.nan_to_num(xn).clamp(min=0.0)
-    return _put_vars(state, var_names, xn)
+    return _put_variables(state, names, xn)

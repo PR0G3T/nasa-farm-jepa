@@ -23,7 +23,7 @@ from nasa_farm.constants import DTYPE
 from nasa_farm.dynamics.intervention import EDIT_VARS, edit_state
 from nasa_farm.experiments.run import register
 from nasa_farm.experiments.scene import calibrate, observe, scene
-from nasa_farm.experiments.specification import Spec
+from nasa_farm.experiments.specification import Specification
 from nasa_farm.heads import METRICS
 from nasa_farm.optimize.targets import season_metrics
 from nasa_farm.plan import (
@@ -48,12 +48,12 @@ def _tau(a: torch.Tensor, b: torch.Tensor) -> float:
 
 def _perturbed(actions: Actions, channel: str, day: int, span: int,
                delta: float | int) -> Actions:
-    kw = {k: getattr(actions, k).clone() for k in ACTION_VARS}
+    keywords = {k: getattr(actions, k).clone() for k in ACTION_VARS}
     if channel == "sow":
-        kw["sow"] = kw["sow"].roll(int(delta), dims=1)
+        keywords["sow"] = keywords["sow"].roll(int(delta), dims=1)
     else:
-        kw[channel][:, day:day + span] += delta
-    return Actions(**kw)
+        keywords[channel][:, day:day + span] += delta
+    return Actions(**keywords)
 
 
 def _metrics(model, sc, forcing, actions) -> torch.Tensor:
@@ -61,12 +61,12 @@ def _metrics(model, sc, forcing, actions) -> torch.Tensor:
 
 
 @register("interv")
-def run(spec: Spec) -> dict:
-    sc = scene(spec)
-    obs = observe(spec, sc)
-    cal, rep = calibrate(spec, sc, obs)
+def run(specification: Specification) -> dict:
+    sc = scene(specification)
+    observed = observe(specification, sc)
+    cal, rep = calibrate(specification, sc, observed)
     f_t = sc.realization(0)
-    idx = {n: i for i, n in enumerate(METRICS)}
+    index = {n: i for i, n in enumerate(METRICS)}
 
     # --- action-perturbation fidelity -------------------------------------
     suite = [
@@ -76,45 +76,45 @@ def run(spec: Spec) -> dict:
         ("sow+14d", "sow", 0, 0, 14),
     ]
     chans = ["yield_kg", "biomass_end", "water_used", "n_leached"]
-    chans = [c for c in chans if c in idx]
+    chans = [c for c in chans if c in index]
     pert: dict = {}
     for name, ch, day, span, d in suite:
         a2 = _perturbed(sc.actions, ch, day, span, d)
         row = {}
-        for label, mdl in (("prior", sc.prior), ("cal", cal),
+        for label, model in (("prior", sc.prior), ("cal", cal),
                            ("oracle", sc.truth)):
-            m0 = _metrics(mdl, sc, f_t, sc.actions)
-            m1 = _metrics(mdl, sc, f_t, a2)
+            m0 = _metrics(model, sc, f_t, sc.actions)
+            m1 = _metrics(model, sc, f_t, a2)
             dm = (m1 - m0).mean(0)                       # (M,) over years
             row[label] = dm
-        truth_d = row.pop("oracle")
+        truth_d = row.population("oracle")
         for label in ("prior", "cal"):
             for c in chans:
-                t, p = float(truth_d[idx[c]]), float(row[label][idx[c]])
-                err = p - t
+                t, p = float(truth_d[index[c]]), float(row[label][index[c]])
+                error = p - t
                 pert.setdefault(c, {}).setdefault(name, {})[label] = {
                     "truth_delta": round(t, 4), "model_delta": round(p, 4),
-                    "err": round(err, 4)}
+                    "err": round(error, 4)}
 
     # --- plan-ranking fidelity ---------------------------------------------
-    i_c = sc.crops.index(spec.crop)
+    i_c = sc.crops.index(specification.crop)
     cands = [i_c, sc.crops.index("soybean"), sc.crops.index("wheat")]
-    hh = max(1, min(spec.horizon, 2))
+    hh = max(1, min(specification.horizon, 2))
     plans = enumerate_rotations(cands, hh)
     if hh * 365 < sc.forcing_e.days:
         from nasa_farm.types import FORCING_VARS, Forcing
-        ens = Forcing(*(getattr(sc.forcing_e, k)[:, :hh * 365]
+        ensemble = Forcing(*(getattr(sc.forcing_e, k)[:, :hh * 365]
                         for k in FORCING_VARS))
     else:
-        ens = sc.forcing_e
+        ensemble = sc.forcing_e
     taus = {}
     with torch.inference_mode():
-        ev_t = evaluate(sc.truth, sc.field, plans, ens)
+        ev_t = evaluate(sc.truth, sc.field, plans, ensemble)
         obj_t = scalarize(*objective_matrix(
             {k: v for k, v in ev_t.objectives.items()}), torch.ones(
             len(ev_t.objectives), dtype=DTYPE))
-        for label, mdl in (("prior", sc.prior), ("cal", cal)):
-            ev_m = evaluate(mdl, sc.field, plans, ens)
+        for label, model in (("prior", sc.prior), ("cal", cal)):
+            ev_m = evaluate(model, sc.field, plans, ensemble)
             obj_m = scalarize(*objective_matrix(
                 {k: v for k, v in ev_m.objectives.items()}),
                 torch.ones(len(ev_m.objectives), dtype=DTYPE))
@@ -126,29 +126,29 @@ def run(spec: Spec) -> dict:
     mask[EDIT_VARS.index("swr")] = True
     day = min(150, f_t.days - 60)
 
-    def run_edit(mdl):
+    def run_edit(model):
         f = sc.field
         for t in range(day):
-            f, _ = mdl.step(f, sc.actions.day(t), f_t.day(t), t)
-        cur = f.state
-        st_e = edit_state(cur, mask,
+            f, _ = model.step(f, sc.actions.day(t), f_t.day(t), t)
+        current = f.state
+        st_e = edit_state(current, mask,
                           torch.full((1, e), 400.0, dtype=DTYPE), f.soil)
-        fe = Field(state=st_e, soil=f.soil, lat=f.lat, elev=f.elev,
-                   ctx=f.ctx)
-        fa, fb = f, fe
+        fe = Field(state=st_e, soil=f.soil, latitude=f.latitude, elevation=f.elevation,
+                   context=f.context)
+        fa, edited = f, fe
         for t in range(day, f_t.days):
-            fa, _ = mdl.step(fa, sc.actions.day(t), f_t.day(t), t)
-            fb, _ = mdl.step(fb, sc.actions.day(t), f_t.day(t), t)
-        return fb.state.biomass, fb.state.sw.sum(-1), fb.state.n_min
+            fa, _ = model.step(fa, sc.actions.day(t), f_t.day(t), t)
+            edited, _ = model.step(edited, sc.actions.day(t), f_t.day(t), t)
+        return edited.state.biomass, edited.state.sw.sum(-1), edited.state.n_min
 
-    resp = {}
+    response = {}
     b_t, w_t, n_t = run_edit(sc.truth)
-    for label, mdl in (("prior", sc.prior), ("cal", cal)):
-        b_m, w_m, n_m = run_edit(mdl)
-        resp[label] = {
+    for label, model in (("prior", sc.prior), ("cal", cal)):
+        b_m, w_m, n_m = run_edit(model)
+        response[label] = {
             "biomass_err": round(float(b_m - b_t), 2),
             "water_err": round(float(w_m - w_t), 2),
             "nmin_err": round(float(n_m - n_t), 4)}
 
     return {"calibration": rep, "perturbations": pert,
-            "plan_tau": taus, "edit_response": resp}
+            "plan_tau": taus, "edit_response": response}

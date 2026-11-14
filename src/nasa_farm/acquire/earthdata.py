@@ -11,7 +11,7 @@ import re
 from dataclasses import dataclass
 from typing import Any
 
-from nasa_farm.acquire.base import BBox, Temporal
+from nasa_farm.acquire.base import Bounds, Temporal
 
 
 @dataclass(frozen=True, slots=True)
@@ -22,14 +22,14 @@ class Granule:
     raw: Any
 
 
-def granule_id(res: Any) -> str:
+def granule_id(result: Any) -> str:
     """GranuleUR / ProducerGranuleId from a CMR search result."""
     for k in ("GranuleUR", "ProducerGranuleId"):
         try:
-            return str(res["umm"][k])
+            return str(result["umm"][k])
         except (KeyError, TypeError):
             continue
-    return str(res)
+    return str(result)
 
 
 _DATE = re.compile(r"(?<!\d)(?:19|20)\d{6}(?!\d)")
@@ -59,32 +59,32 @@ class EarthdataSource:
     requires_auth: bool = True  # search is open; download needs Earthdata Login
     group: str | None = None
 
-    def search(self, aoi: BBox | None, temporal: Temporal,
+    def search(self, area: Bounds | None, temporal: Temporal,
                limit: int = 10_000) -> list[Granule]:
         """CMR query → lightweight granule descriptors (no download)."""
-        kw: dict[str, Any] = {
+        keywords: dict[str, Any] = {
             "short_name": self.short_name,
             "temporal": (temporal.start, temporal.end),
             "count": limit,
         }
-        if aoi is not None:
-            kw["bounding_box"] = aoi.as_tuple()
+        if area is not None:
+            keywords["bounding_box"] = area.as_tuple()
         return [Granule(granule_id(r), r)
-                for r in earthaccess.search_data(**kw)]
+                for r in earthaccess.search_data(**keywords)]
 
-    def fetch(self, aoi: BBox | None, temporal: Temporal, *,
+    def fetch(self, area: Bounds | None, temporal: Temporal, *,
               count: int = 10, cloud_cover: tuple[int, int] | None = None,
               download_dir: str | None = None) -> list[Any]:
-        kw: dict[str, Any] = {
+        keywords: dict[str, Any] = {
             "short_name": self.short_name,
             "temporal": (temporal.start, temporal.end),
             "count": count,
         }
-        if aoi is not None:
-            kw["bounding_box"] = aoi.as_tuple()
+        if area is not None:
+            keywords["bounding_box"] = area.as_tuple()
         if cloud_cover is not None:
-            kw["cloud_cover"] = cloud_cover
-        results = earthaccess.search_data(**kw)
+            keywords["cloud_cover"] = cloud_cover
+        results = earthaccess.search_data(**keywords)
         if download_dir is not None:
             earthaccess.login(strategy="environment")
             return earthaccess.download(results, download_dir)

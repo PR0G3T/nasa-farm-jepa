@@ -17,15 +17,15 @@ from nasa_farm.state.field import Field
 from nasa_farm.types import Actions, Forcing
 
 
-def eig(obs_pred: torch.Tensor, r: torch.Tensor | float) -> torch.Tensor:
+def eigen(observed_prediction: torch.Tensor, r: torch.Tensor | float) -> torch.Tensor:
     """Expected information gain of one measurement channel.
 
     obs_pred: (B,) ensemble of predicted observables; r: error variance.
     gain = 0.5·log(1 + C_yy/R) for a scalar channel — monotone in ensemble
     spread, so days where members disagree rank highest.
     """
-    r_t = torch.as_tensor(r, dtype=obs_pred.dtype, device=obs_pred.device)
-    cyy = obs_pred.var(unbiased=obs_pred.numel() > 1)
+    r_t = torch.as_tensor(r, dtype=observed_prediction.dtype, device=observed_prediction.device)
+    cyy = observed_prediction.var(unbiased=observed_prediction.numel() > 1)
     return 0.5 * torch.log1p(cyy / r_t.clamp(min=1e-12))
 
 
@@ -40,12 +40,12 @@ def design_schedule(model, field: Field, forcing: Forcing, actions: Actions,
     evaluated channel-wise — cheap because each channel's gain is scalar.
     Returns [(day, channel, gain)] sorted descending.
     """
-    cand = set(days)
-    snap: dict[int, object] = {}
+    candidate = set(days)
+    snapshot: dict[int, object] = {}
 
     def cache(t: int, state, fluxes) -> None:
-        if t in cand:
-            snap[t] = state
+        if t in candidate:
+            snapshot[t] = state
 
     with torch.inference_mode():
         model.rollout(field, forcing, actions, observer=cache)
@@ -53,11 +53,11 @@ def design_schedule(model, field: Field, forcing: Forcing, actions: Actions,
     r_t = torch.as_tensor(r)
     ranked = []
     for t in days:
-        if t not in snap:
+        if t not in snapshot:
             continue
-        y = observables(snap[t], channels)
+        y = observables(snapshot[t], channels)
         for i, c in enumerate(channels):
-            g = float(eig(y[:, i], r_t if r_t.dim() == 0 else r_t[i]))
+            g = float(eigen(y[:, i], r_t if r_t.dim() == 0 else r_t[i]))
             ranked.append((t, c, g))
     ranked.sort(key=lambda x: -x[2])
     return ranked[:n_pick] if n_pick is not None else ranked
@@ -77,15 +77,15 @@ def plan_schedule(model, field: Field, forcing: Forcing, actions: Actions,
     information instead of clustering at the noisiest window."""
     ranked = design_schedule(model, field, forcing, actions, days, channels, r)
     pool = [[t, c, g] for t, c, g in ranked]
-    out: list[tuple[int, str, float]] = []
-    while pool and len(out) < n_pick:
+    output: list[tuple[int, str, float]] = []
+    while pool and len(output) < n_pick:
         t, c, g = max(pool, key=lambda x: x[2])
-        out.append((t, c, g))
+        output.append((t, c, g))
         pool.remove([t, c, g])
         for row in pool:
             row[2] *= 1.0 - 0.9 * torch.exp(
                 torch.tensor(-abs(row[0] - t) / tau, dtype=DTYPE)).item()
-    return out
+    return output
 
 
 def fisher_design(model, field: Field, forcing: Forcing, actions: Actions,
@@ -104,31 +104,31 @@ def fisher_design(model, field: Field, forcing: Forcing, actions: Actions,
     """
     import copy
 
-    from nasa_farm.state.crops import IDX
-    cand = set(days)
-    snap: dict[int, object] = {}
+    from nasa_farm.state.crops import INDEX
+    candidate = set(days)
+    snapshot: dict[int, object] = {}
 
     def cache(t: int, state, fluxes) -> None:
-        if t in cand:
-            snap[t] = state
+        if t in candidate:
+            snapshot[t] = state
 
     def obs_at(m) -> dict[int, torch.Tensor]:
-        snap.clear()
+        snapshot.clear()
         with torch.inference_mode():
             m.rollout(field, forcing, actions, observer=cache)
-        return {t: observables(snap[t], channels) for t in days if t in snap}
+        return {t: observables(snapshot[t], channels) for t in days if t in snapshot}
 
     base = obs_at(model)
     j = {t: torch.zeros(len(channels), len(traits)) for t in base}
     for p_i, name in enumerate(traits):
         m2 = copy.deepcopy(model)
         with torch.no_grad():
-            col = IDX[name]
-            m2.crop_table[:, col] = m2.crop_table[:, col] * (1.0 + eps)
+            column = INDEX[name]
+            m2.crop_table[:, column] = m2.crop_table[:, column] * (1.0 + eps)
         pert = obs_at(m2)
         for t in j:
             j[t][:, p_i] = ((pert[t] - base[t]).abs().mean(0)
-                           / (eps * float(model.crop_table[:, col].abs()
+                           / (eps * float(model.crop_table[:, column].abs()
                                           .mean()) + 1e-9))
     ranked = []
     for t, jt in j.items():

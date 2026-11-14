@@ -21,15 +21,15 @@ from __future__ import annotations
 import torch
 
 from nasa_farm.constants import DTYPE
-from nasa_farm.control import metric_reward, mppi
+from nasa_farm.control import metric_reward, path_integral
 from nasa_farm.dynamics.model import WorldModel
 from nasa_farm.experiments.embedding import _trace
 from nasa_farm.experiments.run import register
 from nasa_farm.experiments.scene import scene
-from nasa_farm.experiments.specification import Spec
+from nasa_farm.experiments.specification import Specification
 from nasa_farm.heads import SeasonAccumulator
 from nasa_farm.optimize.adapt import adapt
-from nasa_farm.optimize.targets import ObservedSeries, obs_series, series_loss
+from nasa_farm.optimize.targets import ObservedSeries, series, series_loss
 from nasa_farm.state.field import Field
 
 ENV_VARS = ("sw0", "swr")
@@ -37,32 +37,32 @@ ENV_VARS = ("sw0", "swr")
 
 
 def _task_reward(model, field: Field, forcing, actions) -> torch.Tensor:
-    acc = SeasonAccumulator(field.batch, max(1, forcing.days // 365))
-    model.rollout(field, forcing, actions, observer=acc)
-    return metric_reward(acc.result().unsqueeze(0))
+    accumulate = SeasonAccumulator(field.batch, max(1, forcing.days // 365))
+    model.rollout(field, forcing, actions, observer=accumulate)
+    return metric_reward(accumulate.result().unsqueeze(0))
 
 
-def _obs_rmse(model, f_true: Field, f_pred: Field, sc, spec: Spec) -> float:
+def _obs_rmse(model, f_true: Field, f_pred: Field, sc, specification: Specification) -> float:
     """Mean obs RMSE across held-out realizations, truth vs predicted env."""
     errs = []
     with torch.inference_mode():
-        for i in range(sc.forcing_t.batch):
+        for i in range(sc.forcing_time.batch):
             f_t = sc.realization(i)
-            ot, _ = _trace(model, f_true, f_t, sc.actions, spec)
-            op, _ = _trace(model, f_pred, f_t, sc.actions, spec)
+            ot, _ = _trace(model, f_true, f_t, sc.actions, specification)
+            op, _ = _trace(model, f_pred, f_t, sc.actions, specification)
             errs.append(float((op - ot).pow(2).mean().sqrt()))
     return round(sum(errs) / len(errs), 6)
 
 
 @register("adapt")
-def run(spec: Spec) -> dict:
-    torch.manual_seed(spec.seed)
-    sc = scene(spec)
-    c, k = len(spec.obs_channels), spec.latent_dim
-    gen = torch.Generator().manual_seed(spec.seed + 17)
+def run(specification: Specification) -> dict:
+    torch.manual_seed(specification.seed)
+    sc = scene(specification)
+    c, k = len(specification.observed_channels), specification.latent_dimension
+    generation = torch.Generator().manual_seed(specification.seed + 17)
 
-    model = WorldModel(sc.crops, residual=True, latent_dim=k,
-                       ctx_dim=c, seed=spec.seed)
+    model = WorldModel(sc.crops, residual=True, latent_dimension=k,
+                       context_dimension=c, seed=specification.seed)
     f0, a0 = sc.realization(0), sc.actions
 
     # truth: wetter initial profile + nonzero site ctx — an environment
@@ -70,42 +70,42 @@ def run(spec: Spec) -> dict:
     st_t = sc.field.state.replace(
         sw=sc.field.state.sw * 1.25,
         z=torch.zeros(1, k, dtype=DTYPE),
-        zh=torch.zeros(1, model.latent.h_dim, dtype=DTYPE))
-    truth_f = Field(state=st_t, soil=sc.field.soil, lat=sc.field.lat,
-                    ctx=torch.ones(1, c, dtype=DTYPE))
+        zh=torch.zeros(1, model.latent.hidden_dimension, dtype=DTYPE))
+    truth_f = Field(state=st_t, soil=sc.field.soil, latitude=sc.field.latitude,
+                    context=torch.ones(1, c, dtype=DTYPE))
 
     with torch.inference_mode():
-        obs_cal, _ = _trace(model, truth_f, f0, a0, spec)
-        obs_cal = obs_cal * (1.0 + spec.noise * torch.randn(
-            obs_cal.shape, generator=gen, dtype=obs_cal.dtype))
-    tgt = ObservedSeries(values=obs_cal[0].detach().clone())
+        calibration_observed, _ = _trace(model, truth_f, f0, a0, specification)
+        calibration_observed = calibration_observed * (1.0 + specification.noise * torch.randn(
+            calibration_observed.shape, generator=generation, dtype=calibration_observed.dtype))
+    target = ObservedSeries(values=calibration_observed[0].detach().clone())
 
     st_b = sc.field.state.replace(
         z=torch.zeros(1, k, dtype=DTYPE),
-        zh=torch.zeros(1, model.latent.h_dim, dtype=DTYPE))
-    blank = Field(state=st_b, soil=sc.field.soil, lat=sc.field.lat,
-                  ctx=torch.zeros(1, c, dtype=DTYPE))
+        zh=torch.zeros(1, model.latent.hidden_dimension, dtype=DTYPE))
+    blank = Field(state=st_b, soil=sc.field.soil, latitude=sc.field.latitude,
+                  context=torch.zeros(1, c, dtype=DTYPE))
 
     def obs_loss(f: Field) -> torch.Tensor:
-        pred = obs_series(model, f, f0, a0, spec.obs_channels,
-                          every=spec.obs_every)
-        return series_loss(pred, tgt)
+        predicted = series(model, f, f0, a0, specification.observed_channels,
+                          every=specification.cadence)
+        return series_loss(predicted, target)
 
-    ev_frozen = _obs_rmse(model, truth_f, blank, sc, spec)
+    ev_frozen = _obs_rmse(model, truth_f, blank, sc, specification)
 
-    kw = dict(z=True, ctx=True, state_vars=ENV_VARS,
-              epochs=spec.epochs, lr=spec.lr)
-    f_t2z, rep_t2z = adapt(model, blank, f0, a0, loss_fn=obs_loss, **kw)
-    ev_t2z = _obs_rmse(model, truth_f, f_t2z, sc, spec)
+    keywords = dict(z=True, context=True, state_vars=ENV_VARS,
+              epochs=specification.epochs, rate=specification.rate)
+    f_t2z, rep_t2z = adapt(model, blank, f0, a0, loss_fn=obs_loss, **keywords)
+    ev_t2z = _obs_rmse(model, truth_f, f_t2z, sc, specification)
 
     f_op, rep_op = adapt(model, blank, f0, a0, loss_fn=obs_loss,
-                         task=_task_reward, task_w=0.1, **kw)
-    ev_op = _obs_rmse(model, truth_f, f_op, sc, spec)
+                         task=_task_reward, task_w=0.1, **keywords)
+    ev_op = _obs_rmse(model, truth_f, f_op, sc, specification)
 
-    r_base = mppi(model, blank, f0, sc.actions, iters=3, samples=16,
-                  seed=spec.seed).reward
-    r_ad = mppi(model, f_op, f0, sc.actions, iters=3, samples=16,
-                seed=spec.seed).reward
+    r_base = path_integral(model, blank, f0, sc.actions, iters=3, samples=16,
+                  seed=specification.seed).reward
+    r_ad = path_integral(model, f_op, f0, sc.actions, iters=3, samples=16,
+                seed=specification.seed).reward
 
     return {"obs_rmse": {"frozen": ev_frozen,
                          "t2z": ev_t2z,

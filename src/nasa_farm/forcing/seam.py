@@ -24,7 +24,7 @@ def span(f: Forcing, a: int, b: int) -> Forcing:
     return Forcing(*(getattr(f, k)[:, a:b] for k in FORCING_VARS))
 
 
-def roll_to_doy(f: Forcing, start: int) -> Forcing:
+def roll_to_ordinal(f: Forcing, start: int) -> Forcing:
     """Rotate a 365-day Forcing so position 0 carries day-of-year `start`,
     aligning a historical year onto any forecast window's doy axis."""
     if f.days != DAYS_PER_YEAR:
@@ -34,8 +34,8 @@ def roll_to_doy(f: Forcing, start: int) -> Forcing:
         getattr(f, k).roll(shift, dims=-1) for k in FORCING_VARS))
 
 
-def bridge(fcst: Forcing, hist: list[Forcing], days: int,
-           seed: int = 0, bw: float = 1.0) -> Forcing:
+def bridge(fcst: Forcing, history: list[Forcing], days: int,
+           seed: int = 0, bandwidth: float = 1.0) -> Forcing:
     """Each forecast member → `days` total: forecast head + analog tail.
 
     Members share the doy axis, so historical years are rolled once onto
@@ -46,15 +46,15 @@ def bridge(fcst: Forcing, hist: list[Forcing], days: int,
     if f >= days:
         return span(fcst, 0, days)
     start = int(fcst.doy[0, 0])
-    rolled = [roll_to_doy(y, start) for y in hist]
+    rolled = [roll_to_ordinal(y, start) for y in history]
     win = [span(y, 0, f) for y in rolled]
     tails = [span(tile_to_horizon(y, math.ceil(days / DAYS_PER_YEAR)), f, days)
              for y in rolled]
-    gen = torch.Generator().manual_seed(seed)
+    generation = torch.Generator().manual_seed(seed)
     members = []
     for m in range(s):
-        w = analog_weights(win, year_features(span(fcst, m, m + 1)), bw=bw)
-        i = int(torch.multinomial(w, 1, generator=gen))
+        w = analog_weights(win, year_features(span(fcst, m, m + 1)), bandwidth=bandwidth)
+        i = int(torch.multinomial(w, 1, generator=generation))
         members.append(Forcing(*(torch.cat(
             [getattr(fcst, k)[m:m + 1], getattr(tails[i], k)], -1)
             for k in FORCING_VARS)))

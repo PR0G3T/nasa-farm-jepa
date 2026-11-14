@@ -64,8 +64,8 @@ def test_nrmse_norms():
         float(r / (o.max() - o.min())))
     # auto: mean→0 falls back to sd without producing inf/nan
     o2, p2 = t(-1.0, 0.0, 1.0), t(-0.9, 0.1, 1.2)
-    out = mx.nrmse(p2, o2, "auto")
-    assert torch.isfinite(out)
+    output = mx.nrmse(p2, o2, "auto")
+    assert torch.isfinite(output)
 
 
 def test_nan_awareness():
@@ -111,7 +111,7 @@ def test_crps_matches_quadratic_form():
     pair = (e.unsqueeze(-1) - e.unsqueeze(-2)).abs()
     # textbook fair CRPS: mean|x−y| − Σ_{i≠j}|xᵢ−xⱼ| / (2·m·(m−1))
     brute = (ae - pair.sum((-1, -2)) / (2 * m * (m - 1))).mean()
-    assert mx.crps(e, o) == pytest.approx(float(brute), rel=1e-10)
+    assert mx.crps(e, o) == pytest.approx(float(brute), relative=1e-10)
 
 
 @given(st.integers(min_value=2, max_value=64))
@@ -128,9 +128,9 @@ def test_pit_uniform_when_calibrated():
     g = torch.Generator().manual_seed(1)
     e = torch.randn(4000, 31, generator=g, dtype=DTYPE)
     o = torch.randn(4000, generator=g, dtype=DTYPE)
-    h = mx.pit_hist(e, o, bins=10, gen=torch.Generator().manual_seed(2))
-    freq = h / h.sum()
-    assert bool((freq > 0.05).all()) and bool((freq < 0.15).all())
+    h = mx.pit_hist(e, o, bins=10, generation=torch.Generator().manual_seed(2))
+    frequency = h / h.sum()
+    assert bool((frequency > 0.05).all()) and bool((frequency < 0.15).all())
 
 
 def test_pit_detects_bias():

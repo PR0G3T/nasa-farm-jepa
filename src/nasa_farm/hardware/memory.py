@@ -10,15 +10,15 @@ from __future__ import annotations
 
 import torch
 
-from nasa_farm.hardware.capabilities import device_mem
+from nasa_farm.hardware.capabilities import device_memory
 
 _RESERVE_CAP = 512 << 20      # never more than 512 MiB held back
 _RESERVE_FRAC = 0.02          # ~2 % of free VRAM
 
 
-def avail(device: torch.device, budget: float = 1.0) -> int:
+def available(device: torch.device, budget: float = 1.0) -> int:
     """Usable bytes on `device` — `budget` fraction of *currently free*."""
-    free, _ = device_mem(device)
+    free, _ = device_memory(device)
     return int(free * budget)
 
 
@@ -29,7 +29,7 @@ def reserve_pool(device: torch.device,
     failing. Returns None on non-CUDA devices or unsupported builds."""
     if device.type != "cuda" or not hasattr(torch.cuda, "MemPool"):
         return None
-    free, _ = device_mem(device)
+    free, _ = device_memory(device)
     n = reserve if reserve is not None else int(
         min(_RESERVE_CAP, free * _RESERVE_FRAC))
     if n <= 0:

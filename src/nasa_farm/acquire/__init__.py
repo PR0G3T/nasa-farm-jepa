@@ -1,4 +1,4 @@
-from nasa_farm.acquire.base import BBox, DataSource, Temporal
+from nasa_farm.acquire.base import Bounds, DataSource, Temporal
 from nasa_farm.acquire.earthdata import (
     ECOSTRESS_ET, GPM_IMERG_DAILY, GRACE_MASCON, HLS_L30, NISAR_GCOV,
     NISAR_SME, SMAP_L4, EarthdataSource,

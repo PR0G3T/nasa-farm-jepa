@@ -16,10 +16,10 @@ from __future__ import annotations
 import torch
 from torch import nn
 
-from nasa_farm.dynamics.latent import LatentDyn
+from nasa_farm.dynamics.latent import Dynamics
 
 
-class HLatent(nn.Module):
+class Hierarchy(nn.Module):
     """Stack of `LatentDyn` levels sharing one embedding space.
 
     Zero-init heads → every level is the identity at construction, so a
@@ -30,16 +30,16 @@ class HLatent(nn.Module):
 
     def __init__(self, dim: int, hidden: int = 64,
                  strides: tuple[int, ...] = (1, 4, 16),
-                 stochastic: bool = False, ctx_dim: int = 0) -> None:
+                 stochastic: bool = False, context_dimension: int = 0) -> None:
         super().__init__()
         self.k_dim = dim
         self.strides = tuple(int(s) for s in strides)
         # +dim ctx slots carry the level above as top-down context
         self.levels = nn.ModuleList(
-            LatentDyn(dim, hidden, stochastic, ctx_dim + dim)
+            Dynamics(dim, hidden, stochastic, context_dimension + dim)
             for _ in self.strides)
         self.dim = dim * len(self.strides)
-        self.h_dim = hidden * len(self.strides)
+        self.hidden_dimension = hidden * len(self.strides)
 
     @property
     def stochastic(self) -> bool:
@@ -57,29 +57,29 @@ class HLatent(nn.Module):
 
     def forward(self, feats: torch.Tensor, z: torch.Tensor,
                 zh: torch.Tensor | None = None,
-                ctx: torch.Tensor | None = None,
-                gen: torch.Generator | None = None, t: int = 0
+                context: torch.Tensor | None = None,
+                generation: torch.Generator | None = None, t: int = 0
                 ) -> tuple[torch.Tensor, torch.Tensor]:
-        n, k, h = len(self.strides), self.k_dim, self.levels[0].h_dim
+        n, k, h = len(self.strides), self.k_dim, self.levels[0].hidden_dimension
         z_parts = list(z.chunk(n, dim=-1))
         zh_parts = list(
             (zh if zh is not None else z.new_zeros(z.shape[0], n * h))
             .chunk(n, dim=-1))
-        ctx = ctx if ctx is not None else feats[:, :0]
+        context = context if context is not None else feats[:, :0]
         z_new, zh_new = list(z_parts), list(zh_parts)
         for i in range(n - 1, -1, -1):          # top first: lower levels
             if t % self.strides[i] != 0:        # see the fresh upper latent
                 continue
             up = z_new[i + 1].detach() if i + 1 < n else torch.zeros_like(z)
             lvl = self.levels[i]
-            lvl_ctx = torch.cat([ctx.to(feats.dtype), up[:, :k]], dim=-1)
+            lvl_ctx = torch.cat([context.to(feats.dtype), up[:, :k]], dim=-1)
             z_new[i], zh_new[i] = lvl(feats, z_parts[i], zh_parts[i],
-                                      lvl_ctx, gen)
+                                      lvl_ctx, generation)
         return torch.cat(z_new, dim=-1), torch.cat(zh_new, dim=-1)
 
 
-def hjepa_loss(z_traj: torch.Tensor, z_tgt: torch.Tensor,
-               hlatent: HLatent, every: int = 1) -> torch.Tensor:
+def hierarchical_loss(z_traj: torch.Tensor, z_tgt: torch.Tensor,
+               hlatent: Hierarchy, every: int = 1) -> torch.Tensor:
     """Per-level prediction loss: level l's committed latent predicts the
     target embedding `strides[l]` days ahead. z_traj (B, N, L·K) online
     predictions, z_tgt (B, N, K) EMA-encoded obs at the trace cadence;
@@ -88,7 +88,7 @@ def hjepa_loss(z_traj: torch.Tensor, z_tgt: torch.Tensor,
     for i, s in enumerate(hlatent.strides):
         sh = max(round(s / every), 1)
         z_l = z_traj[:, 1:, i * k:(i + 1) * k]
-        tgt = torch.cat(
+        target = torch.cat(
             [z_tgt[:, 1:], z_tgt[:, -1:].expand(-1, sh, -1)], dim=1)
-        total = total + (z_l - tgt[:, :z_l.shape[1]]).pow(2).mean()
+        total = total + (z_l - target[:, :z_l.shape[1]]).pow(2).mean()
     return total / len(hlatent.strides)

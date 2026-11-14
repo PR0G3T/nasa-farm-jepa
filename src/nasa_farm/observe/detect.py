@@ -20,10 +20,10 @@ from nasa_farm.types import Actions
 def _sow_day(ndvi: torch.Tensor) -> int:
     """First day the NDVI rises through 15 % of the seasonal amplitude,
     confirmed by a positive 5-day trend."""
-    lo, hi = float(ndvi.min()), float(ndvi.max())
-    if hi - lo < 0.08:
+    low, high = float(ndvi.min()), float(ndvi.max())
+    if high - low < 0.08:
         return -1
-    thr = lo + 0.15 * (hi - lo)
+    thr = low + 0.15 * (high - low)
     above = ndvi > thr
     trend = torch.zeros_like(ndvi)
     trend[5:] = ndvi[5:] - ndvi[:-5]
@@ -38,12 +38,12 @@ def _sow_coh(coh: torch.Tensor, s_t: int,
     median, else keep the NDVI day."""
     if coh is None or s_t < 0:
         return s_t
-    lo, hi = max(0, s_t - back), min(coh.numel(), s_t + fwd + 1)
-    seg = torch.nan_to_num(coh[lo:hi], nan=torch.inf)
-    if not torch.isfinite(seg).all():
+    low, high = max(0, s_t - back), min(coh.numel(), s_t + fwd + 1)
+    segment = torch.nan_to_num(coh[low:high], nan=torch.inf)
+    if not torch.isfinite(segment).all():
         return s_t
-    i = int(seg.argmin())
-    return lo + i if float(seg[i]) < float(seg.median()) else s_t
+    i = int(segment.argmin())
+    return low + i if float(segment[i]) < float(segment.median()) else s_t
 
 
 def _harvest_day(ndvi: torch.Tensor, sow_t: int) -> int:
@@ -63,15 +63,15 @@ def _till_days(s0v: torch.Tensor, sow_t: int) -> list[int]:
     preceding green-up — the tillage signature."""
     if s0v is None or sow_t <= 7:
         return []
-    seg = s0v[:sow_t]
-    med = seg.median()
-    return ((seg - med) > 1.5).nonzero().flatten().tolist()
+    segment = s0v[:sow_t]
+    med = segment.median()
+    return ((segment - med) > 1.5).nonzero().flatten().tolist()
 
 
 def _rolling_median(x: torch.Tensor, window: int) -> torch.Tensor:
     """Centered rolling median; edges replicate the boundary values."""
-    lo, hi = window // 2, window - 1 - window // 2
-    xp = torch.cat([x[0].expand(lo), x, x[-1].expand(hi)])
+    low, high = window // 2, window - 1 - window // 2
+    xp = torch.cat([x[0].expand(low), x, x[-1].expand(high)])
     return xp.unfold(0, window, 1).median(-1).values
 
 
@@ -117,7 +117,7 @@ def infer_actions(ndvi: torch.Tensor, doy: torch.Tensor, crop_idx: int,
         sow[0, s_t] = crop_idx
         for d in _till_days(s0v, s_t):
             till[0, d] = 1.0
-    irr = (infer_irrigation(sm, precip) if sm is not None
+    irrigation = (infer_irrigation(sm, precip) if sm is not None
            and precip is not None else torch.zeros(t))
-    return Actions(sow=sow, irrigation=irr.unsqueeze(0).to(torch.float64),
+    return Actions(sow=sow, irrigation=irrigation.unsqueeze(0).to(torch.float64),
                    n_fert=torch.zeros(1, t, dtype=torch.float64), till=till)

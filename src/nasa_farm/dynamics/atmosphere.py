@@ -14,16 +14,16 @@ from nasa_farm.constants import DAYS_PER_YEAR, SOLAR_CONSTANT_MJ_M2_MIN
 
 def extraterrestrial_radiation(lat_deg: torch.Tensor, doy: torch.Tensor) -> torch.Tensor:
     """Ra (MJ m^-2 d^-1), FAO-56 eqs 21–24. lat/doy broadcastable."""
-    lat = torch.deg2rad(lat_deg)
+    latitude = torch.deg2rad(lat_deg)
     dr = 1.0 + 0.033 * torch.cos(2.0 * math.pi * doy / DAYS_PER_YEAR)
     decl = 0.409 * torch.sin(2.0 * math.pi * doy / DAYS_PER_YEAR - 1.39)
-    ws = torch.acos(torch.clamp(-torch.tan(lat) * torch.tan(decl), -1.0, 1.0))
+    ws = torch.acos(torch.clamp(-torch.tan(latitude) * torch.tan(decl), -1.0, 1.0))
     return (
         (24.0 * 60.0 / math.pi)
         * SOLAR_CONSTANT_MJ_M2_MIN
         * dr
-        * (ws * torch.sin(lat) * torch.sin(decl)
-           + torch.cos(lat) * torch.cos(decl) * torch.sin(ws))
+        * (ws * torch.sin(latitude) * torch.sin(decl)
+           + torch.cos(latitude) * torch.cos(decl) * torch.sin(ws))
     )
 
 
@@ -71,9 +71,9 @@ def et0_penman_monteith(
         * (0.34 - 0.14 * torch.sqrt(torch.clamp(ea, min=0.0))) * cloud
     rn = rns - rnl
 
-    num = 0.408 * delta * rn + gamma * (900.0 / (tmean + 273.0)) * u2 * (es - ea)
+    number = 0.408 * delta * rn + gamma * (900.0 / (tmean + 273.0)) * u2 * (es - ea)
     den = delta + gamma * (1.0 + 0.34 * u2)
-    return torch.clamp(num / den, min=0.0)
+    return torch.clamp(number / den, min=0.0)
 
 
 def et0_hargreaves(tmin: torch.Tensor, tmax: torch.Tensor, ra: torch.Tensor) -> torch.Tensor:
@@ -86,9 +86,9 @@ def et0_hargreaves(tmin: torch.Tensor, tmax: torch.Tensor, ra: torch.Tensor) -> 
 
 def day_length(lat_deg: torch.Tensor, doy: torch.Tensor) -> torch.Tensor:
     """Photoperiod N (h), FAO-56 eq 34. Clamped to [0, 24] at the poles."""
-    lat = torch.deg2rad(lat_deg)
+    latitude = torch.deg2rad(lat_deg)
     decl = 0.409 * torch.sin(2.0 * math.pi * doy / DAYS_PER_YEAR - 1.39)
-    ws = torch.acos(torch.clamp(-torch.tan(lat) * torch.tan(decl), -1.0, 1.0))
+    ws = torch.acos(torch.clamp(-torch.tan(latitude) * torch.tan(decl), -1.0, 1.0))
     return torch.clamp(24.0 / math.pi * ws, 0.0, 24.0)
 
 

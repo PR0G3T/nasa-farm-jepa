@@ -68,14 +68,14 @@ def water_balance_step(
     ew = evaporation_stress(sw[:, 0], soil.air[:, 0], soil.fc[:, 0])
     es = torch.minimum(evap_potential * ew, torch.relu(sw[:, 0] - soil.air[:, 0]))
 
-    avail = torch.relu(sw - soil.wp)
-    avail = torch.cat(
+    available = torch.relu(sw - soil.wp)
+    available = torch.cat(
         [torch.relu(sw[:, 0] - es - soil.wp[:, 0]).unsqueeze(1),
-         avail[:, 1:]], dim=1)
-    den = (root_w * avail).sum(-1, keepdim=True)
-    share = torch.where(den > 0, root_w * avail / den.clamp(min=1e-9),
-                        torch.zeros_like(avail))
-    t = torch.minimum(trans_actual.unsqueeze(-1) * share, avail)
+         available[:, 1:]], dim=1)
+    den = (root_w * available).sum(-1, keepdim=True)
+    share = torch.where(den > 0, root_w * available / den.clamp(min=1e-9),
+                        torch.zeros_like(available))
+    t = torch.minimum(trans_actual.unsqueeze(-1) * share, available)
 
     runoff = torch.relu(sw[:, 0] + infiltration - es - t[:, 0] - soil.sat[:, 0])
     xs = [sw[:, 0] + infiltration - runoff - es - t[:, 0]] + \

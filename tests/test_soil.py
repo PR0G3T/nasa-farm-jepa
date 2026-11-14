@@ -15,14 +15,14 @@ TEXTURES = [
 class TestPedotransfer:
     @pytest.mark.parametrize("sand,clay", TEXTURES)
     def test_ordering_wp_lt_fc_lt_sat(self, sand, clay):
-        s, c, om = torch.tensor(sand), torch.tensor(clay), torch.tensor(2.0)
-        wp, fc, sat = theta_wp(s, c, om), theta_fc(s, c, om), theta_sat(s, c)
+        s, c, organic = torch.tensor(sand), torch.tensor(clay), torch.tensor(2.0)
+        wp, fc, sat = theta_wp(s, c, organic), theta_fc(s, c, organic), theta_sat(s, c)
         assert float(wp) < float(fc) < float(sat), (sand, clay, wp, fc, sat)
 
     def test_clay_holds_more_than_sand(self):
-        om = torch.tensor(2.0)
-        wp_clay = theta_wp(torch.tensor(22.0), torch.tensor(50.0), om)
-        wp_sand = theta_wp(torch.tensor(92.0), torch.tensor(3.0), om)
+        organic = torch.tensor(2.0)
+        wp_clay = theta_wp(torch.tensor(22.0), torch.tensor(50.0), organic)
+        wp_sand = theta_wp(torch.tensor(92.0), torch.tensor(3.0), organic)
         assert float(wp_clay) > float(wp_sand)
 
 
@@ -31,7 +31,7 @@ class TestProfile:
         p = SoilProfile.preset("loam")
         # layer2 is 1.50 m vs layer1 0.30 m → 5× the storage
         assert float(p.layer(1).theta_fc) > float(p.layer(0).theta_fc)
-        assert float(p.layer(1).theta_sat / p.layer(0).theta_sat) == pytest.approx(1.5 / 0.3, rel=0.1)
+        assert float(p.layer(1).theta_sat / p.layer(0).theta_sat) == pytest.approx(1.5 / 0.3, relative=0.1)
 
     def test_bounds_hold_as_storages(self):
         for name in ("sand", "loamy_sand", "sandy_loam", "loam", "silt_loam",
@@ -53,12 +53,12 @@ class TestProfile:
 
 class TestUncertaintySample:
     def test_bounds_and_internal_consistency(self):
-        lo, hi = SoilProfile.preset("sandy_loam"), SoilProfile.preset("clay_loam")
-        s = SoilProfile.sample(lo, hi, 16, seed=0)
+        low, high = SoilProfile.preset("sandy_loam"), SoilProfile.preset("clay_loam")
+        s = SoilProfile.sample(low, high, 16, seed=0)
         assert s.batch == 16
-        for a, b, i in ((lo.sand, hi.sand, 0), (lo.clay, hi.clay, 0),
-                        (lo.sand, hi.sand, 1), (lo.clay, hi.clay, 1)):
-            v = s.sand[:, i] if a is lo.sand else s.clay[:, i]
+        for a, b, i in ((low.sand, high.sand, 0), (low.clay, high.clay, 0),
+                        (low.sand, high.sand, 1), (low.clay, high.clay, 1)):
+            v = s.sand[:, i] if a is low.sand else s.clay[:, i]
             assert (v >= torch.minimum(a[:, i], b[:, i]) - 1e-9).all()
             assert (v <= torch.maximum(a[:, i], b[:, i]) + 1e-9).all()
         for l in (s.layer(0), s.layer(1)):
@@ -67,14 +67,14 @@ class TestUncertaintySample:
             assert (l.theta_air < l.theta_wp).all()
 
     def test_deterministic_given_seed(self):
-        lo, hi = SoilProfile.preset("loam"), SoilProfile.preset("clay_loam")
-        a, b = SoilProfile.sample(lo, hi, 8, seed=3), \
-            SoilProfile.sample(lo, hi, 8, seed=3)
+        low, high = SoilProfile.preset("loam"), SoilProfile.preset("clay_loam")
+        a, b = SoilProfile.sample(low, high, 8, seed=3), \
+            SoilProfile.sample(low, high, 8, seed=3)
         assert torch.equal(a.layer(0).theta_fc, b.layer(0).theta_fc)
 
     def test_multi_field_expands(self):
         """B bound rows × n draws → B·n members, field-major order."""
-        lo = SoilProfile.preset("sandy_loam", batch=2)
-        hi = SoilProfile.preset("clay_loam", batch=2)
-        s = SoilProfile.sample(lo, hi, 4, seed=0)
+        low = SoilProfile.preset("sandy_loam", batch=2)
+        high = SoilProfile.preset("clay_loam", batch=2)
+        s = SoilProfile.sample(low, high, 4, seed=0)
         assert s.batch == 8

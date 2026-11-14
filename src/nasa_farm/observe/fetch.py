@@ -9,21 +9,21 @@ for day extraction and catalog marking.
 
 from __future__ import annotations
 
-import xarray as xr
+import xarray as xarray
 
-from nasa_farm.acquire.base import BBox, Temporal
+from nasa_farm.acquire.base import Bounds, Temporal
 from nasa_farm.acquire.earthdata import EarthdataSource, Granule
 
 
 def fetch(source: EarthdataSource, granule: Granule,
-          aoi: BBox | None = None, temporal: Temporal | None = None
-          ) -> xr.Dataset:
+          area: Bounds | None = None, temporal: Temporal | None = None
+          ) -> xarray.Dataset:
     """Open one granule lazily; closing the dataset frees the handles."""
     import earthaccess
     earthaccess.login(strategy="environment")
     h = earthaccess.open([granule.raw])[0]
     f = h.open() if hasattr(h, "open") else h
-    ds = xr.open_dataset(f, engine="h5netcdf", group=source.group,
+    ds = xarray.open_dataset(f, engine="h5netcdf", group=source.group,
                          phony_dims="access")
     ds.attrs["granule_id"] = granule.id
     return ds

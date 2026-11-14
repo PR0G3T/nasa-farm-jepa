@@ -3,7 +3,7 @@
 import pytest
 import torch
 
-from nasa_farm.assimilation import Observation, assimilate, enkf_update
+from nasa_farm.assimilation import Observation, assimilate, kalman_update
 from nasa_farm.constants import DTYPE
 from nasa_farm.forcing import synthetic_year, tile_to_horizon
 from nasa_farm.state.field import Field, initial_state
@@ -19,10 +19,10 @@ class TestUpdate:
     def test_analysis_shrinks_spread_and_recenters(self, soil):
         s = self._with_sw0(initial_state(16, soil),
                            torch.linspace(50.0, 90.0, 16, dtype=DTYPE))
-        pred = s.sw[:, 0].unsqueeze(-1)           # observe sw0 directly
+        predicted = s.sw[:, 0].unsqueeze(-1)           # observe sw0 directly
         g = torch.Generator().manual_seed(0)
-        s2 = enkf_update(s, pred, torch.tensor([80.0], dtype=DTYPE), 1.0,
-                         gen=g)
+        s2 = kalman_update(s, predicted, torch.tensor([80.0], dtype=DTYPE), 1.0,
+                         generation=g)
         assert float(s2.sw[:, 0].var()) < float(s.sw[:, 0].var())
         assert abs(float(s2.sw[:, 0].mean()) - 80.0) \
             < abs(float(s.sw[:, 0].mean()) - 80.0)
@@ -34,9 +34,9 @@ class TestUpdate:
         sw = s.sw.clone()
         sw[:, 0], sw[:, 1] = sw0, 4.0 * sw0 + 20.0
         s = s.replace(sw=sw)
-        s2 = enkf_update(s, s.sw[:, 0].unsqueeze(-1),
+        s2 = kalman_update(s, s.sw[:, 0].unsqueeze(-1),
                          torch.tensor([80.0], dtype=DTYPE), 1.0,
-                         gen=torch.Generator().manual_seed(0))
+                         generation=torch.Generator().manual_seed(0))
         prior = float((s.sw[:, 1] - (4.0 * 80.0 + 20.0)).abs().mean())
         post = float((s2.sw[:, 1] - (4.0 * 80.0 + 20.0)).abs().mean())
         assert post < prior
@@ -44,19 +44,19 @@ class TestUpdate:
     def test_states_stay_nonnegative(self, soil):
         s = self._with_sw0(initial_state(16, soil),
                            torch.full((16,), 5.0, dtype=DTYPE))
-        s2 = enkf_update(s, s.sw[:, 0].unsqueeze(-1),
+        s2 = kalman_update(s, s.sw[:, 0].unsqueeze(-1),
                          torch.tensor([300.0], dtype=DTYPE), 0.01,
-                         gen=torch.Generator().manual_seed(0))
+                         generation=torch.Generator().manual_seed(0))
         assert (s2.sw >= 0).all() and (s2.n_min >= 0).all() \
             and (s2.lai >= 0).all() and (s2.biomass >= 0).all()
 
     def test_deterministic_given_seed(self, soil):
         s = initial_state(16, soil)
-        pred = s.sw[:, 0].unsqueeze(-1)
-        a = enkf_update(s, pred, torch.tensor([80.0]), 1.0,
-                        gen=torch.Generator().manual_seed(3))
-        b = enkf_update(s, pred, torch.tensor([80.0]), 1.0,
-                        gen=torch.Generator().manual_seed(3))
+        predicted = s.sw[:, 0].unsqueeze(-1)
+        a = kalman_update(s, predicted, torch.tensor([80.0]), 1.0,
+                        generation=torch.Generator().manual_seed(3))
+        b = kalman_update(s, predicted, torch.tensor([80.0]), 1.0,
+                        generation=torch.Generator().manual_seed(3))
         assert torch.equal(a.sw[:, 0], b.sw[:, 0])
 
 
@@ -72,17 +72,17 @@ class TestAssimilate:
         a = Actions.idle(1, forcing.days)
         sow = a.sow.clone()
         sow[0, 119] = crops.index("maize")
-        rec = {}
+        record = {}
 
-        def obs(t, state, fx):
+        def observed(t, state, fx):
             if t in days:
-                rec[t] = float(observables(state, ("vwc",))[0, 0])
+                record[t] = float(observables(state, ("vwc",))[0, 0])
         physics_model.rollout(
             field, forcing,
-            Actions(sow, a.irrigation, a.n_fert), observer=obs)
+            Actions(sow, a.irrigation, a.n_fert), observer=observed)
         return forcing, [Observation(t, ("vwc",),
                                      torch.tensor([v], dtype=DTYPE), 0.05)
-                         for t, v in rec.items()]
+                         for t, v in record.items()]
 
     def test_pulls_ensemble_toward_truth(self, physics_model, soil, crops):
         """Same biased start: assimilated yield ends closer to the truth
@@ -106,13 +106,13 @@ class TestAssimilate:
         free = physics_model.rollout(
             Field(biased.clone(), soil,
                   torch.tensor([42.0] * 16, dtype=DTYPE)), forcing, acts)
-        out = assimilate(physics_model,
+        output = assimilate(physics_model,
                          Field(biased, soil,
                                torch.tensor([42.0] * 16, dtype=DTYPE)),
                          forcing, acts, schedule, seed=0)
         err_free = float((free.state.cum_yield.mean()
                           - truth.state.cum_yield).abs())
-        err_post = float((out.state.cum_yield.mean()
+        err_post = float((output.state.cum_yield.mean()
                           - truth.state.cum_yield).abs())
         assert err_post < err_free
 
@@ -129,13 +129,13 @@ class TestAssimilate:
         start = initial_state(4, soil).replace(
             n_min=torch.linspace(20.0, 60.0, 4, dtype=DTYPE))
         field = Field(start, soil, torch.tensor([42.0] * 4, dtype=DTYPE))
-        ref = physics_model.rollout(
+        reference = physics_model.rollout(
             Field(start.clone(), soil, torch.tensor([42.0] * 4, dtype=DTYPE)),
             forcing, actions)
-        out = assimilate(physics_model, field, forcing, actions,
+        output = assimilate(physics_model, field, forcing, actions,
                          schedule, seed=0)
-        assert torch.equal(out.state.gdd, ref.state.gdd)
-        assert not torch.equal(out.state.cum_yield, ref.state.cum_yield)
+        assert torch.equal(output.state.gdd, reference.state.gdd)
+        assert not torch.equal(output.state.cum_yield, reference.state.cum_yield)
 
     def test_unknown_channel_raises(self):
         with pytest.raises(KeyError):

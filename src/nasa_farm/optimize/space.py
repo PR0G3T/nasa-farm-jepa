@@ -15,7 +15,7 @@ import torch
 
 
 @dataclass(frozen=True, slots=True)
-class Param:
+class Parameter:
     """One dimension of the search space."""
 
     name: str
@@ -43,9 +43,9 @@ class Param:
         """Unit-cube coordinate → parameter value."""
         if self.categorical:
             return self.choices[min(int(u * len(self.choices)), len(self.choices) - 1)]
-        lo, hi = (torch.log10(torch.tensor(v)).item() for v in (self.low, self.high)) \
+        low, high = (torch.log10(torch.tensor(v)).item() for v in (self.low, self.high)) \
             if self.log else (self.low, self.high)
-        v = lo + u * (hi - lo)
+        v = low + u * (high - low)
         v = 10 ** v if self.log else v
         return int(round(v)) if self.integer else float(v)
 
@@ -53,19 +53,19 @@ class Param:
 class Space:
     """Ordered parameter set; `sample` returns name → value configs."""
 
-    def __init__(self, params: list[Param]) -> None:
-        self.params = params
-        self.continuous = [p for p in params if not p.categorical]
-        self.categorical = [p for p in params if p.categorical]
+    def __init__(self, parameters: list[Parameter]) -> None:
+        self.parameters = parameters
+        self.continuous = [p for p in parameters if not p.categorical]
+        self.categorical = [p for p in parameters if p.categorical]
 
     @property
     def ndim(self) -> int:
-        return len(self.params)
+        return len(self.parameters)
 
     def sample(self, n: int, seed: int = 0) -> list[dict[str, Any]]:
         """n configs: Sobol on continuous dims, uniform on categorical."""
-        gen = torch.Generator().manual_seed(seed)
-        cont_u = torch.rand(n, len(self.continuous), generator=gen) \
+        generation = torch.Generator().manual_seed(seed)
+        cont_u = torch.rand(n, len(self.continuous), generator=generation) \
             if self.continuous else None
         if self.continuous:
             try:
@@ -74,14 +74,14 @@ class Space:
                 cont_u = eng.draw(n)
             except (RuntimeError, NotImplementedError):
                 pass  # Sobol cap reached → uniform fallback
-        cat_u = torch.rand(n, len(self.categorical), generator=gen) \
+        cat_u = torch.rand(n, len(self.categorical), generator=generation) \
             if self.categorical else None
-        out = []
+        output = []
         for i in range(n):
-            cfg = {}
+            config = {}
             for j, p in enumerate(self.continuous):
-                cfg[p.name] = p.map(float(cont_u[i, j]))
+                config[p.name] = p.map(float(cont_u[i, j]))
             for j, p in enumerate(self.categorical):
-                cfg[p.name] = p.map(float(cat_u[i, j]))
-            out.append(cfg)
-        return out
+                config[p.name] = p.map(float(cat_u[i, j]))
+            output.append(config)
+        return output

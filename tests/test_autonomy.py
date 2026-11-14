@@ -78,11 +78,11 @@ class TestLibrary:
         record(lib, physics_model, field, forcing, acts, every=30)
         assert len(lib) > 0
         goal = lib.rows[0]
-        out = lib.nearest(goal)
+        output = lib.nearest(goal)
         # exact retrieval: a stored state is its own nearest neighbor
-        assert torch.equal(out[0], goal)
+        assert torch.equal(output[0], goal)
         # every returned row is realized by construction
-        assert (out[0] == lib.rows).all(-1).any()
+        assert (output[0] == lib.rows).all(-1).any()
 
     def test_empty_library_raises(self):
         from nasa_farm.retrieve import StateLibrary
@@ -94,7 +94,7 @@ class TestSbc:
     def test_ranks_uniform_gaussian(self):
         """Conjugate Gaussian: trained posterior must produce ~uniform
         ranks — the SBC calibration certificate."""
-        from nasa_farm.optimize.inference import fit_posterior, sbc_ranks
+        from nasa_farm.optimize.inference import fit_posterior, calibration_ranks
         g = torch.Generator().manual_seed(1)
         n = 400
         theta = torch.randn(n, 2, generator=g, dtype=DTYPE)
@@ -104,7 +104,7 @@ class TestSbc:
         m = 32
         th = torch.randn(m, 2, generator=g2, dtype=DTYPE)
         xo = th + 0.5 * torch.randn(m, 2, generator=g2, dtype=DTYPE)
-        ranks = sbc_ranks(post, th, xo, n=32, seed=0)
+        ranks = calibration_ranks(post, th, xo, n=32, seed=0)
         assert ranks.shape == (m, 2)
         u = ranks.to(DTYPE) / 32.0
         assert 0.3 < float(u.mean()) < 0.7
@@ -113,14 +113,14 @@ class TestSbc:
 
 
 class TestIdm:
-    def _demo(self, field, irr, crops, seed):
+    def _demo(self, field, irrigation, crops, seed):
         from nasa_farm.forcing import span
         days = 60
         forcing = span(synthetic_year(42.0, seed=seed), 0, days)
         sow = torch.zeros(1, days, dtype=torch.long)
         sow[:, 0] = crops.index("maize")
         return field, forcing, Actions(
-            sow=sow, irrigation=torch.full((1, days), irr, dtype=DTYPE),
+            sow=sow, irrigation=torch.full((1, days), irrigation, dtype=DTYPE),
             n_fert=torch.zeros(1, days, dtype=DTYPE))
 
     def test_goal_selectivity(self, physics_model, field, crops):
@@ -128,38 +128,38 @@ class TestIdm:
         state the trained net must answer the goal-specific action —
         conditioning on the realized outcome is what makes it inverse
         dynamics rather than imitation."""
-        from nasa_farm.policy import _day_feats, fit_idm
+        from nasa_farm.policy import _day_feats, fit_inverse
         gfn = lambda s: s.sw.sum(-1, keepdim=True)  # terminal soil water
         demos = [self._demo(field, 0.0, crops, 3),
                  self._demo(field, 10.0, crops, 3)]
-        idm = fit_idm(physics_model, demos, goal_fn=gfn,
+        inverse = fit_inverse(physics_model, demos, goal_fn=gfn,
                       epochs=300, seed=0)
-        fld, frc, acts = demos[0]
-        for t in range(frc.days):
+        field, forcing, acts = demos[0]
+        for t in range(forcing.days):
             with torch.inference_mode():
-                fld, _ = physics_model.step(fld, acts.day(t), frc.day(t), t)
-        g_dry = gfn(fld.state)
-        fld, frc, acts = demos[1]
-        for t in range(frc.days):
+                field, _ = physics_model.step(field, acts.day(t), forcing.day(t), t)
+        g_dry = gfn(field.state)
+        field, forcing, acts = demos[1]
+        for t in range(forcing.days):
             with torch.inference_mode():
-                fld, _ = physics_model.step(fld, acts.day(t), frc.day(t), t)
-        g_wet = gfn(fld.state)
+                field, _ = physics_model.step(field, acts.day(t), forcing.day(t), t)
+        g_wet = gfn(field.state)
         assert float(g_wet - g_dry) > 0.0
         f0 = _day_feats(physics_model, field.state,
                         demos[0][1].day(0), demos[0][2].day(0))
-        rem = torch.ones(1, 1, dtype=DTYPE)
-        a_dry = float(idm(f0, g_dry, rem).detach()[0, 0])
-        a_wet = float(idm(f0, g_wet, rem).detach()[0, 0])
+        remaining = torch.ones(1, 1, dtype=DTYPE)
+        a_dry = float(inverse(f0, g_dry, remaining).detach()[0, 0])
+        a_wet = float(inverse(f0, g_wet, remaining).detach()[0, 0])
         # same state, different goal → the wet-goal action is larger and
         # tracks its teacher (10 mm) better than the dry one does
         assert a_wet > a_dry
         assert abs(a_wet - 10.0) < abs(a_dry - 10.0)
 
     def test_idm_actions_shape(self, physics_model, field, crops):
-        from nasa_farm.policy import fit_idm, idm_actions
-        f_, frc, acts = self._demo(field, 5.0, crops, 3)
-        idm = fit_idm(physics_model, [(f_, frc, acts)], epochs=5, seed=0)
-        out = idm_actions(idm, physics_model, f_, frc, acts,
-                          torch.zeros(idm.goal_dim, dtype=DTYPE))
-        assert out.irrigation.shape == acts.irrigation.shape
-        assert (out.irrigation >= 0).all()
+        from nasa_farm.policy import fit_inverse, inverse_actions
+        f_, forcing, acts = self._demo(field, 5.0, crops, 3)
+        inverse = fit_inverse(physics_model, [(f_, forcing, acts)], epochs=5, seed=0)
+        output = inverse_actions(inverse, physics_model, f_, forcing, acts,
+                          torch.zeros(inverse.goal_dim, dtype=DTYPE))
+        assert output.irrigation.shape == acts.irrigation.shape
+        assert (output.irrigation >= 0).all()

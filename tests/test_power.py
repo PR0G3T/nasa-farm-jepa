@@ -43,9 +43,9 @@ class TestParse:
     def test_fill_values_become_nan(self):
         payload = _payload()
         payload["properties"]["parameter"]["T2M_MIN"]["20200102"] = -999.0
-        out = parse_daily(payload)
-        assert out["T2M_MIN"]["20200101"] == 5.0
-        assert out["T2M_MIN"]["20200102"] != out["T2M_MIN"]["20200102"]  # NaN
+        output = parse_daily(payload)
+        assert output["T2M_MIN"]["20200101"] == 5.0
+        assert output["T2M_MIN"]["20200102"] != output["T2M_MIN"]["20200102"]  # NaN
 
     def test_series_to_forcing_shape(self):
         year = 2021
@@ -86,13 +86,13 @@ class TestClientMocked:
             return httpx.Response(200, json=_payload())
 
         client = PowerClient(httpx.Client(transport=httpx.MockTransport(handler)))
-        out = client.fetch(None, Temporal("2020-01-01", "2020-01-03"),
-                           lat=42.0, lon=-93.0)
-        assert out["T2M_MAX"]["20200103"] == 20.0
+        output = client.fetch(None, Temporal("2020-01-01", "2020-01-03"),
+                           latitude=42.0, longitude=-93.0)
+        assert output["T2M_MAX"]["20200103"] == 20.0
 
     def test_http_error_raises(self):
         client = PowerClient(httpx.Client(
             transport=httpx.MockTransport(lambda r: httpx.Response(503))))
         with pytest.raises(httpx.HTTPStatusError):
             client.fetch(None, Temporal("2020-01-01", "2020-01-03"),
-                         lat=0.0, lon=0.0)
+                         latitude=0.0, longitude=0.0)

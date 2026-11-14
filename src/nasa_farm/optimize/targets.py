@@ -26,10 +26,10 @@ def season_metrics(model, field: Field, forcing: Forcing,
     Unlike `plan._rollout_metrics` (inference_mode for planning), this is the
     data-assimilation path: gradients must reach the model parameters.
     """
-    acc = SeasonAccumulator(field.batch, forcing.days // 365,
+    accumulate = SeasonAccumulator(field.batch, forcing.days // 365,
                             device=field.state.sw.device)
-    model.rollout(field, forcing, actions, observer=acc)
-    return acc.result()
+    model.rollout(field, forcing, actions, observer=accumulate)
+    return accumulate.result()
 
 
 @dataclass(frozen=True, slots=True)
@@ -43,15 +43,15 @@ class ObservedTrajectory:
         return torch.isfinite(self.values)
 
 
-def trajectory_loss(pred: torch.Tensor, obs: ObservedTrajectory,
+def trajectory_loss(predicted: torch.Tensor, observed: ObservedTrajectory,
                     weights: torch.Tensor | None = None) -> torch.Tensor:
     """χ² over observed cells. pred (B, H, M) or (H, M); returns scalar."""
-    p = pred.squeeze(0) if pred.dim() == 3 else pred
-    mask = obs.observed_mask()
-    scale = obs.channel_scale
+    p = predicted.squeeze(0) if predicted.dim() == 3 else predicted
+    mask = observed.observed_mask()
+    scale = observed.channel_scale
     if scale is None:
-        scale = obs.values[mask].abs().mean().clamp(min=1.0)
-    r = (p - torch.nan_to_num(obs.values)) / scale
+        scale = observed.values[mask].abs().mean().clamp(min=1.0)
+    r = (p - torch.nan_to_num(observed.values)) / scale
     r = r * mask
     if weights is not None:
         r = r * weights.unsqueeze(0) if weights.dim() == 1 else r * weights
@@ -67,15 +67,15 @@ def synthetic_observation(model, field: Field, forcing: Forcing,
     cells stay NaN. Optional Gaussian noise emulates observational error.
     """
     with torch.inference_mode():
-        pred = season_metrics(model, field, forcing, actions)[0]  # (H, M)
-    idx = {n: i for i, n in enumerate(METRICS)}
-    values = torch.full_like(pred, float("nan"))
+        predicted = season_metrics(model, field, forcing, actions)[0]  # (H, M)
+    index = {n: i for i, n in enumerate(METRICS)}
+    values = torch.full_like(predicted, float("nan"))
     for c in channels:
-        values[:, idx[c]] = pred[:, idx[c]]
+        values[:, index[c]] = predicted[:, index[c]]
     if noise > 0:
-        gen = torch.Generator().manual_seed(seed)
+        generation = torch.Generator().manual_seed(seed)
         obs_cells = torch.isfinite(values)
-        values = values + torch.randn(values.shape, generator=gen,
+        values = values + torch.randn(values.shape, generator=generation,
                                       dtype=values.dtype) \
             * noise * values.abs().clamp(min=1.0) * obs_cells
     return ObservedTrajectory(values=values)
@@ -95,25 +95,25 @@ class ObservedSeries:
         return torch.isfinite(self.values)
 
 
-def obs_series(model, field: Field, forcing: Forcing, actions: Actions,
+def series(model, field: Field, forcing: Forcing, actions: Actions,
                channels: tuple[str, ...] = ("ndvi", "sm1"),
                every: int = 5) -> torch.Tensor:
     """Rollout → (B, N, C) predicted observables, *keeping the graph*."""
-    from nasa_farm.observe.trace import ObsTrace
-    tr = ObsTrace(forcing.days, channels, every)
-    model.rollout(field, forcing, actions, observer=tr)
-    return tr.result()
+    from nasa_farm.observe.trace import ObservationTrace
+    traits = ObservationTrace(forcing.days, channels, every)
+    model.rollout(field, forcing, actions, observer=traits)
+    return traits.result()
 
 
-def series_loss(pred: torch.Tensor, obs: ObservedSeries,
+def series_loss(predicted: torch.Tensor, observed: ObservedSeries,
                 weights: torch.Tensor | None = None) -> torch.Tensor:
     """χ² over observed cells. pred (B, N, C) or (N, C); returns scalar."""
-    p = pred.squeeze(0) if pred.dim() == 3 else pred
-    mask = obs.observed_mask()
-    scale = obs.channel_scale
+    p = predicted.squeeze(0) if predicted.dim() == 3 else predicted
+    mask = observed.observed_mask()
+    scale = observed.channel_scale
     if scale is None:
-        scale = obs.values[mask].abs().mean().clamp(min=1.0)
-    r = (p - torch.nan_to_num(obs.values)) / scale * mask
+        scale = observed.values[mask].abs().mean().clamp(min=1.0)
+    r = (p - torch.nan_to_num(observed.values)) / scale * mask
     if weights is not None:
         r = r * weights.unsqueeze(0) if weights.dim() == 1 else r * weights
     return (r ** 2).sum() / mask.sum().clamp(min=1)

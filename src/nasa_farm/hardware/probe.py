@@ -37,10 +37,10 @@ def cache_dir() -> Path:
     return root
 
 
-def signature(model, plans, ens, workers: int) -> tuple:
+def signature(model, plans, ensemble, workers: int) -> tuple:
     """Workload+build key — what a cached rate is valid for."""
     return (workers, plans.shape[0] // 512, plans.shape[1],
-            ens.batch, ens.days, model.residual is not None,
+            ensemble.batch, ensemble.days, model.residual is not None,
             torch.__version__)
 
 
@@ -58,32 +58,32 @@ def _load() -> dict:
 
 def _save(d: dict) -> None:
     p = cache_dir() / _CACHE_FILE
-    tmp = p.with_suffix(".tmp")
+    temporary = p.with_suffix(".tmp")
     try:
-        tmp.write_text(json.dumps(d))
-        tmp.replace(p)
+        temporary.write_text(json.dumps(d))
+        temporary.replace(p)
     except OSError:
         pass
 
 
-def lookup(sig: tuple, lane_name: str) -> tuple[float, bool] | None:
-    ent = _load().get(json.dumps(sig), {}).get(lane_name)
+def lookup(signal: tuple, lane_name: str) -> tuple[float, bool] | None:
+    ent = _load().get(json.dumps(signal), {}).get(lane_name)
     return None if ent is None else (ent["rate"], ent["graph"])
 
 
-def store(sig: tuple, lane_name: str, rate: float, graph: bool) -> None:
+def store(signal: tuple, lane_name: str, rate: float, graph: bool) -> None:
     d = _load()
-    d.setdefault(json.dumps(sig), {})[lane_name] = {
+    d.setdefault(json.dumps(signal), {})[lane_name] = {
         "rate": rate, "graph": graph}
     _save(d)
 
 
-def time_fn(fn: Callable[[], object]) -> float:
+def time_fn(function: Callable[[], object]) -> float:
     """Wall seconds for one fn call, synchronizing accelerators."""
     if torch.accelerator.is_available():
         torch.accelerator.synchronize()
     t0 = time.perf_counter()
-    fn()
+    function()
     if torch.accelerator.is_available():
         torch.accelerator.synchronize()
     return time.perf_counter() - t0
@@ -92,20 +92,20 @@ def time_fn(fn: Callable[[], object]) -> float:
 def measure(lane, probe_plans: torch.Tensor) -> tuple[float, bool]:
     """Measured (rows/s, use_graph) for one lane on a probe slice —
     warmup first so contexts/compiles are out of the timed path."""
-    fn = lane.fn
+    function = lane.function
     lane.use_graph = False
     try:
-        fn(lane, 0, probe_plans)                          # warmup
-        t_eager = time_fn(lambda: fn(lane, 0, probe_plans))
+        function(lane, 0, probe_plans)                          # warmup
+        t_eager = time_fn(lambda: function(lane, 0, probe_plans))
         rate_e = probe_plans.shape[0] / max(t_eager, 1e-9)
     except Exception:
         return 0.0, False
-    if not lane.accel or lane.graphs is None:
+    if not lane.accelerator or lane.graphs is None:
         return rate_e, False
     lane.use_graph = True
     try:
-        fn(lane, 0, probe_plans)                          # capture+warmup
-        t_graph = time_fn(lambda: fn(lane, 0, probe_plans))
+        function(lane, 0, probe_plans)                          # capture+warmup
+        t_graph = time_fn(lambda: function(lane, 0, probe_plans))
         rate_g = probe_plans.shape[0] / max(t_graph, 1e-9)
     except Exception:
         lane.use_graph = False
@@ -116,11 +116,11 @@ def measure(lane, probe_plans: torch.Tensor) -> tuple[float, bool]:
     return rate_e, False
 
 
-def probe_plans(plans: torch.Tensor, ens) -> torch.Tensor:
-    return plans[: max(1, min(plans.shape[0], _PROBE_ROWS // ens.batch))]
+def probe_plans(plans: torch.Tensor, ensemble) -> torch.Tensor:
+    return plans[: max(1, min(plans.shape[0], _PROBE_ROWS // ensemble.batch))]
 
 
-def probe_ens(ens, vars: tuple[str, ...]):
+def probe_ensemble(ensemble, vars: tuple[str, ...]):
     """First ``_PROBE_DAYS`` forcing columns — the probe slice."""
-    days = min(_PROBE_DAYS, ens.days)
-    return type(ens)(*(getattr(ens, k)[:, :days] for k in vars))
+    days = min(_PROBE_DAYS, ensemble.days)
+    return type(ensemble)(*(getattr(ensemble, k)[:, :days] for k in vars))

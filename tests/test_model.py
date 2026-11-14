@@ -30,9 +30,9 @@ class TestResidualIdentity:
         forcing = tile_to_horizon(warm_year, 1)
         actions = sow_actions(crops.index("maize"), 120, forcing.days)
 
-        f1 = physics_model.rollout(Field(field.state.clone(), field.soil, field.lat),
+        f1 = physics_model.rollout(Field(field.state.clone(), field.soil, field.latitude),
                                    forcing, actions)
-        f2 = hybrid_model.rollout(Field(field.state.clone(), field.soil, field.lat),
+        f2 = hybrid_model.rollout(Field(field.state.clone(), field.soil, field.latitude),
                                   forcing, actions)
         for name in ("sw", "n_min", "n_org", "soc_f", "soc_s", "litter", "gdd",
                      "lai", "biomass", "cum_yield"):
@@ -48,17 +48,17 @@ class TestWaterBudgetOverSeason:
                           forcing.rh, forcing.u2, forcing.doy)
 
         f0 = field.state.clone()
-        acc = []
-        def obs(t, s, fx):
-            acc.append({k: v.clone() for k, v in fx.items()})
+        accumulate = []
+        def observed(t, s, fx):
+            accumulate.append({k: v.clone() for k, v in fx.items()})
         final = physics_model.rollout(
-            Field(field.state.clone(), field.soil, field.lat.repeat(8)),
-            forcing, Actions.idle(8, forcing.days), observer=obs)
+            Field(field.state.clone(), field.soil, field.latitude.repeat(8)),
+            forcing, Actions.idle(8, forcing.days), observer=observed)
 
         rain = forcing.precip.sum(1)
-        tot_out = sum(sum(f[k] for f in acc) for k in
+        tot_out = sum(sum(f[k] for f in accumulate) for k in
                       ("es", "runoff", "deep")) + sum(
-                          f["t"].sum(-1) for f in acc)
+                          f["t"].sum(-1) for f in accumulate)
         stored = final.state.sw.sum(-1) - f0.sw.sum(-1)
         assert torch.allclose(stored, rain - tot_out, atol=1e-8)
 
@@ -67,9 +67,9 @@ class TestLifecycle:
     def test_maize_grows_and_harvests(self, field, warm_year, physics_model, crops):
         forcing = tile_to_horizon(warm_year, 1)
         actions = sow_actions(crops.index("maize"), 120, forcing.days)
-        acc = SeasonAccumulator(1, 1)
-        final = physics_model.rollout(field, forcing, actions, observer=acc)
-        m = acc.result()[0, 0]
+        accumulate = SeasonAccumulator(1, 1)
+        final = physics_model.rollout(field, forcing, actions, observer=accumulate)
+        m = accumulate.result()[0, 0]
         i = {n: k for k, n in enumerate(METRICS)}
         assert float(final.state.cum_yield) > 0.0
         assert float(m[i["yield_kg"]]) == pytest.approx(float(final.state.cum_yield))
@@ -88,7 +88,7 @@ class TestLifecycle:
         forcing = tile_to_horizon(warm_year, 1)
 
         def run(crop_name):
-            f = Field(field.state.clone(), field.soil, field.lat)
+            f = Field(field.state.clone(), field.soil, field.latitude)
             actions = sow_actions(crops.index(crop_name), 140, forcing.days)
             return physics_model.rollout(f, forcing, actions).state.n_min
 
@@ -107,20 +107,20 @@ class TestForcingResponse:
         actions = sow_actions(crops.index("maize"), 120, days)
 
         def run(forc):
-            f = Field(field.state.clone(), field.soil, field.lat)
+            f = Field(field.state.clone(), field.soil, field.latitude)
             return physics_model.rollout(f, forc, actions).state
 
-        sw, sd = run(wet), run(dry)
-        assert float(sw.cum_yield) > float(sd.cum_yield) >= 0.0
+        sw, deviation = run(wet), run(dry)
+        assert float(sw.cum_yield) > float(deviation.cum_yield) >= 0.0
         # phenology is GDD-driven: identical LAI trajectory under both climates
-        assert float(sw.gdd) == pytest.approx(float(sd.gdd))
+        assert float(sw.gdd) == pytest.approx(float(deviation.gdd))
 
     def test_determinism(self, field, warm_year, physics_model, crops):
         forcing = tile_to_horizon(warm_year, 1)
         actions = sow_actions(crops.index("maize"), 120, forcing.days)
-        a = physics_model.rollout(Field(field.state.clone(), field.soil, field.lat),
+        a = physics_model.rollout(Field(field.state.clone(), field.soil, field.latitude),
                                   forcing, actions)
-        b = physics_model.rollout(Field(field.state.clone(), field.soil, field.lat),
+        b = physics_model.rollout(Field(field.state.clone(), field.soil, field.latitude),
                                   forcing, actions)
         assert torch.equal(a.state.sw, b.state.sw)
         assert torch.equal(a.state.cum_yield, b.state.cum_yield)
@@ -134,21 +134,21 @@ class TestCompiledParity:
         actions = sow_actions(crops.index("maize"), 120, forcing.days)
 
         eager = hybrid_model.rollout(
-            Field(field.state.clone(), field.soil, field.lat),
+            Field(field.state.clone(), field.soil, field.latitude),
             forcing, actions)
 
         compiled = type(hybrid_model)(hybrid_model.crops, residual=True)
         compiled.load_state_dict(hybrid_model.state_dict())
         compiled.enable_compile()
         jit = compiled.rollout(
-            Field(field.state.clone(), field.soil, field.lat),
+            Field(field.state.clone(), field.soil, field.latitude),
             forcing, actions)
 
         for name in ("sw", "n_min", "n_org", "soc_f", "soc_s", "litter",
                      "lai", "biomass", "cum_yield"):
             torch.testing.assert_close(
                 getattr(jit.state, name), getattr(eager.state, name),
-                rtol=1e-9, atol=1e-9, msg=lambda m, n=name: f"{n}: {m}")
+                rtol=1e-9, atol=1e-9, message=lambda m, n=name: f"{n}: {m}")
 
 
 class TestDifferentiability:
@@ -159,8 +159,8 @@ class TestDifferentiability:
         loss = fx["delta_b"].sum() + f.state.biomass.sum() + f.state.sw[:, 0].sum()
         loss.backward()
         last = hybrid_model.residual.net[-1]
-        assert last.weight.grad is not None
-        assert torch.isfinite(last.weight.grad).all()
+        assert last.weight.gradient is not None
+        assert torch.isfinite(last.weight.gradient).all()
 
     def test_rollout_keeps_grad_path(self, field, warm_year, hybrid_model, crops):
         forcing = tile_to_horizon(warm_year, 1)
@@ -171,7 +171,7 @@ class TestDifferentiability:
                 sow=crops.index("maize") if t == 100 else -1), day_forcing(doy=float(t + 1)))
         total = f.state.biomass.sum() + f.state.sw[:, 0].sum()
         total.backward()
-        grads = [p.grad for p in hybrid_model.residual.parameters() if p.grad is not None]
+        grads = [p.gradient for p in hybrid_model.residual.parameters() if p.gradient is not None]
         assert grads and all(torch.isfinite(g).all() for g in grads)
 
 
@@ -187,7 +187,7 @@ class TestBoundsOverRollout:
         actions = Actions(sow, a.irrigation, a.n_fert)
 
         violations = []
-        def obs(t, s, fx):
+        def observed(t, s, fx):
             l1, l2 = soil.layer(0), soil.layer(1)
             if not ((s.sw[:, 0] >= l1.theta_air - 1e-6).all() and
                     (s.sw[:, 0] <= l1.theta_sat + 1e-6).all()):
@@ -196,7 +196,7 @@ class TestBoundsOverRollout:
                 violations.append(("pools", t))
             if (s.lai < -1e-9).any():
                 violations.append(("lai", t))
-        physics_model.rollout(field, forcing, actions, observer=obs)
+        physics_model.rollout(field, forcing, actions, observer=observed)
         assert violations == []
 
 
@@ -210,10 +210,10 @@ class TestCheckpointedRollout:
         actions = sow_actions(crops.index("maize"), 120, forcing.days)
         a1, a2 = SeasonAccumulator(1, 1), SeasonAccumulator(1, 1)
         f1 = hybrid_model.rollout(
-            Field(field.state.clone(), field.soil, field.lat),
+            Field(field.state.clone(), field.soil, field.latitude),
             forcing, actions, observer=a1)
         f2 = hybrid_model.rollout(
-            Field(field.state.clone(), field.soil, field.lat),
+            Field(field.state.clone(), field.soil, field.latitude),
             forcing, actions, observer=a2, checkpoint_every=30)
         for name in ("sw", "n_min", "soc_f", "soc_s", "gdd", "lai", "biomass",
                      "cum_yield", "vern", "heat_acc"):
@@ -224,17 +224,17 @@ class TestCheckpointedRollout:
         forcing = tile_to_horizon(warm_year, 1)
         actions = sow_actions(crops.index("maize"), 120, forcing.days)
 
-        def grad(ckpt):
+        def gradient(ckpt):
             tmin = forcing.tmin.detach().clone().requires_grad_(True)
-            frc = dataclasses.replace(forcing, tmin=tmin)
-            acc = SeasonAccumulator(1, 1)
+            forcing = dataclasses.replace(forcing, tmin=tmin)
+            accumulate = SeasonAccumulator(1, 1)
             hybrid_model.rollout(
-                Field(field.state.clone(), field.soil, field.lat),
-                frc, actions, observer=acc, checkpoint_every=ckpt)
-            acc.result().sum().backward()
-            return tmin.grad.clone()
+                Field(field.state.clone(), field.soil, field.latitude),
+                forcing, actions, observer=accumulate, checkpoint_every=ckpt)
+            accumulate.result().sum().backward()
+            return tmin.gradient.clone()
 
-        g_eager, g_ckpt = grad(0), grad(30)
+        g_eager, g_ckpt = gradient(0), gradient(30)
         assert g_eager is not None and torch.isfinite(g_eager).all()
         torch.testing.assert_close(g_ckpt, g_eager, rtol=1e-8, atol=1e-10)
 
@@ -263,7 +263,7 @@ class TestLatentDynamics:
     def test_z_stays_zero_under_identity_head(self, soil, warm_year, crops):
         """Zero-init LatentDyn ⇒ z ≡ 0 — the model is the physics until z
         earns signal through assimilation."""
-        model = WorldModel(crops, residual=False, latent_dim=4)
+        model = WorldModel(crops, residual=False, latent_dimension=4)
         field = Field(initial_state(1, soil, z_dim=4), soil,
                       torch.tensor([42.0], dtype=DTYPE))
         forcing = tile_to_horizon(warm_year, 1)
@@ -272,7 +272,7 @@ class TestLatentDynamics:
         assert torch.equal(f.state.z, torch.zeros(1, 4, dtype=DTYPE))
 
     def test_z_moves_when_head_trained(self, soil, warm_year, crops):
-        model = WorldModel(crops, residual=False, latent_dim=4)
+        model = WorldModel(crops, residual=False, latent_dimension=4)
         with torch.no_grad():
             model.latent.head.weight.normal_(
                 0, 0.1, generator=torch.Generator().manual_seed(0))
@@ -284,7 +284,7 @@ class TestLatentDynamics:
         assert float(f.state.z.detach().abs().sum()) > 0.0
 
     def test_z_resets_on_sowing(self, soil, warm_year, crops):
-        model = WorldModel(crops, residual=False, latent_dim=4)
+        model = WorldModel(crops, residual=False, latent_dimension=4)
         with torch.no_grad():
             model.latent.head.weight.normal_(
                 0, 0.1, generator=torch.Generator().manual_seed(0))
@@ -324,5 +324,5 @@ class TestStressEvents:
         actions = sow_actions(crops.index("wheat"), 285, climate.days)
         final = physics_model.rollout(field, climate, actions)
         s = final.state
-        assert float(s.vern) >= 44.0       # vern_req = 45 chill days
+        assert float(s.vernalization) >= 44.0       # vern_req = 45 chill days
         assert float(s.cum_yield) > 0.0    # gate opened → matured → harvested

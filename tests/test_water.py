@@ -15,14 +15,14 @@ def t(v, n=1):
     return torch.full((n,), float(v), dtype=DTYPE)
 
 
-def rw(soil, frac: float = 0.6):
-    return root_weights(t(frac, soil.batch), soil.n_layers)
+def rw(soil, fraction: float = 0.6):
+    return root_weights(t(fraction, soil.batch), soil.n_layers)
 
 
-def step(sw, soil, infil, ep, tp, frac=0.6):
+def step(sw, soil, infil, evaporation, transpiration, fraction=0.6):
     if sw.dim() == 1:
         sw = sw.unsqueeze(1)
-    return water_balance_step(sw, soil, infil, ep, tp, rw(soil, frac))
+    return water_balance_step(sw, soil, infil, evaporation, transpiration, rw(soil, fraction))
 
 
 class TestStressFunctions:
@@ -43,8 +43,8 @@ class TestWaterBalance:
         """Δ storage ≡ inputs − outputs, to machine precision."""
         sw = torch.stack([soil.layer(0).theta_fc.clone(),
                           soil.layer(1).theta_fc.clone()], dim=1)
-        infil, ep, tp = t(25.0), t(4.0), t(3.0)
-        s, f = step(sw, soil, infil, ep, tp)
+        infil, evaporation, transpiration = t(25.0), t(4.0), t(3.0)
+        s, f = step(sw, soil, infil, evaporation, transpiration)
         in_minus_out = infil - (f["runoff"] + f["es"] + f["t"].sum(-1) + f["deep"])
         assert torch.allclose(s.sum(-1) - sw.sum(-1), in_minus_out, atol=1e-12)
 
@@ -54,12 +54,12 @@ class TestWaterBalance:
     )
     @settings(max_examples=200,
               suppress_health_check=[HealthCheck.function_scoped_fixture])
-    def test_conservation_and_bounds_property(self, soil, infil, ep, tp, f1, f2):
+    def test_conservation_and_bounds_property(self, soil, infil, evaporation, transpiration, f1, f2):
         """Random inputs: conservation holds, bounds hold, fluxes nonneg."""
         l1, l2 = soil.layer(0), soil.layer(1)
         sw = torch.stack([l1.theta_air + f1 * (l1.theta_sat - l1.theta_air),
                           l2.theta_wp + f2 * (l2.theta_sat - l2.theta_wp)], dim=1)
-        s, f = step(sw, soil, t(infil), t(ep), t(tp))
+        s, f = step(sw, soil, t(infil), t(evaporation), t(transpiration))
 
         in_minus_out = t(infil) - (f["runoff"] + f["es"] + f["t"].sum(-1) + f["deep"])
         assert torch.allclose(s.sum(-1) - sw.sum(-1), in_minus_out, atol=1e-9)
@@ -84,7 +84,7 @@ class TestWaterBalance:
         """At lower bounds, nothing evaporates, transpires or drains."""
         sw = torch.stack([soil.layer(0).theta_air.clone(),
                           soil.layer(1).theta_wp.clone()], dim=1)
-        _, f = step(sw, soil, t(0.0), t(6.0), t(6.0), frac=0.5)
+        _, f = step(sw, soil, t(0.0), t(6.0), t(6.0), fraction=0.5)
         for k in ("es", "perc", "deep"):
             assert float(f[k]) == 0.0, k
         assert float(f["t"].sum()) == 0.0
@@ -94,26 +94,26 @@ class TestWaterBalance:
         sw1 = l1.theta_fc.clone()
         small = (l1.theta_sat - l1.theta_fc) * 0.5
         sw = torch.stack([sw1, soil.layer(1).theta_fc.clone()], dim=1)
-        _, f_small = step(sw, soil, small, t(0.0), t(0.0), frac=0.5)
+        _, f_small = step(sw, soil, small, t(0.0), t(0.0), fraction=0.5)
         assert float(f_small["runoff"]) == 0.0
-        _, f_big = step(sw, soil, t(2000.0), t(0.0), t(0.0), frac=0.5)
+        _, f_big = step(sw, soil, t(2000.0), t(0.0), t(0.0), fraction=0.5)
         assert float(f_big["runoff"]) > 0.0
 
     def test_drainage_only_above_field_capacity(self, soil):
         l1 = soil.layer(0)
         below = l1.theta_wp + 0.5 * (l1.theta_fc - l1.theta_wp)
         sw = torch.stack([below, soil.layer(1).theta_fc.clone()], dim=1)
-        _, f = step(sw, soil, t(0.0), t(0.0), t(0.0), frac=0.5)
+        _, f = step(sw, soil, t(0.0), t(0.0), t(0.0), fraction=0.5)
         assert float(f["perc"]) == 0.0
         above = l1.theta_fc + 0.5 * (l1.theta_sat - l1.theta_fc)
         sw = torch.stack([above, soil.layer(1).theta_fc.clone()], dim=1)
-        _, f2 = step(sw, soil, t(0.0), t(0.0), t(0.0), frac=0.5)
+        _, f2 = step(sw, soil, t(0.0), t(0.0), t(0.0), fraction=0.5)
         assert float(f2["perc"]) > 0.0
 
     def test_layer1_receives_percolation_layer2(self, soil):
         """Layer-2 storage rises exactly by layer-1 percolation minus its own drainage."""
         sw = torch.stack([soil.layer(0).theta_sat.clone(),
                           soil.layer(1).theta_wp.clone()], dim=1)
-        s, f = step(sw, soil, t(0.0), t(0.0), t(0.0), frac=1.0)
+        s, f = step(sw, soil, t(0.0), t(0.0), t(0.0), fraction=1.0)
         gained = float(s[0, 1] - sw[0, 1])
         assert gained == pytest.approx(float(f["perc"] - f["deep"]))

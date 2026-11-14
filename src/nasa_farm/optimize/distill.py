@@ -39,21 +39,21 @@ def basis_names(f: int = N_FEATURES) -> list[str]:
     return names
 
 
-def omp(F: torch.Tensor, y: torch.Tensor, k: int) -> tuple[torch.Tensor, torch.Tensor]:
+def pursuit(F: torch.Tensor, y: torch.Tensor, k: int) -> tuple[torch.Tensor, torch.Tensor]:
     """Orthogonal matching pursuit → (indices, coefficients) of a ≤k-sparse
     solution to F @ w ≈ y."""
-    idx, r = [], y.clone()
+    index, r = [], y.clone()
     F = F.clone()
     for _ in range(k):
         c = (F.t() @ r).abs()
         i = int(c.argmax())
-        if i in idx:
+        if i in index:
             break
-        idx.append(i)
-        w, *_ = torch.linalg.lstsq(F[:, idx], y)
-        r = y - F[:, idx] @ w
-    w, *_ = torch.linalg.lstsq(F[:, idx], y)
-    return torch.tensor(idx), w
+        index.append(i)
+        w, *_ = torch.linalg.lstsq(F[:, index], y)
+        r = y - F[:, index] @ w
+    w, *_ = torch.linalg.lstsq(F[:, index], y)
+    return torch.tensor(index), w
 
 
 def grow(x: torch.Tensor, y: torch.Tensor, k: int = 6,
@@ -67,28 +67,28 @@ def grow(x: torch.Tensor, y: torch.Tensor, k: int = 6,
     """
     F = basis(x)
     names = basis_names()
-    mu, sd = F.mean(0), F.std(0).clamp(min=1e-9)
-    Fn = (F - mu) / sd
+    mu, deviation = F.mean(0), F.std(0).clamp(min=1e-9)
+    Fn = (F - mu) / deviation
     f = x.shape[-1]
     for _ in range(rounds + 1):
-        idx, w = omp(Fn, y, k)
-        sel = set(idx.tolist())
+        index, w = pursuit(Fn, y, k)
+        sel = set(index.tolist())
         new_cols, new_names = [], []
         for i in sel:
             if i == 0:
                 continue
             for j in range(1, f + 1):
-                col = Fn[:, i] * Fn[:, j]
-                if col.std() < 1e-6:
+                column = Fn[:, i] * Fn[:, j]
+                if column.std() < 1e-6:
                     continue
-                new_cols.append((col - col.mean()) / col.std())
+                new_cols.append((column - column.mean()) / column.std())
                 new_names.append(f"{names[i]}·{names[j]}")
         if not new_cols:
             break
         Fn = torch.cat([Fn] + [c.unsqueeze(-1) for c in new_cols], dim=-1)
         names += new_names
-    idx, w = omp(Fn, y, k)
-    return idx, w, names
+    index, w = pursuit(Fn, y, k)
+    return index, w, names
 
 
 def distill_residual(net, feats: torch.Tensor, k: int = 6,
@@ -100,17 +100,17 @@ def distill_residual(net, feats: torch.Tensor, k: int = 6,
     from nasa_farm.dynamics.residual import RESIDUAL_VARS
     y = net(feats)
     if autogrow:
-        out: dict[str, list[tuple[str, float]]] = {}
+        output: dict[str, list[tuple[str, float]]] = {}
         for j, v in enumerate(RESIDUAL_VARS):
-            idx, w, names = grow(feats, y[:, j], k)
-            out[v] = [(names[i], float(c)) for i, c in
-                      zip(idx.tolist(), w)]
-        return out
+            index, w, names = grow(feats, y[:, j], k)
+            output[v] = [(names[i], float(c)) for i, c in
+                      zip(index.tolist(), w)]
+        return output
     F = basis(feats)
     F = (F - F.mean(0)) / F.std(0).clamp(min=1e-9)
     names = basis_names()
-    out: dict[str, list[tuple[str, float]]] = {}
+    output: dict[str, list[tuple[str, float]]] = {}
     for j, v in enumerate(RESIDUAL_VARS):
-        idx, w = omp(F, y[:, j], k)
-        out[v] = [(names[i], float(c)) for i, c in zip(idx.tolist(), w)]
-    return out
+        index, w = pursuit(F, y[:, j], k)
+        output[v] = [(names[i], float(c)) for i, c in zip(index.tolist(), w)]
+    return output

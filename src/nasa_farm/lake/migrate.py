@@ -1,7 +1,7 @@
-"""Legacy `*.zarr` dirs + `catalog.db` → `lake.database` (idempotent).
+"""Legacy `*.zarr` dirs + `catalog.db` → `lake.db` (idempotent).
 
 `Lake(root)` runs this automatically the first time it opens a root that
-still has the legacy layout and no `lake.database` yet: every series is
+still has the legacy layout and no `lake.db` yet: every series is
 re-packed through `Lake.put` (POWER-native names canonicalized, source
 provenance replayed from `catalog.series`), fields and granule marks
 replayed from `catalog.db` — all inside one transaction, so a failed
@@ -16,7 +16,7 @@ import sqlite3
 from contextlib import closing
 from pathlib import Path
 
-import numpy as np
+import numpy as numpy
 
 from nasa_farm.acquire.power import CANON
 
@@ -31,18 +31,18 @@ def _legacy_series(root: Path):
             continue                          # stray artifact, not a group
         if attrs := dict(g.attrs):
             yield fid, None, attrs
-        for grp in g.group_keys():
-            for var in g[grp].group_keys():
-                node = g[grp][var]
+        for group in g.group_keys():
+            for var in g[group].group_keys():
+                node = g[group][var]
                 if "dates" in node and "values" in node:
-                    yield fid, (grp, var), (node["dates"][:],
+                    yield fid, (group, var), (node["dates"][:],
                                             node["values"][:])
 
 
 def _catalog(root: Path):
     """(fields, granules, series-source map) from a legacy catalog.db."""
     cat = root / "catalog.db"
-    fields, granules, src = [], [], {}
+    fields, granules, source = [], [], {}
     if cat.exists():
         with closing(sqlite3.connect(
                 f"file:{cat}?mode=ro", uri=True)) as c:
@@ -50,32 +50,32 @@ def _catalog(root: Path):
                 "SELECT id, lat, lon, name FROM fields").fetchall()
             granules = c.execute(
                 "SELECT id, product FROM granules").fetchall()
-            for fid, grp, var, s in c.execute(
+            for fid, group, var, s in c.execute(
                     "SELECT fid, grp, var, source FROM series"):
-                src[fid, grp, var] = s or ""
-    return fields, granules, src
+                source[fid, group, var] = s or ""
+    return fields, granules, source
 
 
 def migrate_into(lake) -> dict:
     """Import every legacy store under `lake.root` in one transaction."""
     stats = {"fields": 0, "series": 0, "emb": 0, "granules": 0}
-    fields, granules, src = _catalog(lake.root)
-    with lake.tx():
+    fields, granules, source = _catalog(lake.root)
+    with lake.transaction():
         for fid, key, data in _legacy_series(lake.root):
             if key is None:
                 lake.attrs(fid, **data)
             elif key[0] == "emb":
-                lake.put_vec(fid, key[1], np.asarray(data[1]).reshape(-1))
+                lake.put_vec(fid, key[1], numpy.asarray(data[1]).reshape(-1))
                 stats["emb"] += 1
             else:
-                grp, var = key
-                if grp == "forcing":
+                group, var = key
+                if group == "forcing":
                     var = CANON.get(var, var)
-                lake.put(fid, grp, var, data[0], data[1],
-                         src.get((fid, *key), ""))
+                lake.put(fid, group, var, data[0], data[1],
+                         source.get((fid, *key), ""))
                 stats["series"] += 1
-        for fid, lat, lon, name in fields:
-            lake.field(fid, lat, lon, name or "")
+        for fid, latitude, longitude, name in fields:
+            lake.field(fid, latitude, longitude, name or "")
             stats["fields"] += 1
         for gid, product in granules:
             lake.mark_granule(gid, product)
@@ -86,7 +86,7 @@ def migrate_into(lake) -> dict:
 def migrate(root: Path | str, clean: bool = False) -> dict:
     """Import the legacy layout under `root`; `clean` removes it after."""
     root = Path(root)
-    from nasa_farm.lake.database import Lake
+    from nasa_farm.lake.db import Lake
     with Lake(root) as lake:
         stats = lake.migrated or migrate_into(lake)
     if clean:

@@ -28,7 +28,7 @@ def crops() -> CropLibrary:
 @pytest.fixture
 def field(soil) -> Field:
     return Field(state=initial_state(1, soil), soil=soil,
-                 lat=torch.tensor([42.0], dtype=DTYPE))
+                 latitude=torch.tensor([42.0], dtype=DTYPE))
 
 
 @pytest.fixture

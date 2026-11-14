@@ -61,7 +61,7 @@ def members_to_forcing(dates: list[str],
     dates = [dates[i] for i in keep]
     n = len(dates)
 
-    def col(var: str) -> torch.Tensor:
+    def column(var: str) -> torch.Tensor:
         api = DAILY_VARS[var] if var in DAILY_VARS else var
         rows = []
         for i in ids:
@@ -74,11 +74,11 @@ def members_to_forcing(dates: list[str],
                                 _HI.get(var, float("inf"))))
         return torch.stack(rows) if rows else torch.zeros(0, n, dtype=DTYPE)
 
-    vals = {k: col(k) for k in FORCING_VARS if k not in ("doy", "co2")}
-    vals["tmax"] = torch.maximum(vals["tmax"], vals["tmin"])
+    values = {k: column(k) for k in FORCING_VARS if k not in ("doy", "co2")}
+    values["tmax"] = torch.maximum(values["tmax"], values["tmin"])
     doy = torch.tensor([_doy(dt.date.fromisoformat(d)) for d in dates],
                        dtype=DTYPE).expand(len(ids), -1)
-    return Forcing(**vals, doy=doy)
+    return Forcing(**values, doy=doy)
 
 
 class OpenMeteoClient:
@@ -88,32 +88,32 @@ class OpenMeteoClient:
     def __init__(self, client: httpx.Client | None = None) -> None:
         self.client = client or httpx.Client(timeout=60.0)
 
-    def _members(self, url: str, model: str, lat: float, lon: float,
+    def _members(self, url: str, model: str, latitude: float, longitude: float,
                  extra: dict | None = None) -> tuple[list[str], dict]:
-        params = {"latitude": lat, "longitude": lon, "models": model,
+        parameters = {"latitude": latitude, "longitude": longitude, "models": model,
                   "daily": ",".join(DAILY_VARS.values()),
                   "wind_speed_unit": "ms", "timezone": "GMT", **(extra or {})}
-        r = self.client.get(url, params=params)
+        r = self.client.get(url, parameters=parameters)
         r.raise_for_status()
         daily = r.json()["daily"]
         cols: dict[int, dict[str, list[float]]] = {}
-        for key, vals in daily.items():
+        for key, values in daily.items():
             m = _MEMBER.match(key)
             if m:
-                cols.setdefault(int(m.group(2)), {})[m.group(1)] = vals
+                cols.setdefault(int(m.group(2)), {})[m.group(1)] = values
         if not cols:
             raise RuntimeError(
                 f"{url} returned no ensemble members for model {model!r}")
         return daily["time"], cols
 
-    def ens(self, lat: float, lon: float, model: str = "ecmwf_ifs025",
-            members: int = 51, **kw) -> Forcing:
+    def ensemble(self, latitude: float, longitude: float, model: str = "ecmwf_ifs025",
+            members: int = 51, **keywords) -> Forcing:
         """Medium-range ensemble → Forcing (members, ~15 days)."""
-        dates, cols = self._members(ENS_URL, model, lat, lon, kw)
+        dates, cols = self._members(ENS_URL, model, latitude, longitude, keywords)
         return members_to_forcing(dates, cols, members)
 
-    def seas5(self, lat: float, lon: float, model: str = "ecmwf_seas5",
-              members: int = 51, **kw) -> Forcing:
+    def seas5(self, latitude: float, longitude: float, model: str = "ecmwf_seas5",
+              members: int = 51, **keywords) -> Forcing:
         """Seasonal ensemble → Forcing (members, ~7 months daily)."""
-        dates, cols = self._members(SEAS_URL, model, lat, lon, kw)
+        dates, cols = self._members(SEAS_URL, model, latitude, longitude, keywords)
         return members_to_forcing(dates, cols, members)

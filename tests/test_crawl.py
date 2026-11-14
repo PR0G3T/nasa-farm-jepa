@@ -3,10 +3,10 @@
 import datetime as dt
 
 import httpx2 as httpx
-import numpy as np
+import numpy as numpy
 import pytest
 import torch
-import xarray as xr
+import xarray as xarray
 
 from nasa_farm.acquire.crawl import _day_keys, crawl
 from nasa_farm.acquire.earthdata import granule_day
@@ -38,24 +38,24 @@ class TestHelpers:
         assert granule_day("ECO_L3G_SEB_doy2023180") == 20230629
 
     def test_sample_1d(self):
-        ds = xr.Dataset(
-            {"v": (("lat", "lon"), np.arange(6.0).reshape(2, 3))},
+        ds = xarray.Dataset(
+            {"v": (("lat", "lon"), numpy.arange(6.0).reshape(2, 3))},
             coords={"lat": [48.0, 49.0], "lon": [1.0, 2.0, 3.0]})
         assert sample(ds, "v", 48.1, 2.1) == pytest.approx(1.0)
 
     def test_sample_2d(self):
-        lat = np.array([[48.0, 48.0], [49.0, 49.0]])
-        lon = np.array([[1.0, 2.0], [1.0, 2.0]])
-        ds = xr.Dataset(
-            {"v": (("y", "x"), np.array([[0.1, 0.2], [0.3, 0.4]])),
-             "lat": (("y", "x"), lat), "lon": (("y", "x"), lon)})
+        latitude = numpy.array([[48.0, 48.0], [49.0, 49.0]])
+        longitude = numpy.array([[1.0, 2.0], [1.0, 2.0]])
+        ds = xarray.Dataset(
+            {"v": (("y", "x"), numpy.array([[0.1, 0.2], [0.3, 0.4]])),
+             "lat": (("y", "x"), latitude), "lon": (("y", "x"), longitude)})
         assert sample(ds, "v", 49.01, 2.01) == pytest.approx(0.4)
 
 
 class TestCrawl:
     def test_power_to_lake(self, tmp_path):
         def handler(request):
-            year = int(request.url.params["start"][:4])
+            year = int(request.url.parameters["start"][:4])
             return httpx.Response(200, json=_payload(year))
         client = PowerClient(httpx.Client(transport=httpx.MockTransport(handler)))
         f = {"id": "F1", "lat": 48.0, "lon": 1.5}
@@ -63,7 +63,7 @@ class TestCrawl:
               power=client, log=lambda m: None)
         with Lake(tmp_path) as L:
             d, v = L.get("F1", "obs", "smg")
-            assert len(d) == 730 and np.allclose(v, 0.6)
+            assert len(d) == 730 and numpy.allclose(v, 0.6)
             d, v = L.get("F1", "forcing", "precip")
             assert len(d) == 730 and "20240229" not in d.astype(str)
 
@@ -83,8 +83,8 @@ class TestCrawl:
         assert torch.allclose(lake_f.precip, live_f.precip)
 
     def test_targets(self, tmp_path):
-        d = np.array([20240101], np.int32)
+        d = numpy.array([20240101], numpy.int32)
         with Lake(tmp_path) as L:
-            L.put("F1", "obs", "et", d, np.array([2.5], np.float32))
+            L.put("F1", "obs", "et", d, numpy.array([2.5], numpy.float32))
         t = targets(tmp_path, "F1")
         assert "et" in t and t["et"][1][0] == pytest.approx(2.5)

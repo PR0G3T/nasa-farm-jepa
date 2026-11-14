@@ -19,10 +19,10 @@ def accelerators() -> list[torch.device]:
     """Every accelerator device visible at runtime, fully indexed."""
     if not torch.accelerator.is_available():
         return []
-    acc = torch.accelerator.current_accelerator()
-    if acc is None:
+    accumulate = torch.accelerator.current_accelerator()
+    if accumulate is None:
         return []
-    return [torch.device(acc.type, i)
+    return [torch.device(accumulate.type, i)
             for i in range(torch.accelerator.device_count())]
 
 
@@ -34,7 +34,7 @@ def supports(dtype: torch.dtype, device: torch.device) -> bool:
     return True
 
 
-def device_mem(device: torch.device) -> tuple[int, int]:
+def device_memory(device: torch.device) -> tuple[int, int]:
     """(free, total) bytes on `device`; (0, 0) when the backend can't say."""
     if device.type == "cpu":
         return _avail_ram(), _avail_ram()
@@ -85,7 +85,7 @@ def lanes(dtype: torch.dtype = DTYPE) -> list[torch.device]:
     return devs
 
 
-def cpu_workers(rows: int | None = None, *,
+def processor_workers(rows: int | None = None, *,
                 min_rows_per_shard: int = 64) -> int:
     """Physical cores on no-GIL builds; 1 on GIL builds (the interpreter
     pool restores parallelism there — see `hw.pool`). Floored so shards

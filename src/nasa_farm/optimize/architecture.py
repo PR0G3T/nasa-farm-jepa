@@ -18,23 +18,23 @@ import torch.nn as nn
 
 from nasa_farm.dynamics.residual import ACTS, N_FEATURES
 from nasa_farm.optimize.hyperparameter import Trial, successive_halving
-from nasa_farm.optimize.space import Param, Space
+from nasa_farm.optimize.space import Parameter, Space
 
 ARCH_SPACE = Space([
-    Param("hidden", choices=(16, 32, 64, 128, 256)),
-    Param("depth", choices=(1, 2, 3, 4)),
-    Param("activation", choices=tuple(ACTS)),
-    Param("layernorm", choices=(False, True)),
-    Param("skip", choices=(False, True)),
+    Parameter("hidden", choices=(16, 32, 64, 128, 256)),
+    Parameter("depth", choices=(1, 2, 3, 4)),
+    Parameter("activation", choices=tuple(ACTS)),
+    Parameter("layernorm", choices=(False, True)),
+    Parameter("skip", choices=(False, True)),
 ])
 
 
-def build_residual(cfg: dict[str, Any], zero_init: bool = True) -> nn.Module:
+def build_residual(config: dict[str, Any], zero_init: bool = True) -> nn.Module:
     """Instantiate a ResidualNet from a NAS config."""
-    from nasa_farm.dynamics.residual import ResidualNet
-    return ResidualNet(hidden=cfg["hidden"], depth=cfg["depth"],
-                       activation=cfg["activation"],
-                       layernorm=cfg["layernorm"], skip=cfg["skip"],
+    from nasa_farm.dynamics.residual import Residual
+    return Residual(hidden=config["hidden"], depth=config["depth"],
+                       activation=config["activation"],
+                       layernorm=config["layernorm"], skip=config["skip"],
                        zero_init=zero_init)
 
 
@@ -61,17 +61,17 @@ def jacob_cov_score(net: nn.Module, input_dim: int = N_FEATURES,
                     batch: int = 64, seed: int = 0) -> float:
     """Jacobian-covariance proxy (Mellor et al.): feature diversity of the
     mapping — higher effective rank → better-conditioned learner."""
-    gen = torch.Generator().manual_seed(seed)
-    x = torch.randn(batch, input_dim, generator=gen, dtype=torch.float64)
-    jac = torch.autograd.functional.jacobian(
+    generation = torch.Generator().manual_seed(seed)
+    x = torch.randn(batch, input_dim, generator=generation, dtype=torch.float64)
+    jacobian = torch.autograd.functional.jacobian(
         lambda inp: net.to(torch.float64)(inp).sum(0), x,
         vectorize=True)                                    # (B, out, in)
-    j = jac.reshape(batch, -1)
+    j = jacobian.reshape(batch, -1)
     j = j - j.mean(0, keepdim=True)
-    cov = j.t() @ j / batch
-    eig = torch.linalg.eigvalsh(cov).clamp(min=0)
-    total = eig.sum().clamp(min=1e-12)
-    p = eig / total
+    covariance = j.t() @ j / batch
+    eigen = torch.linalg.eigvalsh(covariance).clamp(min=0)
+    total = eigen.sum().clamp(min=1e-12)
+    p = eigen / total
     entropy = -(p[p > 1e-12] * p[p > 1e-12].log()).sum()
     return float(entropy)
 
@@ -79,14 +79,14 @@ def jacob_cov_score(net: nn.Module, input_dim: int = N_FEATURES,
 def grad_norm_score(net: nn.Module, input_dim: int = N_FEATURES,
                     batch: int = 64, seed: int = 0) -> float:
     """Signal magnitude at init — detects dead/exploding gradients early."""
-    gen = torch.Generator().manual_seed(seed + 1)
-    x = torch.randn(batch, input_dim, generator=gen, dtype=torch.float64)
+    generation = torch.Generator().manual_seed(seed + 1)
+    x = torch.randn(batch, input_dim, generator=generation, dtype=torch.float64)
     for p in net.parameters():
         p.requires_grad_(True)
     loss = net.to(torch.float64)(x).square().mean()
     loss.backward()
-    gn = torch.sqrt(sum((p.grad ** 2).sum() for p in net.parameters()
-                        if p.grad is not None))
+    gn = torch.sqrt(sum((p.gradient ** 2).sum() for p in net.parameters()
+                        if p.gradient is not None))
     return float(gn)
 
 
@@ -96,8 +96,8 @@ def zero_cost_rank(cfgs: list[dict], batch: int = 64,
     (signal propagation), jacobian entropy (feature diversity), and a
     soft grad-norm sanity window. Output layer is un-zeroed for probing."""
     scored = []
-    for cfg in cfgs:
-        net = build_residual(cfg, zero_init=False)
+    for config in cfgs:
+        net = build_residual(config, zero_init=False)
         sf = synflow_score(net, batch=batch)
         jc = jacob_cov_score(net, batch=batch, seed=seed)
         gn = grad_norm_score(net, batch=batch, seed=seed)
@@ -105,27 +105,27 @@ def zero_cost_rank(cfgs: list[dict], batch: int = 64,
         score = (torch.log10(torch.tensor(sf).clamp(min=1e-12)).item()
                  + jc
                  - abs(torch.log10(torch.tensor(gn).clamp(min=1e-12)).item() + 2))
-        scored.append((cfg, score))
+        scored.append((config, score))
     scored.sort(key=lambda t: -t[1])
     return scored
 
 
 @dataclass(slots=True)
-class NASResult:
+class Result:
     best_config: dict[str, Any]
     best_value: float
     leaderboard: list[tuple[dict, float]] = _f(default_factory=list)
     trials: list[Trial] = _f(default_factory=list)
 
 
-def nas_search(
+def search(
         fit_objective: Callable[[nn.Module, int], float],
         n_candidates: int = 24,
         proxy_top_k: int = 8,
         rungs: tuple[int, ...] = (10, 30, 90),
         eta: int = 3,
         seed: int = 0,
-        arch_space: Space = ARCH_SPACE) -> NASResult:
+        arch_space: Space = ARCH_SPACE) -> Result:
     """Two-stage NAS:
 
     1. zero-cost proxy rank on `n_candidates` Sobol-sampled archs → top_k
@@ -137,13 +137,13 @@ def nas_search(
     """
     cands = arch_space.sample(n_candidates, seed=seed)
     ranked = zero_cost_rank(cands, seed=seed)
-    shortlist = [cfg for cfg, _ in ranked[:proxy_top_k]]
+    shortlist = [config for config, _ in ranked[:proxy_top_k]]
 
-    def objective(cfg, budget):
-        net = build_residual(cfg, zero_init=True)
+    def objective(config, budget):
+        net = build_residual(config, zero_init=True)
         return fit_objective(net, budget)
 
     trials = successive_halving(objective, shortlist, rungs, eta)
     best = min(trials, key=lambda t: t.value)
-    return NASResult(best_config=best.config, best_value=best.value,
+    return Result(best_config=best.config, best_value=best.value,
                      leaderboard=ranked[:proxy_top_k], trials=trials)

@@ -44,7 +44,7 @@ ACTS: dict[str, type[nn.Module]] = {
 }
 
 
-class ResidualNet(nn.Module):
+class Residual(nn.Module):
     """Configurable MLP producing bounded per-variable deltas.
 
     Defaults reproduce the original head (2×64 SiLU hidden layers). The
@@ -55,7 +55,7 @@ class ResidualNet(nn.Module):
     def __init__(self, hidden: int = 64, depth: int = 2,
                  activation: str = "silu", layernorm: bool = False,
                  skip: bool = False, zero_init: bool = True,
-                 ctx_dim: int = 0, diffusion: bool = False) -> None:
+                 context_dimension: int = 0, diffusion: bool = False) -> None:
         """ctx_dim > 0 appends a context vector (the JEPA latent z) to the
         input features — corrections can then react to what the latent
         carries beyond the physics state.
@@ -66,11 +66,11 @@ class ResidualNet(nn.Module):
         eps·σ only when a generator is passed; without one the step is the
         deterministic drift, so the same module serves both modes."""
         super().__init__()
-        self.ctx_dim = ctx_dim
+        self.context_dimension = context_dimension
         self.diffusion = diffusion
         act = ACTS[activation]
         layers: list[nn.Module] = []
-        d = N_FEATURES + ctx_dim
+        d = N_FEATURES + context_dimension
         for _ in range(depth):
             layers.append(nn.Linear(d, hidden))
             if layernorm:
@@ -81,7 +81,7 @@ class ResidualNet(nn.Module):
         self.body = nn.Sequential(*layers[:-1])
         self.head = layers[-1]
         # input → last-hidden shortcut (real projection, dims differ)
-        self.short = (nn.Linear(N_FEATURES + ctx_dim, hidden, bias=False)
+        self.short = (nn.Linear(N_FEATURES + context_dimension, hidden, bias=False)
                       if skip else None)
         if zero_init:
             nn.init.zeros_(self.head.weight)
@@ -102,17 +102,17 @@ class ResidualNet(nn.Module):
         return nn.Sequential(*self.body, self.head)
 
     def forward(self, feats: torch.Tensor,
-                ctx: torch.Tensor | None = None) -> torch.Tensor:
-        if self.ctx_dim:
-            if ctx is None:
-                ctx = feats.new_zeros(feats.shape[0], self.ctx_dim)
-            feats = torch.cat([feats, ctx.to(feats.dtype)], dim=-1)
+                context: torch.Tensor | None = None) -> torch.Tensor:
+        if self.context_dimension:
+            if context is None:
+                context = feats.new_zeros(feats.shape[0], self.context_dimension)
+            feats = torch.cat([feats, context.to(feats.dtype)], dim=-1)
         h = self.body(feats)
         if self.short is not None:
             h = h + self.short(feats)
-        out = self.head(h)
+        output = self.head(h)
         if self.diffusion:
-            mu, logvar = out.chunk(2, dim=-1)
+            mu, logvar = output.chunk(2, dim=-1)
             return (torch.tanh(mu) * self.scale,
                     logvar.clamp(-12.0, 2.0))
-        return torch.tanh(out) * self.scale
+        return torch.tanh(output) * self.scale

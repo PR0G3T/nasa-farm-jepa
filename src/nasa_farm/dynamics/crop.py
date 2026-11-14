@@ -10,7 +10,7 @@ from __future__ import annotations
 import torch
 
 from nasa_farm.dynamics.atmosphere import growing_degree_days, temperature_factor
-from nasa_farm.state.crops import IDX
+from nasa_farm.state.crops import INDEX
 
 PAR_FRACTION = 0.47
 """Photosynthetically active fraction of shortwave radiation."""
@@ -29,11 +29,11 @@ def traits(table: torch.Tensor, crop_idx: torch.Tensor) -> torch.Tensor:
 
 def leaf_area_index(gdd: torch.Tensor, t: torch.Tensor) -> torch.Tensor:
     """LAI from accumulated GDD and trait row t (B, P)."""
-    em, lm, sen_on, mat = (t[:, IDX[k]] for k in ("gdd_em", "gdd_lai_max", "gdd_sen", "gdd_mat"))
+    em, lm, sen_on, mat = (t[:, INDEX[k]] for k in ("gdd_em", "gdd_lai_max", "gdd_sen", "gdd_mat"))
     grow = torch.clamp((gdd - em) / (lm - em).clamp(min=1.0), 0.0, 1.0)
     sen = torch.clamp((gdd - sen_on) / (mat - sen_on).clamp(min=1.0), 0.0, 1.0)
     lai_g = 1.0 - torch.exp(-3.0 * grow)
-    return t[:, IDX["lai_max"]] * lai_g * (1.0 - sen)
+    return t[:, INDEX["lai_max"]] * lai_g * (1.0 - sen)
 
 
 def intercepted_fraction(lai: torch.Tensor, k_ext: torch.Tensor) -> torch.Tensor:
@@ -41,44 +41,44 @@ def intercepted_fraction(lai: torch.Tensor, k_ext: torch.Tensor) -> torch.Tensor
     return 1.0 - torch.exp(-k_ext * lai)
 
 
-def photoperiod_factor(daylen: torch.Tensor, tr: torch.Tensor) -> torch.Tensor:
+def photoperiod_factor(daylen: torch.Tensor, traits: torch.Tensor) -> torch.Tensor:
     """Development rate scalar ∈ (0,1] — DSSAT-style: day length past the
     critical photoperiod delays progress proportionally to `pp_sens`."""
-    delay = tr[:, IDX["pp_sens"]] * torch.relu(daylen - tr[:, IDX["crit_daylen"]])
+    delay = traits[:, INDEX["pp_sens"]] * torch.relu(daylen - traits[:, INDEX["crit_daylen"]])
     return 1.0 / (1.0 + delay)
 
 
-def co2_factor(co2_ppm: torch.Tensor, tr: torch.Tensor, ref_ppm: float = 420.0) -> torch.Tensor:
+def co2_factor(co2_ppm: torch.Tensor, traits: torch.Tensor, ref_ppm: float = 420.0) -> torch.Tensor:
     """RUE multiplier from atmospheric CO2 — power response `(co2/ref)^resp`.
 
     C4 crops saturate early (resp ≈ 0.05), C3 keep responding (≈ 0.2), the
     FACE-experiment elasticity range.
     """
-    return torch.pow(torch.clamp(co2_ppm / ref_ppm, min=1e-3), tr[:, IDX["co2_resp"]])
+    return torch.pow(torch.clamp(co2_ppm / ref_ppm, min=1e-3), traits[:, INDEX["co2_resp"]])
 
 
-def _vern_update(vern: torch.Tensor, tmean: torch.Tensor,
+def _vern_update(vernalization: torch.Tensor, tmean: torch.Tensor,
                  growing: torch.Tensor) -> torch.Tensor:
     """Chill-day accumulation while growing; state preserved when fallow."""
-    eff = ((tmean > VERN_T_LO) & (tmean < VERN_T_HI)).to(vern.dtype)
-    return torch.where(growing, vern + eff, vern)
+    eff = ((tmean > VERN_T_LO) & (tmean < VERN_T_HI)).to(vernalization.dtype)
+    return torch.where(growing, vernalization + eff, vernalization)
 
 
 def _heat_update(heat: torch.Tensor, tmax: torch.Tensor, gdd_new: torch.Tensor,
-                 tr: torch.Tensor, growing: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+                 traits: torch.Tensor, growing: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
     """Reproductive-window heat degree-days → (heat_acc', daily increment)."""
-    win_lo = tr[:, IDX["gdd_fl"]] * tr[:, IDX["gdd_mat"]]
-    in_win = (gdd_new >= win_lo) & (gdd_new < tr[:, IDX["gdd_mat"]]) & growing
-    inc = torch.relu(tmax - tr[:, IDX["heat_t"]]) * in_win.to(heat.dtype)
+    win_lo = traits[:, INDEX["gdd_fl"]] * traits[:, INDEX["gdd_mat"]]
+    in_win = (gdd_new >= win_lo) & (gdd_new < traits[:, INDEX["gdd_mat"]]) & growing
+    inc = torch.relu(tmax - traits[:, INDEX["heat_t"]]) * in_win.to(heat.dtype)
     return heat + inc, inc
 
 
 def canopy_step(
     gdd: torch.Tensor,
-    vern: torch.Tensor,
+    vernalization: torch.Tensor,
     heat_acc: torch.Tensor,
     biomass: torch.Tensor,
-    tr: torch.Tensor,
+    traits: torch.Tensor,
     tmin: torch.Tensor,
     tmax: torch.Tensor,
     srad: torch.Tensor,
@@ -97,39 +97,39 @@ def canopy_step(
     active = growing.to(gdd.dtype)
     tmean = 0.5 * (tmin + tmax)
 
-    vern_new = _vern_update(vern, tmean, growing)
-    pp = 1.0 if daylen is None else photoperiod_factor(daylen, tr)
-    gdd_new = gdd + growing_degree_days(tmin, tmax, tr[:, IDX["tbase"]]) * pp * active
+    vern_new = _vern_update(vernalization, tmean, growing)
+    pp = 1.0 if daylen is None else photoperiod_factor(daylen, traits)
+    gdd_new = gdd + growing_degree_days(tmin, tmax, traits[:, INDEX["tbase"]]) * pp * active
 
     # Unvernalized crops stall at the reproductive threshold (winter cereals).
-    req = tr[:, IDX["vern_req"]]
-    gate = (req > 0) & (vern_new < req)
+    request = traits[:, INDEX["vern_req"]]
+    gate = (request > 0) & (vern_new < request)
     gdd_new = torch.where(
-        gate, torch.minimum(gdd_new, tr[:, IDX["gdd_fl"]] * tr[:, IDX["gdd_mat"]]),
+        gate, torch.minimum(gdd_new, traits[:, INDEX["gdd_fl"]] * traits[:, INDEX["gdd_mat"]]),
         gdd_new)
 
-    lai_new = leaf_area_index(gdd_new, tr) * active
-    heat_new, heat_inc = _heat_update(heat_acc, tmax, gdd_new, tr, growing)
+    lai_new = leaf_area_index(gdd_new, traits) * active
+    heat_new, heat_inc = _heat_update(heat_acc, tmax, gdd_new, traits, growing)
 
-    fpar = intercepted_fraction(lai_new, tr[:, IDX["k_ext"]])
-    tf = temperature_factor(tmin, tmax, tr[:, IDX["tbase"]], tr[:, IDX["topt"]])
+    fpar = intercepted_fraction(lai_new, traits[:, INDEX["k_ext"]])
+    tf = temperature_factor(tmin, tmax, traits[:, INDEX["tbase"]], traits[:, INDEX["topt"]])
     # WOFOST-style: N limits canopy expansion, only ~40 % of it limits daily
     # assimilation directly.
     n_growth = 0.6 + 0.4 * nitrogen_fac
-    co2f = 1.0 if co2 is None else co2_factor(co2, tr)
+    co2f = 1.0 if co2 is None else co2_factor(co2, traits)
     limiter = torch.minimum(tf, torch.minimum(water_fac, n_growth))
-    delta_b = tr[:, IDX["rue"]] * (PAR_FRACTION * srad) * fpar * limiter * co2f * active
+    delta_b = traits[:, INDEX["rue"]] * (PAR_FRACTION * srad) * fpar * limiter * co2f * active
 
     biomass_new = biomass + delta_b
-    frost = growing & (tmin < tr[:, IDX["t_kill"]])
-    mature = ((gdd_new >= tr[:, IDX["gdd_mat"]]) | frost) & growing
+    frost = growing & (tmin < traits[:, INDEX["t_kill"]])
+    mature = ((gdd_new >= traits[:, INDEX["gdd_mat"]]) | frost) & growing
     fluxes = {"delta_b": delta_b, "fpar": fpar, "limiter": limiter, "mature": mature,
               "frost": frost, "heat_dd": heat_inc,
               "vern_new": vern_new, "heat_new": heat_new}
     return gdd_new, lai_new, biomass_new, fluxes
 
 
-def harvest(biomass: torch.Tensor, tr: torch.Tensor,
+def harvest(biomass: torch.Tensor, traits: torch.Tensor,
             heat_acc: torch.Tensor | None = None,
             frost: torch.Tensor | None = None) -> tuple[torch.Tensor, torch.Tensor]:
     """Split standing biomass into yield and retained residue.
@@ -137,29 +137,29 @@ def harvest(biomass: torch.Tensor, tr: torch.Tensor,
     Reproductive heat degrades the harvest index exponentially
     (`heat_sus` per °C·d); lethal frost salvages only FROST_SALVAGE of it.
     """
-    hi = tr[:, IDX["harvest_index"]]
+    high = traits[:, INDEX["harvest_index"]]
     if heat_acc is not None:
-        hi = hi * torch.exp(-tr[:, IDX["heat_sus"]] * heat_acc)
+        high = high * torch.exp(-traits[:, INDEX["heat_sus"]] * heat_acc)
     if frost is not None:
-        hi = torch.where(frost, hi * FROST_SALVAGE, hi)
-    yield_kg = biomass * hi
-    residue = (biomass - yield_kg) * tr[:, IDX["residue_frac"]]
+        high = torch.where(frost, high * FROST_SALVAGE, high)
+    yield_kg = biomass * high
+    residue = (biomass - yield_kg) * traits[:, INDEX["residue_frac"]]
     return yield_kg, residue
 
 
-def water_uptake_split(tr: torch.Tensor) -> torch.Tensor:
-    return tr[:, IDX["root_frac2"]]
+def water_uptake_split(traits: torch.Tensor) -> torch.Tensor:
+    return traits[:, INDEX["root_frac2"]]
 
 
-def potential_transpiration(et0: torch.Tensor, lai: torch.Tensor, tr: torch.Tensor,
+def potential_transpiration(et0: torch.Tensor, lai: torch.Tensor, traits: torch.Tensor,
                             growing: torch.Tensor) -> torch.Tensor:
-    cover = intercepted_fraction(lai, tr[:, IDX["k_ext"]])
-    return et0 * tr[:, IDX["kc_max"]] * cover * growing.to(et0.dtype)
+    cover = intercepted_fraction(lai, traits[:, INDEX["k_ext"]])
+    return et0 * traits[:, INDEX["kc_max"]] * cover * growing.to(et0.dtype)
 
 
-def potential_evaporation(et0: torch.Tensor, lai: torch.Tensor, tr: torch.Tensor,
+def potential_evaporation(et0: torch.Tensor, lai: torch.Tensor, traits: torch.Tensor,
                           growing: torch.Tensor) -> torch.Tensor:
-    cover = intercepted_fraction(lai, tr[:, IDX["k_ext"]])
+    cover = intercepted_fraction(lai, traits[:, INDEX["k_ext"]])
     bare = 1.0 - cover * growing.to(et0.dtype)
     # 0.6 ≈ FAO-56 mean soil-evaporation coefficient over the stage-1+2 cycle
     return et0 * 0.6 * bare

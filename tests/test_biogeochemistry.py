@@ -36,9 +36,9 @@ class TestNitrogen:
         assert float(f_cer["fixed"]) == 0.0
 
     def test_fixation_downregulates_when_n_sufficient(self):
-        args = (t(10.0), t(1.0), t(0.8), t(0.0))
-        _, _, f_low = nitrogen_step(t(0.0), t(0.0), t(0.0), t(0.0), t(500.0), *args)
-        _, _, f_hi = nitrogen_step(t(200.0), t(0.0), t(0.0), t(0.0), t(500.0), *args)
+        arguments = (t(10.0), t(1.0), t(0.8), t(0.0))
+        _, _, f_low = nitrogen_step(t(0.0), t(0.0), t(0.0), t(0.0), t(500.0), *arguments)
+        _, _, f_hi = nitrogen_step(t(200.0), t(0.0), t(0.0), t(0.0), t(500.0), *arguments)
         assert float(f_low["fixed"]) > float(f_hi["fixed"]) > -1e-12
         assert float(f_hi["fixed"]) == pytest.approx(0.0)
 

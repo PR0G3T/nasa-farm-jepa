@@ -44,8 +44,8 @@ def _green_stream(device: torch.device):
         return None
     try:
         from torch.cuda.green_contexts import GreenContext
-        ctx = GreenContext(num_sms=int(sms), device_id=device.index)
-        return ctx.Stream()
+        context = GreenContext(num_sms=int(sms), device_id=device.index)
+        return context.Stream()
     except Exception:
         return None
 
@@ -76,9 +76,9 @@ class Stage:
         buf = self._pin[: block.shape[0]]
         buf.copy_(block)
         with torch.cuda.stream(self.copy_s):
-            dev = buf.to(self.device, non_blocking=True)
-        ev = torch.cuda.Event()
-        ev.record(self.copy_s)
-        self.comp_s.wait_event(ev)
-        dev.record_stream(self.comp_s)
-        return dev
+            device = buf.to(self.device, non_blocking=True)
+        event = torch.cuda.Event()
+        event.record(self.copy_s)
+        self.comp_s.wait_event(event)
+        device.record_stream(self.comp_s)
+        return device

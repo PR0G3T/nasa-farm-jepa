@@ -12,60 +12,60 @@ from pydantic import ValidationError
 from nasa_farm.commands import main
 from nasa_farm.service import PlanRequest, Point, plan
 
-REQ = {"points": [{"lat": 48.2, "lon": 1.61}],
+REQUEST = {"points": [{"lat": 48.2, "lon": 1.61}],
        "horizon": 2, "crops": ["maize", "fallow"], "years": 2,
        "offline": True, "top_k": 2}
 
 
 def test_request_validation_bounds():
     with pytest.raises(ValidationError):
-        PlanRequest(points=[Point(lat=200.0, lon=0.0)])
+        PlanRequest(points=[Point(latitude=200.0, longitude=0.0)])
     with pytest.raises(ValidationError):
         PlanRequest(points=[])
     with pytest.raises(ValidationError):
-        PlanRequest(points=[Point(lat=0.0, lon=0.0)], horizon=0)
+        PlanRequest(points=[Point(latitude=0.0, longitude=0.0)], horizon=0)
 
 
 def test_plan_single_site():
-    res = plan(PlanRequest(**REQ)).results[0]
-    assert res.status == "ok"
-    assert res.plans_evaluated == 4          # 2 crops ^ 2y
-    assert res.scenarios == 2               # years=2 → 2 scenarios
-    assert len(res.top) == 2 and len(res.pareto) >= 1
-    assert all("rotation" in r for r in res.top)
-    assert all("yield_mean" in r for r in res.pareto)
+    result = plan(PlanRequest(**REQUEST)).results[0]
+    assert result.status == "ok"
+    assert result.plans_evaluated == 4          # 2 crops ^ 2y
+    assert result.scenarios == 2               # years=2 → 2 scenarios
+    assert len(result.top) == 2 and len(result.pareto) >= 1
+    assert all("rotation" in r for r in result.top)
+    assert all("yield_mean" in r for r in result.pareto)
 
 
 def test_plan_batch_aligned_and_independent():
-    req = PlanRequest(**{**REQ, "points": [
+    request = PlanRequest(**{**REQUEST, "points": [
         {"id": "a", "lat": 48.2, "lon": 1.61},
         {"id": "b", "lat": 42.0, "lon": -93.6}]})
-    res = plan(req)
-    assert [r.point.id for r in res.results] == ["a", "b"]
-    assert all(r.status == "ok" for r in res.results)
+    result = plan(request)
+    assert [r.point.id for r in result.results] == ["a", "b"]
+    assert all(r.status == "ok" for r in result.results)
 
 
 def test_plan_unknown_crop_is_request_error():
     with pytest.raises(ValueError, match="unknown crops"):
-        plan(PlanRequest(**{**REQ, "crops": ["maize", "kudzu"]}))
+        plan(PlanRequest(**{**REQUEST, "crops": ["maize", "kudzu"]}))
 
 
 def test_plan_site_error_degrades_not_raises():
-    res = plan(PlanRequest(**{**REQ, "soil": "not_a_texture"})).results[0]
-    assert res.status == "error" and res.detail
+    result = plan(PlanRequest(**{**REQUEST, "soil": "not_a_texture"})).results[0]
+    assert result.status == "error" and result.detail
 
 
 def test_cli_export_writes_scenarios(tmp_path):
-    src = tmp_path / "f.json"
-    src.write_text(json.dumps(
+    source = tmp_path / "f.json"
+    source.write_text(json.dumps(
         [{"id": "P1", "name": "P1", "lat": 48.2, "lon": 1.61}]))
-    out = tmp_path / "plan.json"
-    rc = main(["export", "--fields", str(src), "--out", str(out),
+    output = tmp_path / "plan.json"
+    code = main(["export", "--fields", str(source), "--out", str(output),
                "--horizon", "1", "--crops", "maize,fallow", "--years", "1",
                "--offline", "--top-k", "1",
                "--scenario", "baseline", "--scenario", "warm:delta_t=2"])
-    assert rc == 0
-    data = json.loads(out.read_text())
+    assert code == 0
+    data = json.loads(output.read_text())
     assert set(data["scenarios"]) == {"baseline", "warm"}
     assert data["scenarios"]["warm"]["params"] == {"delta_t": 2.0}
     hit = data["scenarios"]["baseline"]["fields"]["P1"]
@@ -73,22 +73,22 @@ def test_cli_export_writes_scenarios(tmp_path):
 
 
 def test_cli_export_rejects_unknown_scenario_key(tmp_path):
-    src = tmp_path / "f.json"
-    src.write_text("[]")
+    source = tmp_path / "f.json"
+    source.write_text("[]")
     with pytest.raises(SystemExit):
-        main(["export", "--fields", str(src), "--out",
+        main(["export", "--fields", str(source), "--out",
               str(tmp_path / "o.json"), "--offline",
               "--scenario", "bad:notakey=1"])
 
 
 def test_cli_plan_unchanged_shape(capsys):
-    rc = main(["plan", "--lat", "48.2", "--lon", "1.61", "--horizon", "2",
+    code = main(["plan", "--lat", "48.2", "--lon", "1.61", "--horizon", "2",
                "--crops", "maize,fallow", "--years", "2", "--offline",
                "--top-k", "2"])
-    assert rc == 0
-    out = json.loads(capsys.readouterr().out)
-    assert set(out) == {"plans_evaluated", "scenarios", "pareto", "top"}
-    assert out["plans_evaluated"] == 4
+    assert code == 0
+    output = json.loads(capsys.readouterr().output)
+    assert set(output) == {"plans_evaluated", "scenarios", "pareto", "top"}
+    assert output["plans_evaluated"] == 4
 
 
 class TestAPI:
@@ -111,27 +111,27 @@ class TestAPI:
         assert "yield_kg" in body["metrics"]
 
     def test_plan_endpoint(self, client):
-        body = client.post("/v1/plan", json=REQ).json()
-        res = body["results"][0]
-        assert res["status"] == "ok" and res["plans_evaluated"] == 4
-        assert res["point"]["lat"] == 48.2
+        body = client.post("/v1/plan", json=REQUEST).json()
+        result = body["results"][0]
+        assert result["status"] == "ok" and result["plans_evaluated"] == 4
+        assert result["point"]["lat"] == 48.2
 
     def test_plan_cache_hit(self, client):
-        r1 = client.post("/v1/plan", json=REQ)
-        r2 = client.post("/v1/plan", json=REQ)
+        r1 = client.post("/v1/plan", json=REQUEST)
+        r2 = client.post("/v1/plan", json=REQUEST)
         assert "x-cache" not in r1.headers
         assert r2.headers.get("x-cache") == "hit"
         assert r1.json() == r2.json()
 
     def test_plan_bad_input_is_422(self, client):
-        res = client.post("/v1/plan", json={**REQ, "points": [
+        result = client.post("/v1/plan", json={**REQUEST, "points": [
             {"lat": 200.0, "lon": 0.0}]})
-        assert res.status_code == 422
+        assert result.status_code == 422
 
     def test_plan_unknown_crop_is_400(self, client):
-        res = client.post("/v1/plan", json={**REQ, "crops": ["kudzu"]})
-        assert res.status_code == 400
-        assert "unknown crops" in res.json()["detail"]
+        result = client.post("/v1/plan", json={**REQUEST, "crops": ["kudzu"]})
+        assert result.status_code == 400
+        assert "unknown crops" in result.json()["detail"]
 
 
 def test_tunnel_url_regex():

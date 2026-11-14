@@ -17,19 +17,19 @@ from __future__ import annotations
 import sys
 from concurrent.futures import Executor, ThreadPoolExecutor
 
-from nasa_farm.hardware.topology import pin, worker_cpus
+from nasa_farm.hardware.topology import pin, worker_processors
 
 
-def gil_on() -> bool:
+def gil_enabled() -> bool:
     return getattr(sys, "_is_gil_enabled", lambda: True)()
 
 
 def backend() -> str:
     """'interpreters' on GIL builds, 'threads' on free-threaded ones."""
-    if not gil_on():
+    if not gil_enabled():
         return "threads"
-    import concurrent.futures as cf
-    return "interpreters" if hasattr(cf, "InterpreterPoolExecutor") \
+    import concurrent.futures as counterfactual
+    return "interpreters" if hasattr(counterfactual, "InterpreterPoolExecutor") \
         else "threads"
 
 
@@ -39,8 +39,8 @@ def make(workers: int) -> Executor:
     if workers <= 1:
         raise ValueError("workers must be >= 2 for a pool")
     if backend() == "interpreters":
-        import concurrent.futures as cf
-        return cf.InterpreterPoolExecutor(max_workers=workers)
+        import concurrent.futures as counterfactual
+        return counterfactual.InterpreterPoolExecutor(max_workers=workers)
     pool = ThreadPoolExecutor(max_workers=workers)
     _pin_all(pool, workers)
     return pool
@@ -53,7 +53,7 @@ def _pin_all(pool: ThreadPoolExecutor, workers: int) -> None:
     barrier = threading.Barrier(workers)
 
     def claim(i):
-        pin(worker_cpus(i, workers))
+        pin(worker_processors(i, workers))
         barrier.wait()
 
     list(pool.map(claim, range(workers)))

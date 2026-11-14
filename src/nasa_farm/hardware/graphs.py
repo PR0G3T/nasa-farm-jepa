@@ -19,20 +19,20 @@ class Replayer:
     """One captured graph: copy inputs into static buffers, replay."""
 
     def __init__(self, graph, static_in: tuple[torch.Tensor, ...],
-                 out: torch.Tensor, keep=None) -> None:
+                 output: torch.Tensor, keep=None) -> None:
         self.g = graph
         self.static_in = static_in
-        self.out = out
+        self.output = output
         # `keep` holds the captured closure: the graph references ctx
         # tensors (field/forcing/acc) by raw address — keeping `fn`
         # alive keeps those addresses valid for the replayer's life.
         self.keep = keep
 
     def __call__(self, *inputs: torch.Tensor) -> torch.Tensor:
-        for dst, src in zip(self.static_in, inputs):
-            dst.copy_(src, non_blocking=True)
+        for destination, source in zip(self.static_in, inputs):
+            destination.copy_(source, non_blocking=True)
         self.g.replay()
-        return self.out
+        return self.output
 
 
 def pool_handle(device: torch.device):
@@ -42,7 +42,7 @@ def pool_handle(device: torch.device):
     return None
 
 
-def capture(fn, inputs: tuple[torch.Tensor, ...],
+def capture(function, inputs: tuple[torch.Tensor, ...],
             device: torch.device, pool=None) -> Replayer | None:
     """Capture `fn(*inputs)` for replay. Returns None on any failure —
     the caller falls back to eager execution of the same `fn`.
@@ -57,21 +57,21 @@ def capture(fn, inputs: tuple[torch.Tensor, ...],
             side.wait_stream(torch.cuda.current_stream(device))
             with torch.cuda.stream(side):
                 for _ in range(2):
-                    warm_out = fn(*static_in)
+                    warm_out = function(*static_in)
             torch.cuda.current_stream(device).wait_stream(side)
         else:
             for _ in range(2):
-                warm_out = fn(*static_in)
+                warm_out = function(*static_in)
 
         g = _new_graph(device)
-        kw = {} if pool is None else {"pool": pool}
+        keywords = {} if pool is None else {"pool": pool}
         if device.type == "cuda":
-            with torch.cuda.graph(g, **kw):
-                out = fn(*static_in)
+            with torch.cuda.graph(g, **keywords):
+                output = function(*static_in)
         else:
             with g:
-                out = fn(*static_in)
-        return Replayer(g, static_in, out, keep=fn)
+                output = function(*static_in)
+        return Replayer(g, static_in, output, keep=function)
     except Exception:
         return None
 
@@ -92,7 +92,7 @@ class Cache:
         self.max = max_entries
         self._d: dict[tuple, Replayer | None] = {}
 
-    def get(self, key: tuple, fn,
+    def get(self, key: tuple, function,
             inputs: tuple[torch.Tensor, ...]) -> Replayer | None:
         """Replayer for `key` — None marker means 'already tried, use
         eager', so capture is attempted at most once per shape."""
@@ -101,7 +101,7 @@ class Cache:
         if len(self._d) >= self.max:
             return None
         try:
-            rep = capture(fn, inputs, self.device, pool=self.pool)
+            rep = capture(function, inputs, self.device, pool=self.pool)
         except Exception:
             rep = None   # capture machinery itself failed → eager
         self._d[key] = rep

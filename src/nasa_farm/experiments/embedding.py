@@ -18,27 +18,27 @@ from __future__ import annotations
 
 import torch
 
-from nasa_farm.dynamics.latent import ObsEncoder
+from nasa_farm.dynamics.latent import ObservationEncoder
 from nasa_farm.dynamics.model import WorldModel
 from nasa_farm.experiments.run import register
 from nasa_farm.experiments.scene import scene
-from nasa_farm.experiments.specification import Spec
+from nasa_farm.experiments.specification import Specification
 from nasa_farm.metrics import rmse
-from nasa_farm.observe.trace import JEPATrace
-from nasa_farm.optimize.embedding import jepa_fit, seeded
+from nasa_farm.observe.trace import EmbeddingTrace
+from nasa_farm.optimize.embedding import embedding_fit, seeded
 from nasa_farm.optimize.trainer import fit
 from nasa_farm.state.field import Field
 
 
-def _trace(model, field: Field, forcing, actions, spec: Spec, k: int = 0):
+def _trace(model, field: Field, forcing, actions, specification: Specification, k: int = 0):
     """Rollout with JEPATrace → (obs (B,N,C), z (B,N,K)|None)."""
-    tr = JEPATrace(forcing.days, k, spec.obs_channels, every=spec.obs_every)
-    model.rollout(field, forcing, actions, observer=tr)
-    return tr.result()
+    traits = EmbeddingTrace(forcing.days, k, specification.observed_channels, every=specification.cadence)
+    model.rollout(field, forcing, actions, observer=traits)
+    return traits.result()
 
 
-def _noisy(t: torch.Tensor, noise: float, gen: torch.Generator) -> torch.Tensor:
-    return t * (1.0 + noise * torch.randn(t.shape, generator=gen,
+def _noisy(t: torch.Tensor, noise: float, generation: torch.Generator) -> torch.Tensor:
+    return t * (1.0 + noise * torch.randn(t.shape, generator=generation,
                                           dtype=t.dtype, device=t.device))
 
 
@@ -51,93 +51,93 @@ def _ridge(z: torch.Tensor, y: torch.Tensor, lam: float = 1e-3) -> torch.Tensor:
 
 
 def _obs_fit(model, field: Field, forcing, actions,
-             obs_tgt: torch.Tensor, spec: Spec) -> None:
+             targets: torch.Tensor, specification: Specification) -> None:
     """Supervised obs-space fit of the residual — normalized MSE on the
     JEPATrace cadence, so JEPA and non-JEPA arms get identical budgets."""
-    params = {f"p{i}": p for i, p in enumerate(model.residual.parameters())}
-    scale = obs_tgt.std(dim=1, keepdim=True).clamp(min=1e-6)
+    parameters = {f"p{i}": p for i, p in enumerate(model.residual.parameters())}
+    scale = targets.std(dim=1, keepdim=True).clamp(min=1e-6)
 
     def loss() -> torch.Tensor:
-        tr = JEPATrace(forcing.days, model.latent.dim if model.latent else 0,
-                       spec.obs_channels, every=spec.obs_every)
-        model.rollout(field, forcing, actions, observer=tr)
-        obs, _ = tr.result()
-        return (((obs - obs_tgt) / scale) ** 2).mean()
+        traits = EmbeddingTrace(forcing.days, model.latent.dim if model.latent else 0,
+                       specification.observed_channels, every=specification.cadence)
+        model.rollout(field, forcing, actions, observer=traits)
+        observed, _ = traits.result()
+        return (((observed - targets) / scale) ** 2).mean()
 
-    fit(loss, params, epochs=spec.epochs, lr=spec.lr)
+    fit(loss, parameters, epochs=specification.epochs, rate=specification.rate)
 
 
-def _eval(model, sc, spec: Spec, encoder=None,
+def _eval(model, sc, specification: Specification, encoder=None,
           w: torch.Tensor | None = None, field=None) -> dict:
     """Held-out obs-space RMSE per channel; probe decoding when w given.
     `field` overrides the scene field (adapted z0/ctx eval arms)."""
-    out: dict[str, list[float]] = {}
+    output: dict[str, list[float]] = {}
     k = model.latent.dim if model.latent else 0
     with torch.inference_mode():
-        for i in range(sc.forcing_t.batch):
+        for i in range(sc.forcing_time.batch):
             f_t = sc.realization(i)
-            obs_true, _ = _trace(sc.truth, sc.field, f_t, sc.actions, spec)
+            obs_true, _ = _trace(sc.truth, sc.field, f_t, sc.actions, specification)
             field_ = field if field is not None else sc.field
             if encoder is not None:
                 field_ = seeded(field_, model.latent.seed(
-                    encoder(obs_true[:, 0])), model.latent.h_dim)
-            obs_pred, z_pred = _trace(model, field_, f_t, sc.actions,
-                                      spec, k)
-            pred = (z_pred @ w if w is not None else obs_pred)[0]
-            for j, ch in enumerate(spec.obs_channels):
-                out.setdefault(ch, []).append(
-                    float(rmse(pred[:, j], obs_true[0, :, j])))
-    return {ch: round(sum(v) / len(v), 6) for ch, v in out.items()}
+                    encoder(obs_true[:, 0])), model.latent.hidden_dimension)
+            observed_prediction, z_pred = _trace(model, field_, f_t, sc.actions,
+                                      specification, k)
+            predicted = (z_pred @ w if w is not None else observed_prediction)[0]
+            for j, ch in enumerate(specification.observed_channels):
+                output.setdefault(ch, []).append(
+                    float(rmse(predicted[:, j], obs_true[0, :, j])))
+    return {ch: round(sum(v) / len(v), 6) for ch, v in output.items()}
 
 
 @register("jepa")
-def run(spec: Spec) -> dict:
-    torch.manual_seed(spec.seed)
-    sc = scene(spec)
-    k = spec.latent_dim
-    ch = spec.obs_channels
+def run(specification: Specification) -> dict:
+    torch.manual_seed(specification.seed)
+    sc = scene(specification)
+    k = specification.latent_dimension
+    ch = specification.observed_channels
     c = len(ch)
-    gen = torch.Generator().manual_seed(spec.seed + 31)
+    generation = torch.Generator().manual_seed(specification.seed + 31)
 
     f0, a0 = sc.realization(0), sc.actions
-    obs_true_cal, _ = _trace(sc.truth, sc.field, f0, a0, spec)
-    obs_cal = _noisy(obs_true_cal, spec.noise, gen)
+    obs_true_cal, _ = _trace(sc.truth, sc.field, f0, a0, specification)
+    calibration_observed = _noisy(obs_true_cal, specification.noise, generation)
 
     # JEPA arm: latent dynamics trained against the truth obs manifold
-    m_j = WorldModel(sc.crops, residual=True, latent_dim=k, seed=spec.seed)
-    enc = ObsEncoder(obs_dim=c, z_dim=k)
-    rep = jepa_fit(m_j, enc, sc.field, f0, a0, ch,
-                   every=spec.obs_every, ema=spec.ema,
-                   sig_weight=spec.sig_weight, epochs=spec.epochs,
-                   obs_tgt=obs_cal)
-    w = _ridge(rep["z_pred"][:, 1:], obs_cal[:, 1:])
-    ev_jep = _eval(m_j, sc, spec, encoder=enc, w=w)
+    m_j = WorldModel(sc.crops, residual=True, latent_dimension=k, seed=specification.seed)
+    encoder = ObservationEncoder(observed_dimension=c, z_dim=k)
+    rep = embedding_fit(m_j, encoder, sc.field, f0, a0, ch,
+                   every=specification.cadence, ema=specification.ema,
+                   sig_weight=specification.sig_weight, epochs=specification.epochs,
+                   targets=calibration_observed)
+    w = _ridge(rep["z_pred"][:, 1:], calibration_observed[:, 1:])
+    ev_jep = _eval(m_j, sc, specification, encoder=encoder, w=w)
 
     # Hierarchical arm (optional): same protocol, HLatent dynamics
     ev_hier = None
-    if spec.hier:
-        m_h = WorldModel(sc.crops, residual=True, latent_dim=k,
-                         latent_strides=spec.hier, seed=spec.seed)
-        enc_h = ObsEncoder(obs_dim=c, z_dim=k)
-        rep_h = jepa_fit(m_h, enc_h, sc.field, f0, a0, ch,
-                         every=spec.obs_every, ema=spec.ema,
-                         sig_weight=spec.sig_weight, epochs=spec.epochs,
-                         obs_tgt=obs_cal)
-        w_h = _ridge(rep_h["z_pred"][:, 1:], obs_cal[:, 1:])
-        ev_hier = _eval(m_h, sc, spec, encoder=enc_h, w=w_h)
+    if specification.hierarchy:
+        m_h = WorldModel(sc.crops, residual=True, latent_dimension=k,
+                         latent_strides=specification.hierarchy, seed=specification.seed)
+        enc_h = ObservationEncoder(observed_dimension=c, z_dim=k)
+        rep_h = embedding_fit(m_h, enc_h, sc.field, f0, a0, ch,
+                         every=specification.cadence, ema=specification.ema,
+                         sig_weight=specification.sig_weight, epochs=specification.epochs,
+                         targets=calibration_observed)
+        w_h = _ridge(rep_h["z_pred"][:, 1:], calibration_observed[:, 1:])
+        ev_hier = _eval(m_h, sc, specification, encoder=enc_h, w=w_h)
 
     # Supervised arms, identical obs-fit budget; the hybrid arm's residual
     # is fitted on the z-seeded field so its ctx input is live.
-    m_r = WorldModel(sc.crops, residual=True, seed=spec.seed)
-    _obs_fit(m_r, sc.field, f0, a0, obs_cal, spec)
-    ev_res = _eval(m_r, sc, spec)
+    m_r = WorldModel(sc.crops, residual=True, seed=specification.seed)
+    _obs_fit(m_r, sc.field, f0, a0, calibration_observed, specification)
+    ev_res = _eval(m_r, sc, specification)
     # detached seed: the encoder is frozen during the residual obs-fit —
     # z is a fixed ctx input, not a gradient path back into the encoder.
-    f_j = seeded(sc.field, enc(obs_cal[:, 0]).detach(), m_j.latent.h_dim)
-    _obs_fit(m_j, f_j, f0, a0, obs_cal, spec)
+    f_j = seeded(sc.field, encoder(calibration_observed[:, 0]).detach(), m_j.latent.hidden_dimension)
+    _obs_fit(m_j, f_j, f0, a0, calibration_observed, specification)
 
-    ev_prior = _eval(sc.prior, sc, spec)
-    ev_hyb = _eval(m_j, sc, spec, encoder=enc)
+    ev_prior = _eval(sc.prior, sc, specification)
+    ev_hyb = _eval(m_j, sc, specification, encoder=encoder)
     per_ch = {name: {
         "prior": ev_prior[name], "jepa_probe": ev_jep[name],
         "residual": ev_res[name], "hybrid": ev_hyb[name],
@@ -148,14 +148,14 @@ def run(spec: Spec) -> dict:
 
     z_rmse = float((rep["z_pred"][:, 1:] - rep["z_tgt"][:, 1:]).pow(2)
                    .mean().sqrt())
-    out = {"latent": {"dim": k, "sigreg_final": rep["sigreg_final"],
+    output = {"latent": {"dim": k, "sigreg_final": rep["sigreg_final"],
                       "z_std_final": rep["z_std_final"],
                       "best_loss": rep["best_loss"],
                       "epochs_run": rep["epochs_run"]},
            "z_pred_rmse": round(z_rmse, 6),
            "channels": per_ch}
     if ev_hier is not None:
-        out["hier"] = {"strides": list(spec.hier),
+        output["hier"] = {"strides": list(specification.hierarchy),
                        "channels": ev_hier,
                        "best_loss": rep_h["best_loss"]}
-    return out
+    return output

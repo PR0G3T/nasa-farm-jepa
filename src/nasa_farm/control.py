@@ -29,7 +29,7 @@ from dataclasses import dataclass, field as _f
 import torch
 
 from nasa_farm.constants import DTYPE
-from nasa_farm.forcing import ou_noise
+from nasa_farm.forcing import noise
 from nasa_farm.heads import METRICS, SeasonAccumulator
 from nasa_farm.state.field import Field
 from nasa_farm.types import ACTION_VARS, FORCING_VARS, Actions, Forcing
@@ -48,7 +48,7 @@ class ControlResult:
 
 
 @dataclass(slots=True)
-class FbRisk:
+class Risk:
     """Feedback conformal risk allocation: a total miscoverage budget of
     `base`·`horizon` is spent as realized errors arrive; `margin()` spreads
     what is left over the remaining steps, so an early bad stretch tightens
@@ -65,8 +65,8 @@ class FbRisk:
     def margin(self) -> float:
         return self.budget / max(self.horizon - self.t, 1)
 
-    def update(self, err: float) -> None:
-        self.budget = max(0.0, self.budget - err)
+    def update(self, error: float) -> None:
+        self.budget = max(0.0, self.budget - error)
         self.t += 1
 
 
@@ -82,10 +82,10 @@ def metric_reward(metrics: torch.Tensor,
     margin (chance-constrained reward).
     """
     weights = weights or DEFAULT_WEIGHTS
-    idx = {n: i for i, n in enumerate(METRICS)}
+    index = {n: i for i, n in enumerate(METRICS)}
     r = torch.zeros(metrics.shape[0], metrics.shape[1], dtype=DTYPE)
     for name, w in weights.items():
-        r = r + w * metrics[..., idx[name]].sum(dim=-1)
+        r = r + w * metrics[..., index[name]].sum(dim=-1)
     if risk == "cvar":
         k = max(1, int(round(alpha * r.shape[1])))
         return r.sort(dim=1).values[:, :k].mean(1)
@@ -94,7 +94,7 @@ def metric_reward(metrics: torch.Tensor,
     return r.mean(1)
 
 
-def _kmeans(x: torch.Tensor, init: torch.Tensor,
+def _means(x: torch.Tensor, init: torch.Tensor,
             iters: int = 8) -> torch.Tensor:
     """Assignment of rows x (E, D) to the nearest of `init` (M, D)
     centers — enough structure for elite clustering, no full solver."""
@@ -109,7 +109,7 @@ def _kmeans(x: torch.Tensor, init: torch.Tensor,
     return torch.cdist(x, c).argmin(dim=1)
 
 
-def _lbfgs(loss_fn, params: list[torch.Tensor], iters: int,
+def _quasi_newton(loss_fn, parameters: list[torch.Tensor], iters: int,
            m: int = 8) -> None:
     """In-place L-BFGS polish: two-loop recursion + Armijo backtracking.
 
@@ -120,11 +120,11 @@ def _lbfgs(loss_fn, params: list[torch.Tensor], iters: int,
     s_h, y_h, rho = [], [], []
 
     def flat() -> tuple[torch.Tensor, torch.Tensor]:
-        for p in params:
-            p.grad = None
+        for p in parameters:
+            p.gradient = None
         v = loss_fn()
         v.backward()
-        return v, torch.cat([p.grad.reshape(-1) for p in params])
+        return v, torch.cat([p.gradient.reshape(-1) for p in parameters])
 
     v, g = flat()
     for _ in range(iters):
@@ -136,12 +136,12 @@ def _lbfgs(loss_fn, params: list[torch.Tensor], iters: int,
         d = -q
         for s, y, r, a in zip(s_h, y_h, rho, al[::-1]):
             d = d + s * (a - r * (y * d).sum())
-        step, base = 1.0, torch.cat([p.detach().reshape(-1) for p in params])
+        step, base = 1.0, torch.cat([p.detach().reshape(-1) for p in parameters])
         vn = None
         for _ls in range(20):
             off = 0
             with torch.no_grad():
-                for p in params:
+                for p in parameters:
                     p.copy_((base[off:off + p.numel()] + step * d[off:off + p.numel()])
                             .view_as(p))
                     off += p.numel()
@@ -152,7 +152,7 @@ def _lbfgs(loss_fn, params: list[torch.Tensor], iters: int,
         else:
             off = 0
             with torch.no_grad():
-                for p in params:
+                for p in parameters:
                     p.copy_(base[off:off + p.numel()].view_as(p))
                     off += p.numel()
             break
@@ -165,7 +165,7 @@ def _lbfgs(loss_fn, params: list[torch.Tensor], iters: int,
         v, g = vn, gn
 
 
-def mppi(model, field: Field, forcing: Forcing, base: Actions,
+def path_integral(model, field: Field, forcing: Forcing, base: Actions,
          iters: int = 8, samples: int = 96, rho: float = 0.7,
          sigma: tuple[float, float] = (4.0, 10.0),
          bounds: tuple[tuple[float, float], tuple[float, float]] =
@@ -193,49 +193,49 @@ def mppi(model, field: Field, forcing: Forcing, base: Actions,
     """
     days = forcing.days
     E = forcing.batch
-    gen = torch.Generator().manual_seed(seed)
+    generation = torch.Generator().manual_seed(seed)
     mu0 = torch.stack([base.irrigation[0], base.n_fert[0]])  # (2, T)
     if base_mu is not None:                      # policy-prior warm start
         mu0 = base_mu.to(mu0.dtype)
     mus = mu0.unsqueeze(0).expand(modes, -1, -1).contiguous()  # (M, 2, T)
     best_r, best_mu, best_sow = -math.inf, mu0, base.sow[0]
-    hist: list[float] = []
+    history: list[float] = []
     n_shifts = len(sow_shifts)
     h = horizon if 0 < horizon < days else days
 
-    def bonus(fld: Field, frc: Forcing, acts: Actions) -> torch.Tensor:
+    def bonus(field: Field, forcing: Forcing, acts: Actions) -> torch.Tensor:
         """Terminal extras: value bootstrap + latent subgoal penalty."""
-        b = torch.zeros(fld.batch, dtype=DTYPE, device=fld.state.sw.device)
+        b = torch.zeros(field.batch, dtype=DTYPE, device=field.state.sw.device)
         if value is not None:
             from nasa_farm.value import terminal_value
-            b = b + terminal_value(model, value, fld.state,
-                                   frc.day(min(h - 1, days - 1)),
+            b = b + terminal_value(model, value, field.state,
+                                   forcing.day(min(h - 1, days - 1)),
                                    acts.day(h - 1), gamma)
-        if goal is not None and fld.state.z is not None:
-            g = goal.to(fld.state.z.dtype)
-            b = b - goal_w * (fld.state.z[:, :g.shape[0]] - g).pow(2).sum(-1)
+        if goal is not None and field.state.z is not None:
+            g = goal.to(field.state.z.dtype)
+            b = b - goal_w * (field.state.z[:, :g.shape[0]] - g).pow(2).sum(-1)
         return b
 
-    def score(cand: torch.Tensor, sows: torch.Tensor) -> torch.Tensor:
+    def score(candidate: torch.Tensor, sows: torch.Tensor) -> torch.Tensor:
         """(2, S, T) candidates × (S, T) sow rows → (S,) scenario rewards."""
-        s_n = cand.shape[1]
+        s_n = candidate.shape[1]
         b = s_n * E
         acts = Actions(
             sow=sows.repeat_interleave(E, dim=0),
-            irrigation=cand[0].repeat_interleave(E, dim=0),
-            n_fert=cand[1].repeat_interleave(E, dim=0))
-        frc = forcing.repeat(s_n)
+            irrigation=candidate[0].repeat_interleave(E, dim=0),
+            n_fert=candidate[1].repeat_interleave(E, dim=0))
+        forcing = forcing.repeat(s_n)
         if h < days:
-            frc = Forcing(*(getattr(frc, k)[:, :h] for k in FORCING_VARS))
+            forcing = Forcing(*(getattr(forcing, k)[:, :h] for k in FORCING_VARS))
             acts = Actions(*(getattr(acts, k)[:, :h] for k in ACTION_VARS))
-        acc = SeasonAccumulator(b, max(1, -(-h // 365)),
+        accumulate = SeasonAccumulator(b, max(1, -(-h // 365)),
                                 device=field.state.sw.device)
         with torch.inference_mode():
-            fld = model.rollout(field.repeat(b), frc, acts, observer=acc)
-        m = acc.result().view(s_n, E, -1, acc.result().shape[-1])
+            field = model.rollout(field.repeat(b), forcing, acts, observer=accumulate)
+        m = accumulate.result().view(s_n, E, -1, accumulate.result().shape[-1])
         r = (reward(m) if reward is not None
              else metric_reward(m, weights, risk, alpha, margin))
-        return r.view(s_n, -1).mean(1) + bonus(fld, frc, acts) \
+        return r.view(s_n, -1).mean(1) + bonus(field, forcing, acts) \
             .view(s_n, E).mean(1)
 
     r_sig = 0.0
@@ -243,36 +243,36 @@ def mppi(model, field: Field, forcing: Forcing, base: Actions,
         per = -(-samples // modes)
         parts, sows_l = [], []
         for mi in range(modes):
-            eps = torch.stack([ou_noise(per, days, rho, gen),
-                               ou_noise(per, days, rho, gen)])
+            eps = torch.stack([noise(per, days, rho, generation),
+                               noise(per, days, rho, generation)])
             parts.append(torch.stack(
                 [(mus[mi, c] + eps[c] * sigma[c]).clamp(*bounds[c])
                  for c in range(2)]))                  # (2, per, T)
             sows_l.append(torch.stack([
                 base.sow[0].roll(sow_shifts[i % n_shifts], dims=0)
                 for i in range(per)]))
-        cand = torch.cat(parts, dim=1)                 # (2, S, T)
+        candidate = torch.cat(parts, dim=1)                 # (2, S, T)
         sows = torch.cat(sows_l)
-        cand[:, 0] = best_mu  # incumbent: re-scored each round
-        r = score(cand, sows)
+        candidate[:, 0] = best_mu  # incumbent: re-scored each round
+        r = score(candidate, sows)
         r_sig = float(r.std())
 
         i_star = int(r.argmax())
         if float(r[i_star]) > best_r:
-            best_r, best_mu = float(r[i_star]), cand[:, i_star]
+            best_r, best_mu = float(r[i_star]), candidate[:, i_star]
             best_sow = sows[i_star]
-        hist.append(best_r)
+        history.append(best_r)
         # Rank-based elite recombination (CMA-style): only the top quartile
         # moves the mean — scale-free and immune to the drift a flat softmax
         # shows when the optimum sits on a bound.
-        elite = max(modes, cand.shape[1] // 4)
+        elite = max(modes, candidate.shape[1] // 4)
         order = r.argsort(descending=True)
-        el = cand[:, order[:elite]]                    # (2, E_e, T)
+        el = candidate[:, order[:elite]]                    # (2, E_e, T)
         if modes > 1:
             flat = torch.cat([el[0] / sigma[0], el[1] / sigma[1]], dim=-1)
             flat0 = torch.cat([mus[:, 0] / sigma[0],
                                mus[:, 1] / sigma[1]], dim=-1)
-            assign = _kmeans(flat, flat0)
+            assign = _means(flat, flat0)
             w = (math.log(elite + 0.5)
                  - torch.log(torch.arange(1, elite + 1, dtype=DTYPE)))
             for mi in range(modes):
@@ -283,12 +283,12 @@ def mppi(model, field: Field, forcing: Forcing, base: Actions,
                 mus[mi] = mus[mi] + (wm * (el[:, sel] - mus[mi]
                                            .unsqueeze(1))).sum(1)
         else:
-            w = torch.zeros(cand.shape[1], dtype=DTYPE)
+            w = torch.zeros(candidate.shape[1], dtype=DTYPE)
             w[order[:elite]] = (math.log(elite + 0.5) - torch.log(
                 torch.arange(1, elite + 1, dtype=DTYPE)))
             w = w / w.sum()
             mus[0] = mus[0] + (w.unsqueeze(0).unsqueeze(-1)
-                               * (cand - mus[0].unsqueeze(1))).sum(1)
+                               * (candidate - mus[0].unsqueeze(1))).sum(1)
 
     if gate_k and best_mu is not mu0:
         # Sibling-disagreement gate: reject a plan whose margin over the
@@ -301,34 +301,34 @@ def mppi(model, field: Field, forcing: Forcing, base: Actions,
     if refine:
         # Gradient polish on the incumbent sequence through the
         # differentiable rollout — sampling found the basin, this climbs it.
-        irr = best_mu[0].clone().requires_grad_(True)
+        irrigation = best_mu[0].clone().requires_grad_(True)
         nf = best_mu[1].clone().requires_grad_(True)
 
         def polish() -> torch.Tensor:
             acts = Actions(sow=best_sow.unsqueeze(0).expand(E, -1),
-                           irrigation=irr.clamp(*bounds[0]).unsqueeze(0)
+                           irrigation=irrigation.clamp(*bounds[0]).unsqueeze(0)
                            .expand(E, -1),
                            n_fert=nf.clamp(*bounds[1]).unsqueeze(0)
                            .expand(E, -1))
-            frc = forcing
+            forcing = forcing
             if h < days:
-                frc = Forcing(*(getattr(forcing, k)[:, :h]
+                forcing = Forcing(*(getattr(forcing, k)[:, :h]
                                 for k in FORCING_VARS))
                 acts = Actions(*(getattr(acts, k)[:, :h]
                                  for k in ACTION_VARS))
-            acc = SeasonAccumulator(E, max(1, -(-h // 365)),
+            accumulate = SeasonAccumulator(E, max(1, -(-h // 365)),
                                     device=field.state.sw.device)
-            fld = model.rollout(field.repeat(E), frc, acts, observer=acc,
+            field = model.rollout(field.repeat(E), forcing, acts, observer=accumulate,
                                 checkpoint_every=24 if h > 64 else 0)
-            m = acc.result().unsqueeze(0)              # (1, E, H, M)
+            m = accumulate.result().unsqueeze(0)              # (1, E, H, M)
             r = (reward(m) if reward is not None
                  else metric_reward(m, weights, risk, alpha, margin))
-            return -(r.mean() + bonus(fld, frc, acts).mean())
+            return -(r.mean() + bonus(field, forcing, acts).mean())
 
         if refine_alg == "lbfgs":
-            _lbfgs(polish, [irr, nf], refine)
+            _quasi_newton(polish, [irrigation, nf], refine)
         else:
-            opt = torch.optim.Adam([irr, nf], lr=refine_lr)
+            opt = torch.optim.Adam([irrigation, nf], rate=refine_lr)
             for _ in range(refine):
                 opt.zero_grad(set_to_none=True)
                 loss = polish()
@@ -337,9 +337,9 @@ def mppi(model, field: Field, forcing: Forcing, base: Actions,
                 loss.backward()
                 opt.step()
                 with torch.no_grad():
-                    irr.clamp_(*bounds[0])
+                    irrigation.clamp_(*bounds[0])
                     nf.clamp_(*bounds[1])
-        refined = torch.stack([irr.detach(), nf.detach()])
+        refined = torch.stack([irrigation.detach(), nf.detach()])
         r_new = score(refined.unsqueeze(1),
                       best_sow.unsqueeze(0))[0]
         if float(r_new) > best_r:
@@ -348,4 +348,4 @@ def mppi(model, field: Field, forcing: Forcing, base: Actions,
     acts = Actions(sow=best_sow.unsqueeze(0),
                    irrigation=best_mu[0].clamp(*bounds[0]).unsqueeze(0),
                    n_fert=best_mu[1].clamp(*bounds[1]).unsqueeze(0))
-    return ControlResult(acts, best_r, tuple(hist))
+    return ControlResult(acts, best_r, tuple(history))

@@ -17,7 +17,7 @@ import torch
 
 from nasa_farm.experiments.run import register
 from nasa_farm.experiments.scene import calibrate, observe, scene
-from nasa_farm.experiments.specification import Spec
+from nasa_farm.experiments.specification import Specification
 from nasa_farm.heads import METRICS
 from nasa_farm.metrics import score_ens
 from nasa_farm.optimize.targets import season_metrics
@@ -26,31 +26,31 @@ PREDICTORS: tuple[str, ...] = ("prior", "cal", "oracle")
 
 
 @register("bench")
-def run(spec: Spec) -> dict:
-    sc = scene(spec)
-    obs = observe(spec, sc)
-    cal, rep = calibrate(spec, sc, obs)
+def run(specification: Specification) -> dict:
+    sc = scene(specification)
+    observed = observe(specification, sc)
+    cal, rep = calibrate(specification, sc, observed)
 
-    s, r = sc.forcing_e.batch, sc.forcing_t.batch
-    fld, acts = sc.field.repeat(s), sc.actions.repeat(s)
-    idx = {n: i for i, n in enumerate(METRICS)}
-    tgt = season_metrics(sc.truth, sc.field.repeat(r), sc.forcing_t,
+    s, r = sc.forcing_e.batch, sc.forcing_time.batch
+    field, acts = sc.field.repeat(s), sc.actions.repeat(s)
+    index = {n: i for i, n in enumerate(METRICS)}
+    target = season_metrics(sc.truth, sc.field.repeat(r), sc.forcing_time,
                          sc.actions.repeat(r))           # (R, H, M)
-    gen = torch.Generator().manual_seed(spec.seed + 31)
+    generation = torch.Generator().manual_seed(specification.seed + 31)
 
-    out: dict = {"calibration": rep, "channels": {}}
+    output: dict = {"calibration": rep, "channels": {}}
     for name, model in (("prior", sc.prior), ("cal", cal),
                         ("oracle", sc.truth)):
-        ens = season_metrics(model, fld, sc.forcing_e, acts)  # (S, H, M)
-        for ch in spec.channels:
-            i = idx[ch]
+        ensemble = season_metrics(model, field, sc.forcing_e, acts)  # (S, H, M)
+        for ch in specification.channels:
+            i = index[ch]
             # pair every realization-year with all members → (R·H, S)
-            e = (ens[:, :, i].t().unsqueeze(0)
+            e = (ensemble[:, :, i].t().unsqueeze(0)
                  .expand(r, -1, -1).reshape(-1, s))
-            out["channels"].setdefault(ch, {})[name] = score_ens(
-                e, tgt[:, :, i].reshape(-1), spec.alphas, gen=gen)
+            output["channels"].setdefault(ch, {})[name] = score_ens(
+                e, target[:, :, i].reshape(-1), specification.alphas, generation=generation)
 
-    for ch, d in out["channels"].items():
+    for ch, d in output["channels"].items():
         p, c, o = d["prior"], d["cal"], d["oracle"]
         d["summary"] = {
             "rmse_reduction_pct": round(
@@ -58,4 +58,4 @@ def run(spec: Spec) -> dict:
             "crps_reduction_pct": round(
                 100 * (p["crps"] - c["crps"]) / max(p["crps"], 1e-9), 2),
             "cal_vs_oracle_rmse_gap": round(c["rmse"] - o["rmse"], 6)}
-    return out
+    return output

@@ -13,7 +13,7 @@ from __future__ import annotations
 import datetime as dt
 from pathlib import Path
 
-import numpy as np
+import numpy as numpy
 import torch
 
 from nasa_farm import CropLibrary, Field, WorldModel, initial_state
@@ -27,14 +27,14 @@ from nasa_farm.state.soil import SoilProfile
 
 def _loss(model: WorldModel, field: Field, forcing, target: torch.Tensor,
           days: torch.Tensor, w: torch.Tensor) -> torch.Tensor:
-    pred = []
-    def obs(t, state, _fx):
-        pred.append(torch.stack(
+    predicted = []
+    def observed(t, state, _fx):
+        predicted.append(torch.stack(
             [sm_vol(state, i) for i in range(state.sw.shape[1])]).mean())
     plan = torch.zeros(1, 1, dtype=torch.long)
     model.rollout(field, forcing,
-                  expand_actions(plan, model.crop_table), observer=obs)
-    r = (torch.stack(pred)[days] - target) ** 2 * w
+                  expand_actions(plan, model.crop_table), observer=observed)
+    r = (torch.stack(predicted)[days] - target) ** 2 * w
     return r.sum() / w.sum().clamp(min=1.0)
 
 
@@ -45,22 +45,22 @@ def _day_index(d: int, start: int) -> int:
 
 
 def train(root: Path | str, fids: list[str], years: list[int],
-          epochs: int = 60, lr: float = 0.02,
-          out: Path | str | None = None) -> dict:
+          epochs: int = 60, rate: float = 0.02,
+          output: Path | str | None = None) -> dict:
     root = Path(root)
     crops = CropLibrary.default()
     model = WorldModel(crops, residual=True)
-    params = {f"r{i}": p for i, p in
+    parameters = {f"r{i}": p for i, p in
               enumerate(model.residual.parameters()) if p.requires_grad}
     losses = {}
     for fid in fids:
         ds = dataset(root, [fid], years)[fid]
-        obs = ds["obs"].get("sm")
-        if not ds["forcings"] or obs is None:
+        observed = ds["obs"].get("sm")
+        if not ds["forcings"] or observed is None:
             continue
         soil = soil_of(ds["soil"]) or SoilProfile.preset("loam")
-        obs_d, obs_v, obs_w = obs
-        w = np.ones_like(obs_v) if obs_w is None else np.asarray(obs_w)
+        obs_d, obs_v, obs_w = observed
+        w = numpy.ones_like(obs_v) if obs_w is None else numpy.asarray(obs_w)
         for fi, forcing in enumerate(ds["forcings"]):
             year = years[fi]
             start = dt.date(year, 1, 1).toordinal()
@@ -74,13 +74,13 @@ def train(root: Path | str, fids: list[str], years: list[int],
             wv = torch.tensor(w[list(rows)], dtype=DTYPE)
             days = torch.tensor(days, dtype=torch.long)
             field = Field(state=initial_state(1, soil), soil=soil,
-                          lat=torch.tensor([0.0], dtype=DTYPE))
-            res = fit(lambda: _loss(model, field, forcing, target, days,
-                                    wv), params=params,
-                      epochs=epochs, lr=lr, verbose=False)
-            losses[f"{fid}/{year}"] = res.best_loss
-    if out:
-        torch.save(model.residual.state_dict(), out)
+                          latitude=torch.tensor([0.0], dtype=DTYPE))
+            result = fit(lambda: _loss(model, field, forcing, target, days,
+                                    wv), parameters=parameters,
+                      epochs=epochs, rate=rate, verbose=False)
+            losses[f"{fid}/{year}"] = result.best_loss
+    if output:
+        torch.save(model.residual.state_dict(), output)
     return {"runs": len(losses), "loss": losses}
 
 
@@ -90,4 +90,4 @@ if __name__ == "__main__":
     root = Path(sys.argv[1] if len(sys.argv) > 1 else "lake")
     with Lake(root) as L:
         fids = L.fids()
-    print(train(root, fids, list(range(2021, 2026)), out=root / "residual.pt"))
+    print(train(root, fids, list(range(2021, 2026)), output=root / "residual.pt"))

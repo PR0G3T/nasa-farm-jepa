@@ -72,7 +72,7 @@ class Monitor:
             self._thread.start()
         return self
 
-    def __exit__(self, *exc) -> None:
+    def __exit__(self, *exception) -> None:
         self._stop.set()
         if self._thread is not None:
             self._thread.join(timeout=2.0)
