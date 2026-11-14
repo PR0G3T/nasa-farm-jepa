@@ -27,7 +27,7 @@ from nasa_farm.state.soil import DEPTHS, SoilProfile
 from nasa_farm.types import Actions, Forcing
 
 DEFAULT_CROPS: tuple[str, ...] = ("maize", "soybean", "wheat", "clover", "fallow")
-TRACE_CH: tuple[str, ...] = ("canopy", "water", "stress", "frost")
+TRACE_CH: tuple[str, ...] = ("canopy", "water", "stress", "heat", "frost")
 TRACE_BIN = 7
 SCENARIO_KEYS: frozenset[str] = frozenset(
     {"delta_t", "precip_scale", "co2", "irrig", "fert"})
@@ -73,6 +73,7 @@ class SiteResult(BaseModel):
     scenarios: int = 0
     pareto: list[dict[str, Any]] = []
     top: list[dict[str, Any]] = []
+    history: dict[str, Any] = {}
 
 
 class PlanResponse(BaseModel):
@@ -90,7 +91,8 @@ class _Trace:
         self.acc[1, t] = fluxes["water_fac"].mean()
         self.acc[2, t] = ((fluxes["water_fac"] < 0.5)
                           & state.growing).to(DTYPE).mean()
-        self.acc[3, t] = fluxes["frost"].to(DTYPE).mean()
+        self.acc[3, t] = (fluxes["heat_dd"] > 0).to(DTYPE).mean()
+        self.acc[4, t] = fluxes["frost"].to(DTYPE).mean()
 
     def result(self) -> dict[str, list[float]]:
         """Weekly bins — mean for states, max for the frost event channel."""
@@ -98,7 +100,7 @@ class _Trace:
         pad = w * TRACE_BIN - self.acc.shape[1]
         b = torch.nn.functional.pad(self.acc, (0, pad)).unflatten(1, (w, TRACE_BIN))
         out = b.mean(-1)
-        out[3] = b[3].amax(-1)
+        out[-1] = b[-1].amax(-1)
         return {k: [round(float(v), 3) for v in out[i]]
                 for i, k in enumerate(TRACE_CH)}
 
@@ -119,6 +121,30 @@ def _trace(model: WorldModel, field0: Field, plan_row: torch.Tensor,
     return tr.result()
 
 
+def _runs(mask: torch.Tensor, min_len: int) -> list[list[int]]:
+    """Boolean 1-D mask → [[start, end), ...] runs of length ≥ min_len."""
+    m = torch.nn.functional.pad(mask.to(torch.int8), (1, 1))
+    edges = (m[1:] - m[:-1]).nonzero().flatten().reshape(-1, 2)
+    return [[int(a), int(b)] for a, b in edges if int(b - a) >= min_len]
+
+
+def _history(series: list[Forcing], y0: int) -> dict[str, Any]:
+    """Observed anomaly windows from the daily forcing years → day ranges.
+
+    Heat is site-relative (P90 of the series itself); dry spells follow the
+    WMO convention (runs of < 1 mm days); frost is every tmin < 0 day."""
+    tmax = torch.cat([f.tmax[0] for f in series])
+    tmin = torch.cat([f.tmin[0] for f in series])
+    pr = torch.cat([f.precip[0] for f in series])
+    return {
+        "y0": y0,
+        "years": len(series),
+        "dry": _runs(pr < 1.0, 7),
+        "heat": _runs(tmax > tmax.quantile(0.9), 2),
+        "frost": _runs(tmin < 0.0, 1),
+    }
+
+
 def _forcings(req: PlanRequest, p: Point) -> list:
     if req.offline:
         return [synthetic_year(p.lat, seed=y) for y in range(req.years)]
@@ -131,8 +157,9 @@ def _site(point: Point, req: PlanRequest, crops: CropLibrary,
           plans: torch.Tensor, depths: tuple[float, ...],
           workers: int, device: str, compile: str) -> SiteResult:
     try:
+        series = _forcings(req, point)
         ens = climatology_ensemble(
-            _forcings(req, point), req.horizon,
+            series, req.horizon,
             delta_t=req.delta_t, precip_scale=req.precip_scale)
         ens = dataclasses.replace(
             ens, co2=torch.full_like(ens.tmin, req.co2))
@@ -165,6 +192,7 @@ def _site(point: Point, req: PlanRequest, crops: CropLibrary,
         return SiteResult(
             point=point, status="ok",
             plans_evaluated=int(plans.shape[0]), scenarios=int(ens.batch),
+            history=_history(series, dt.date.today().year - req.years),
             pareto=[
                 {"rotation": [crops.names[c] for c in plans[i].tolist()],
                  "rank": int((rec["ranking"] == i).nonzero().flatten()[0])
