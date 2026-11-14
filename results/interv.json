@@ -1,0 +1,295 @@
+{
+  "name": "interv",
+  "spec": {
+    "lat": 42.0,
+    "lon": -93.6,
+    "soil": "silt_loam",
+    "depths": [
+      0.3,
+      1.5
+    ],
+    "crop": "maize",
+    "horizon": 2,
+    "years": [],
+    "realizations": 4,
+    "members": 16,
+    "obs_every": 10,
+    "noise": 0.05,
+    "perturb": {
+      "rue": 0.8,
+      "gdd_mat": 0.92
+    },
+    "obs_channels": [
+      "ndvi",
+      "sm1"
+    ],
+    "channels": [
+      "yield_kg"
+    ],
+    "alphas": [
+      0.1
+    ],
+    "latent_dim": 8,
+    "ema": 0.996,
+    "sig_weight": 1.0,
+    "epochs": 120,
+    "lr": 0.05,
+    "seed": 0
+  },
+  "results": {
+    "calibration": {
+      "params": {
+        "rue": {
+          "start": 3.9,
+          "truth": 3.12,
+          "fitted": 7.496734055935464,
+          "recovery_pct": -461.12
+        },
+        "gdd_mat": {
+          "start": 1750.0,
+          "truth": 1610.0,
+          "fitted": 2888.9522564232384,
+          "recovery_pct": -813.54
+        }
+      },
+      "best_loss": 0.09066638,
+      "epochs_run": 120
+    },
+    "perturbations": {
+      "yield_kg": {
+        "irrig+10d": {
+          "prior": {
+            "truth_delta": -9.5212,
+            "model_delta": -6.5358,
+            "err": 2.9854
+          },
+          "cal": {
+            "truth_delta": -9.5212,
+            "model_delta": -11.5167,
+            "err": -1.9956
+          }
+        },
+        "fert+40": {
+          "prior": {
+            "truth_delta": 26.3181,
+            "model_delta": 17.4458,
+            "err": -8.8724
+          },
+          "cal": {
+            "truth_delta": 26.3181,
+            "model_delta": 59.7824,
+            "err": 33.4642
+          }
+        },
+        "sow-14d": {
+          "prior": {
+            "truth_delta": 2.0255,
+            "model_delta": 1660.1741,
+            "err": 1658.1486
+          },
+          "cal": {
+            "truth_delta": 2.0255,
+            "model_delta": 27.4677,
+            "err": 25.4422
+          }
+        },
+        "sow+14d": {
+          "prior": {
+            "truth_delta": -15.908,
+            "model_delta": -13.4882,
+            "err": 2.4197
+          },
+          "cal": {
+            "truth_delta": -15.908,
+            "model_delta": -44.2039,
+            "err": -28.2959
+          }
+        }
+      },
+      "biomass_end": {
+        "irrig+10d": {
+          "prior": {
+            "truth_delta": 0.0,
+            "model_delta": 0.0,
+            "err": 0.0
+          },
+          "cal": {
+            "truth_delta": 0.0,
+            "model_delta": 0.0,
+            "err": 0.0
+          }
+        },
+        "fert+40": {
+          "prior": {
+            "truth_delta": 0.0,
+            "model_delta": 0.0,
+            "err": 0.0
+          },
+          "cal": {
+            "truth_delta": 0.0,
+            "model_delta": 0.0,
+            "err": 0.0
+          }
+        },
+        "sow-14d": {
+          "prior": {
+            "truth_delta": 0.0,
+            "model_delta": 0.0,
+            "err": 0.0
+          },
+          "cal": {
+            "truth_delta": 0.0,
+            "model_delta": 0.0,
+            "err": 0.0
+          }
+        },
+        "sow+14d": {
+          "prior": {
+            "truth_delta": 0.0,
+            "model_delta": 0.0,
+            "err": 0.0
+          },
+          "cal": {
+            "truth_delta": 0.0,
+            "model_delta": 0.0,
+            "err": 0.0
+          }
+        }
+      },
+      "water_used": {
+        "irrig+10d": {
+          "prior": {
+            "truth_delta": 0.3052,
+            "model_delta": 0.3079,
+            "err": 0.0027
+          },
+          "cal": {
+            "truth_delta": 0.3052,
+            "model_delta": 0.3106,
+            "err": 0.0054
+          }
+        },
+        "fert+40": {
+          "prior": {
+            "truth_delta": 0.0,
+            "model_delta": 0.0,
+            "err": 0.0
+          },
+          "cal": {
+            "truth_delta": 0.0,
+            "model_delta": 0.0,
+            "err": 0.0
+          }
+        },
+        "sow-14d": {
+          "prior": {
+            "truth_delta": 10.5991,
+            "model_delta": 7.6339,
+            "err": -2.9652
+          },
+          "cal": {
+            "truth_delta": 10.5991,
+            "model_delta": 14.1567,
+            "err": 3.5577
+          }
+        },
+        "sow+14d": {
+          "prior": {
+            "truth_delta": -14.2893,
+            "model_delta": -12.0959,
+            "err": 2.1934
+          },
+          "cal": {
+            "truth_delta": -14.2893,
+            "model_delta": -19.6974,
+            "err": -5.4081
+          }
+        }
+      },
+      "n_leached": {
+        "irrig+10d": {
+          "prior": {
+            "truth_delta": 1.0113,
+            "model_delta": 1.2677,
+            "err": 0.2565
+          },
+          "cal": {
+            "truth_delta": 1.0113,
+            "model_delta": 3.4001,
+            "err": 2.3888
+          }
+        },
+        "fert+40": {
+          "prior": {
+            "truth_delta": 15.6394,
+            "model_delta": 15.1578,
+            "err": -0.4816
+          },
+          "cal": {
+            "truth_delta": 15.6394,
+            "model_delta": 2.9466,
+            "err": -12.6928
+          }
+        },
+        "sow-14d": {
+          "prior": {
+            "truth_delta": -0.4216,
+            "model_delta": -0.5354,
+            "err": -0.1138
+          },
+          "cal": {
+            "truth_delta": -0.4216,
+            "model_delta": -0.8541,
+            "err": -0.4325
+          }
+        },
+        "sow+14d": {
+          "prior": {
+            "truth_delta": 0.9601,
+            "model_delta": 1.5721,
+            "err": 0.612
+          },
+          "cal": {
+            "truth_delta": 0.9601,
+            "model_delta": 1.2583,
+            "err": 0.2982
+          }
+        }
+      }
+    },
+    "plan_tau": {
+      "prior": 0.5556,
+      "cal": 0.5556
+    },
+    "edit_response": {
+      "prior": {
+        "biomass_err": 0.0,
+        "water_err": -10.79,
+        "nmin_err": -15.0356
+      },
+      "cal": {
+        "biomass_err": 0.0,
+        "water_err": -27.58,
+        "nmin_err": -18.8426
+      }
+    }
+  },
+  "seconds": 287.949,
+  "meta": {
+    "python": "3.15.2",
+    "torch": "2.15.0+cu132",
+    "device": "cuda",
+    "argv": [
+      "exp",
+      "interv",
+      "--realizations",
+      "4",
+      "--horizon",
+      "2",
+      "--perturb",
+      "rue:0.8,gdd_mat:0.92",
+      "--out",
+      "results/interv.json"
+    ]
+  }
+}
