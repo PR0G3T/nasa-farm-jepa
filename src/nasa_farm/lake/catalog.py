@@ -23,7 +23,9 @@ CREATE TABLE IF NOT EXISTS series(
 
 class Catalog:
     def __init__(self, path: Path | str) -> None:
-        self.db = sqlite3.connect(Path(path))
+        path = Path(path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        self.db = sqlite3.connect(path)
         self.db.execute("PRAGMA journal_mode=WAL")
         self.db.executescript(DDL)
 

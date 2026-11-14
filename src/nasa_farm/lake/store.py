@@ -48,9 +48,19 @@ def get(root: Path, fid: str, group: str, var: str
 
 
 
+def _jsonable(o):
+    if isinstance(o, dict):
+        return {k: _jsonable(v) for k, v in o.items()}
+    if isinstance(o, (list, tuple)):
+        return [_jsonable(v) for v in o]
+    if isinstance(o, np.generic):
+        return o.item()
+    return o.tolist() if hasattr(o, "tolist") and not isinstance(o, (str, float, int)) else o
+
+
 def attrs(root: Path, fid: str, **kw) -> None:
     """Set field-level metadata (soil profile, name, ...)."""
-    _group(root, fid).attrs.update(kw)
+    _group(root, fid).attrs.update(_jsonable(kw))
 
 
 def meta(root: Path, fid: str) -> dict:
