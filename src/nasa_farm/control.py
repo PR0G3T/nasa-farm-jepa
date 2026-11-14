@@ -109,6 +109,62 @@ def _kmeans(x: torch.Tensor, init: torch.Tensor,
     return torch.cdist(x, c).argmin(dim=1)
 
 
+def _lbfgs(loss_fn, params: list[torch.Tensor], iters: int,
+           m: int = 8) -> None:
+    """In-place L-BFGS polish: two-loop recursion + Armijo backtracking.
+
+    Second-order information accumulated from gradient differences —
+    converges on smooth differentiable objectives in far fewer rollout
+    evaluations than first-order Adam.
+    """
+    s_h, y_h, rho = [], [], []
+
+    def flat() -> tuple[torch.Tensor, torch.Tensor]:
+        for p in params:
+            p.grad = None
+        v = loss_fn()
+        v.backward()
+        return v, torch.cat([p.grad.reshape(-1) for p in params])
+
+    v, g = flat()
+    for _ in range(iters):
+        q, al = g.clone(), []
+        for s, y, r in zip(s_h[::-1], y_h[::-1], rho[::-1]):
+            a = r * (s * q).sum()
+            q = q - a * y
+            al.append(a)
+        d = -q
+        for s, y, r, a in zip(s_h, y_h, rho, al[::-1]):
+            d = d + s * (a - r * (y * d).sum())
+        step, base = 1.0, torch.cat([p.detach().reshape(-1) for p in params])
+        vn = None
+        for _ls in range(20):
+            off = 0
+            with torch.no_grad():
+                for p in params:
+                    p.copy_((base[off:off + p.numel()] + step * d[off:off + p.numel()])
+                            .view_as(p))
+                    off += p.numel()
+            vn = loss_fn()
+            if float(vn) <= float(v) - 1e-4 * step * abs(float((d * g).sum())):
+                break
+            step *= 0.5
+        else:
+            off = 0
+            with torch.no_grad():
+                for p in params:
+                    p.copy_(base[off:off + p.numel()].view_as(p))
+                    off += p.numel()
+            break
+        vn, gn = flat()
+        s, y = step * d, gn - g
+        sy = float((s * y).sum())
+        if sy > 1e-12:
+            s_h.append(s), y_h.append(y), rho.append(1.0 / sy)
+            s_h, y_h, rho = s_h[-m:], y_h[-m:], rho[-m:]
+        v, g = vn, gn
+
+
 def mppi(model, field: Field, forcing: Forcing, base: Actions,
          iters: int = 8, samples: int = 96, rho: float = 0.7,
          sigma: tuple[float, float] = (4.0, 10.0),
@@ -123,6 +179,7 @@ def mppi(model, field: Field, forcing: Forcing, base: Actions,
          reward=None, goal: torch.Tensor | None = None,
          goal_w: float = 0.0,
          modes: int = 1, refine: int = 0, refine_lr: float = 0.1,
+         refine_alg: str = "adam", gate_k: float = 0.0,
          seed: int = 0) -> ControlResult:
     """Optimize continuous irrigation (mm/day) and N (kg/ha/day) channels.
 
@@ -181,6 +238,7 @@ def mppi(model, field: Field, forcing: Forcing, base: Actions,
         return r.view(s_n, -1).mean(1) + bonus(fld, frc, acts) \
             .view(s_n, E).mean(1)
 
+    r_sig = 0.0
     for _ in range(iters):
         per = -(-samples // modes)
         parts, sows_l = [], []
@@ -197,6 +255,7 @@ def mppi(model, field: Field, forcing: Forcing, base: Actions,
         sows = torch.cat(sows_l)
         cand[:, 0] = best_mu  # incumbent: re-scored each round
         r = score(cand, sows)
+        r_sig = float(r.std())
 
         i_star = int(r.argmax())
         if float(r[i_star]) > best_r:
@@ -231,17 +290,26 @@ def mppi(model, field: Field, forcing: Forcing, base: Actions,
             mus[0] = mus[0] + (w.unsqueeze(0).unsqueeze(-1)
                                * (cand - mus[0].unsqueeze(1))).sum(1)
 
+    if gate_k and best_mu is not mu0:
+        # Sibling-disagreement gate: reject a plan whose margin over the
+        # incumbent base is below gate_k·σ of the candidate scores — rollout
+        # disagreement marks where the model cannot tell plans apart.
+        r_base = float(score(mu0.unsqueeze(1), base.sow[0].unsqueeze(0))[0])
+        if best_r < r_base + gate_k * r_sig:
+            best_r, best_mu, best_sow = r_base, mu0, base.sow[0]
+
     if refine:
-        # Gradient polish: Adam on the incumbent sequence through the
+        # Gradient polish on the incumbent sequence through the
         # differentiable rollout — sampling found the basin, this climbs it.
         irr = best_mu[0].clone().requires_grad_(True)
         nf = best_mu[1].clone().requires_grad_(True)
-        opt = torch.optim.Adam([irr, nf], lr=refine_lr)
-        for _ in range(refine):
-            opt.zero_grad(set_to_none=True)
+
+        def polish() -> torch.Tensor:
             acts = Actions(sow=best_sow.unsqueeze(0).expand(E, -1),
-                           irrigation=irr.unsqueeze(0).expand(E, -1),
-                           n_fert=nf.unsqueeze(0).expand(E, -1))
+                           irrigation=irr.clamp(*bounds[0]).unsqueeze(0)
+                           .expand(E, -1),
+                           n_fert=nf.clamp(*bounds[1]).unsqueeze(0)
+                           .expand(E, -1))
             frc = forcing
             if h < days:
                 frc = Forcing(*(getattr(forcing, k)[:, :h]
@@ -255,14 +323,22 @@ def mppi(model, field: Field, forcing: Forcing, base: Actions,
             m = acc.result().unsqueeze(0)              # (1, E, H, M)
             r = (reward(m) if reward is not None
                  else metric_reward(m, weights, risk, alpha, margin))
-            loss = -(r.mean() + bonus(fld, frc, acts).mean())
-            if not torch.isfinite(loss):
-                break
-            loss.backward()
-            opt.step()
-            with torch.no_grad():
-                irr.clamp_(*bounds[0])
-                nf.clamp_(*bounds[1])
+            return -(r.mean() + bonus(fld, frc, acts).mean())
+
+        if refine_alg == "lbfgs":
+            _lbfgs(polish, [irr, nf], refine)
+        else:
+            opt = torch.optim.Adam([irr, nf], lr=refine_lr)
+            for _ in range(refine):
+                opt.zero_grad(set_to_none=True)
+                loss = polish()
+                if not torch.isfinite(loss):
+                    break
+                loss.backward()
+                opt.step()
+                with torch.no_grad():
+                    irr.clamp_(*bounds[0])
+                    nf.clamp_(*bounds[1])
         refined = torch.stack([irr.detach(), nf.detach()])
         r_new = score(refined.unsqueeze(1),
                       best_sow.unsqueeze(0))[0]

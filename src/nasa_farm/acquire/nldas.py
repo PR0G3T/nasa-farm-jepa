@@ -21,7 +21,7 @@ import torch
 import xarray as xr
 
 from nasa_farm.acquire.base import BBox, Temporal
-from nasa_farm.acquire.crawl import sample
+from nasa_farm.acquire.support import sample
 from nasa_farm.acquire.power import vars_to_forcing
 from nasa_farm.constants import DTYPE
 from nasa_farm.types import Forcing

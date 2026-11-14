@@ -1,15 +1,17 @@
 """Experiment harness — reproducible, serialized research runs.
 
-Registered runners (`twin`, `bench`, `assim`, `jepa`, `interv`, `adapt`)
-each consume one `Spec` and return a metrics tree; `run` wraps it in a
-`Report` with full provenance.
+Registered runners (`twin`, `bench`, `assim`, `jepa`, `interv`, `adapt`,
+`cf`, `discover`, `scale`) each consume one `Spec` and return a metrics
+tree; `run` wraps it in a `Report` with full provenance.
 """
 
 from nasa_farm.exp.run import Report, experiments, register, run
 from nasa_farm.exp.spec import Spec
-from nasa_farm.exp import adapt, assim, bench, interv, jepa, twin  # noqa: F401
+from nasa_farm.exp import (  # noqa: F401
+    adapt, assim, bench, cf, discover, interv, jepa, scale, twin,
+)
 
 __all__ = [
-    "Report", "Spec", "adapt", "assim", "bench", "experiments", "interv",
-    "jepa", "register", "run", "twin",
+    "Report", "Spec", "adapt", "assim", "bench", "cf", "discover",
+    "experiments", "interv", "jepa", "register", "run", "scale", "twin",
 ]

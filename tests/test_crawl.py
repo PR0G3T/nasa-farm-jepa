@@ -8,9 +8,8 @@ import pytest
 import torch
 import xarray as xr
 
-from nasa_farm.acquire.crawl import (
-    _day_keys, _granule_date, crawl, sample,
-)
+from nasa_farm.acquire.crawl import _day_keys, _granule_date, crawl
+from nasa_farm.acquire.support import sample
 from nasa_farm.acquire.power import PowerClient, series_to_forcing
 from nasa_farm.lake import get
 from nasa_farm.optimize.data import forcings, targets
@@ -61,7 +60,7 @@ class TestCrawl:
         f = {"id": "F1", "lat": 48.0, "lon": 1.5}
         crawl([f], tmp_path, [2024, 2025], sources=("power",),
               power=client, log=lambda m: None)
-        d, v = get(tmp_path, "F1", "obs", "sm")
+        d, v = get(tmp_path, "F1", "obs", "smg")
         assert len(d) == 730 and np.allclose(v, 0.6)
         d, v = get(tmp_path, "F1", "forcing", "precip")
         assert len(d) == 730 and "20240229" not in d.astype(str)

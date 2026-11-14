@@ -21,16 +21,22 @@ import torch.nn as nn
 from nasa_farm.dynamics.residual import N_FEATURES
 
 
+LINKS: dict = {"identity": lambda t: t, "relu": torch.relu}
+"""Output link on the latent update — "relu" gives nonneg sparse codes
+(the geometry RDMReg targets)."""
+
+
 class LatentDyn(nn.Module):
     """GRU transition predictor: zh' = GRU([feats, z, ctx?], zh); z' = z + head(zh')."""
 
     def __init__(self, dim: int, hidden: int = 64, stochastic: bool = False,
-                 ctx_dim: int = 0) -> None:
+                 ctx_dim: int = 0, link: str = "identity") -> None:
         super().__init__()
         self.dim = dim
         self.h_dim = hidden
         self.stochastic = stochastic
         self.ctx_dim = ctx_dim
+        self.link = LINKS[link]
         self.gru = nn.GRUCell(N_FEATURES + dim + ctx_dim, hidden)
         self.head = nn.Linear(hidden, dim * (2 if stochastic else 1))
         nn.init.zeros_(self.head.weight)
@@ -57,14 +63,14 @@ class LatentDyn(nn.Module):
         out = self.head(zh)
         if not self.stochastic:
             self.kl = torch.zeros((), dtype=out.dtype, device=out.device)
-            return z + out, zh
+            return self.link(z + out), zh
         mu, logvar = out.chunk(2, dim=-1)
         logvar = logvar.clamp(-8.0, 4.0)
         sig = (0.5 * logvar).exp()
         eps = torch.randn(mu.shape, generator=gen,
                           dtype=mu.dtype, device=mu.device)
         self.kl = 0.5 * (mu.pow(2) + sig.pow(2) - logvar - 1.0).mean()
-        return z + mu + sig * eps, zh
+        return self.link(z + mu + sig * eps), zh
 
     def seed(self, z: torch.Tensor) -> torch.Tensor:
         """Obs embedding → initial latent state (identity for a flat
@@ -257,3 +263,78 @@ def sae_fit(sae: TopKSAE, z_stream: torch.Tensor, epochs: int = 100,
     rate = (sae.features(zs) > 0).to(zs.dtype).mean(0)
     return {"best_loss": round(best, 8), "history": hist,
             "rate": rate.detach()}
+
+
+OPS: dict[str, tuple[int, ...]] = {
+    "atmo":   (7, 8, 9, 10),      # tmin, tmax, srad, precip
+    "water":  (0, 1, 10, 11),     # sw0, swr, precip, irrigation
+    "bio":    (2, 4, 6, 12, 13),  # n_min, biomass, growing, n_fert, sow
+    "canopy": (3, 5),             # lai, gdd
+}
+"""Operator-aligned factor groups over featurize() columns — one latent
+sub-dynamics per physics subprocess."""
+
+
+class FactorDyn(nn.Module):
+    """Factored latent: one independent sub-dynamics per feature group.
+
+    Each factor owns a GRU over (its feature columns, its z slot[, ctx])
+    plus a zero-init head — identity at init, like LatentDyn. Causal
+    selectivity holds by construction: an action-channel perturbation can
+    only move the factor that reads it.
+    """
+
+    def __init__(self, dim: int, parts: dict[str, tuple[int, ...]],
+                 hidden: int = 64, ctx_dim: int = 0) -> None:
+        super().__init__()
+        self.parts = dict(parts)
+        self.part_dim, self.hp = dim, hidden
+        self.dim, self.h_dim = dim * len(parts), hidden * len(parts)
+        self.ctx_dim = ctx_dim
+        self.cell = nn.ModuleDict(
+            {n: nn.GRUCell(len(c) + dim + ctx_dim, hidden)
+             for n, c in parts.items()})
+        self.head = nn.ModuleDict(
+            {n: nn.Linear(hidden, dim) for n in parts})
+        for h in self.head.values():
+            nn.init.zeros_(h.weight)
+            nn.init.zeros_(h.bias)
+        self.kl = torch.zeros((), dtype=torch.float64)
+        self.to(torch.float64)
+
+    def _slot(self, t: torch.Tensor, i: int, w: int) -> torch.Tensor:
+        return t[:, i * w:(i + 1) * w]
+
+    def forward(self, feats: torch.Tensor, z: torch.Tensor,
+                zh: torch.Tensor | None = None,
+                ctx: torch.Tensor | None = None,
+                gen: torch.Generator | None = None
+                ) -> tuple[torch.Tensor, torch.Tensor]:
+        if zh is None:
+            zh = torch.zeros(feats.shape[0], self.h_dim,
+                             dtype=feats.dtype, device=feats.device)
+        if self.ctx_dim and ctx is None:
+            ctx = torch.zeros(feats.shape[0], self.ctx_dim,
+                              dtype=feats.dtype, device=feats.device)
+        zs, hs = [], []
+        for i, (name, cols) in enumerate(self.parts.items()):
+            zk = self._slot(z, i, self.part_dim)
+            x = torch.cat([feats[:, list(cols)], zk] +
+                          ([ctx.to(feats.dtype)] if self.ctx_dim else []), -1)
+            hk = self.cell[name](x, self._slot(zh, i, self.hp).to(feats.dtype))
+            zs.append(zk + self.head[name](hk))
+            hs.append(hk)
+        self.kl = torch.zeros((), dtype=feats.dtype, device=feats.device)
+        return torch.cat(zs, -1), torch.cat(hs, -1)
+
+    def seed(self, z: torch.Tensor) -> torch.Tensor:
+        return z
+
+    def unroll(self, feats_seq: torch.Tensor, z: torch.Tensor,
+               zh: torch.Tensor | None = None, ctx: torch.Tensor | None = None,
+               gen: torch.Generator | None = None) -> torch.Tensor:
+        zs = []
+        for t in range(feats_seq.shape[0]):
+            z, zh = self(feats_seq[t], z, zh, ctx, gen)
+            zs.append(z)
+        return torch.stack(zs)

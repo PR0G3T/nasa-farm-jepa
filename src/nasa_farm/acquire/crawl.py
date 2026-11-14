@@ -2,11 +2,14 @@
 
 Two regimes, one sink:
 - point APIs (POWER, SoilGrids): per-field fetches, raw dumps land under
-  `forcing/` (+ `obs/sm` for GWETROOT) and `soil` attrs;
-- granule products (SMAP, ECOSTRESS, NLDAS-2): searched once over the
-  union bbox, each file downloaded once, every field point sampled out —
+  `forcing/` (+ `obs/smg` for GWETROOT — a model proxy, not a retrieval)
+  and `soil`/`soil_lo`/`soil_hi` attrs for profile-uncertainty sampling;
+- granule products (SMAP, NISAR, ECOSTRESS, NLDAS-2): searched once over
+  the union bbox, each file downloaded once, every field extracted by
+  footprint-weighted sampling under the product's QA confidence map —
   O(fields) extraction per O(1) download — then marked in the catalog so
-  re-runs skip them. Files are deleted after sampling.
+  re-runs skip them. Each obs lands with a `{var}_w` coverage weight.
+  Files are deleted after sampling.
 """
 
 from __future__ import annotations
@@ -24,10 +27,12 @@ import xarray as xr
 
 from nasa_farm.acquire.base import BBox, Temporal
 from nasa_farm.acquire.earthdata import (
-    ECOSTRESS_MET, ECOSTRESS_SEB, EarthdataSource, SMAP_L4,
+    ECOSTRESS_MET, ECOSTRESS_SEB, EarthdataSource, NISAR_SME, SMAP_L4,
 )
 from nasa_farm.acquire.power import CANON, PowerClient
+from nasa_farm.acquire.qc import FLAG_QC, SMAP_QC, QcSpec
 from nasa_farm.acquire.soilgrids import SoilGridsClient
+from nasa_farm.acquire.support import coverage, sample
 from nasa_farm.lake import Catalog, store
 
 
@@ -54,7 +59,7 @@ def _power(fields: list[dict], root: Path, cat: Catalog,
             vals = np.array([d.get(param, {}).get(k, np.nan)
                              for d, y in zip(raw, years) for k in keys[y]],
                             np.float32)
-            grp, var = ("obs", "sm") if param == "GWETROOT" \
+            grp, var = ("obs", "smg") if param == "GWETROOT" \
                 else ("forcing", CANON.get(param, param))
             n = store.put(root, f["id"], grp, var, dates, vals)
             cat.set_series(f["id"], grp, var,
@@ -66,8 +71,10 @@ def _soil(fields: list[dict], root: Path, cat: Catalog, log,
           client: SoilGridsClient | None = None) -> None:
     client = client or SoilGridsClient()
     for f in fields:
-        store.attrs(root, f["id"],
-                    soil=dataclasses.asdict(client.profile(f["lat"], f["lon"])))
+        lo, mid, hi = client.bounds(f["lat"], f["lon"])
+        store.attrs(root, f["id"], soil=dataclasses.asdict(mid),
+                    soil_lo=dataclasses.asdict(lo),
+                    soil_hi=dataclasses.asdict(hi))
         log(f"soil {f['id']} ok")
 
 
@@ -91,29 +98,37 @@ def _granule_id(res) -> str:
 
 @dataclass(frozen=True, slots=True)
 class GranuleSpec:
-    """One granule product → one obs channel."""
+    """One granule product → one obs channel.
+
+    vars: candidate dataset names, resolved in order — products rename
+    bands between versions; radius_km: nominal footprint for the
+    extraction kernel (0 = nearest); qc: QA-band confidence map.
+    """
     source: EarthdataSource
     obs: str
-    var: str
+    vars: tuple[str, ...]
     group: str | None = None
+    radius_km: float = 0.0
+    qc: QcSpec | None = None
 
 
-SMAP_SM = GranuleSpec(SMAP_L4, obs="sm", var="soil_moisture",
-                      group="Soil_Moisture_Retrieval_Data_AM")
-ECO_ET = GranuleSpec(ECOSTRESS_SEB, obs="et", var="ETdaily")
-ECO_LST = GranuleSpec(ECOSTRESS_MET, obs="lst", var="LST")
-GRANULE_SPECS = {"smap": SMAP_SM, "ecostress-seb": ECO_ET,
-                 "ecostress-met": ECO_LST}
+SMAP_SM = GranuleSpec(
+    SMAP_L4, obs="sm", vars=("soil_moisture",),
+    group="Soil_Moisture_Retrieval_Data_AM", radius_km=18.0, qc=SMAP_QC)
+NISAR_SM = GranuleSpec(
+    NISAR_SME, obs="sme2", radius_km=0.2, qc=FLAG_QC,
+    vars=("soil_moisture", "soilMoisture", "soil_moisture_pmi",
+          "PMI", "DSG", "TSR"))
+ECO_ET = GranuleSpec(ECOSTRESS_SEB, obs="et", vars=("ETdaily",),
+                     radius_km=0.5, qc=FLAG_QC)
+ECO_LST = GranuleSpec(ECOSTRESS_MET, obs="lst", vars=("LST",),
+                      radius_km=0.5, qc=FLAG_QC)
+GRANULE_SPECS = {"smap": SMAP_SM, "nisar": NISAR_SM,
+                 "ecostress-seb": ECO_ET, "ecostress-met": ECO_LST}
 
 
-def sample(ds: xr.Dataset, var: str, lat: float, lon: float) -> float:
-    """Nearest-point sample — regular (lat/lon dims) or 2-D grids."""
-    da = ds[var]
-    if "lat" in da.dims and "lon" in da.dims:
-        return float(da.sel(lat=lat, lon=lon, method="nearest").values.ravel()[0])
-    lats, lons = ds["lat"].values, ds["lon"].values
-    flat = np.nanargmin((lats - lat) ** 2 + (lons - lon) ** 2)
-    return float(da.values.flat[flat])
+def _resolve(ds: xr.Dataset, vars: tuple[str, ...]) -> str | None:
+    return next((v for v in vars if v in ds), None)
 
 
 def _nldas(fields: list[dict], root: Path, cat: Catalog,
@@ -166,12 +181,24 @@ def _granules(spec: GranuleSpec, fields: list[dict], root: Path,
                 day = _granule_date(gid)
                 kw = {"group": spec.group} if spec.group else {}
                 with xr.open_dataset(path, engine="h5netcdf", **kw) as ds:
+                    var = _resolve(ds, spec.vars)
+                    if var is None:
+                        log(f"{spec.obs} {gid} skip (no var "
+                            f"{spec.vars})")
+                        continue
+                    conf = spec.qc.mask(ds) if spec.qc else None
+                    di = np.array([day], np.int32)
                     for f in fields:
-                        v = sample(ds, spec.var, f["lat"], f["lon"])
-                        if np.isfinite(v):
+                        v = sample(ds, var, f["lat"], f["lon"],
+                                   spec.radius_km, conf)
+                        w = coverage(ds, var, f["lat"], f["lon"],
+                                     spec.radius_km, conf)
+                        if np.isfinite(v) and w > 0.0:
                             n = store.put(root, f["id"], "obs", spec.obs,
-                                          np.array([day], np.int32),
-                                          np.array([v], np.float32))
+                                          di, np.array([v], np.float32))
+                            store.put(root, f["id"], "obs",
+                                      f"{spec.obs}_w", di,
+                                      np.array([w], np.float32))
                             cat.set_series(f["id"], "obs", spec.obs,
                                            0, day, n, spec.source.short_name)
                 Path(path).unlink(missing_ok=True)

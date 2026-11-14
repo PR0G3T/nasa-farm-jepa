@@ -31,6 +31,9 @@ class Spec:
     noise: float = 0.05                  # relative observation noise
     perturb: dict[str, float] = field(default_factory=dict)
     """truth = prior traits × scale, e.g. {"rue": 0.8} — the twin gap."""
+    extra: tuple[str, ...] = ()
+    """extra processes active in the truth model only (dynamics.EXTRAS
+    names) — a structural model gap beyond parametric perturbation."""
     obs_channels: tuple[str, ...] = ("ndvi", "sm1", "vwc")
     """satellite channels for assimilation (observe.CHANNELS names)."""
     channels: tuple[str, ...] = ("yield_kg",)

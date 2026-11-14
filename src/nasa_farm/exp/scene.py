@@ -90,7 +90,7 @@ def scene(spec: Spec) -> Scene:
     for p, s in spec.perturb.items():
         tbl[i_c, IDX[p]] *= s
     truth = WorldModel(CropLibrary(table=tbl, names=crops.names),
-                       residual=False)
+                       residual=False, extra=spec.extra)
     return Scene(crops=crops, field=field, forcing_t=forcing_t,
                  forcing_e=forcing_e, actions=actions, truth=truth,
                  prior=WorldModel(crops, residual=False))

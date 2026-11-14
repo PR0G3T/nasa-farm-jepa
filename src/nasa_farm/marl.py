@@ -87,3 +87,61 @@ def fit_marl(model, field: Field, forcing: Forcing, base: Actions,
            "reward_spread": round(float(r.detach().std()), 4),
            "history": hist}
     return policies, rep
+
+
+def eval_policies(model, field: Field, forcing: Forcing, base: Actions,
+                  policies: list, budget: float = 15.0, price: float = 0.05,
+                  weights: dict[str, float] | None = None,
+                  u_scale: float = 1.0,
+                  ) -> tuple[torch.Tensor, torch.Tensor]:
+    """Roll the coupled system under fixed policies → (per-agent reward,
+    per-agent water used). Inference-only mirror of the fit_marl loop."""
+    b, days = field.batch, forcing.days
+    if forcing.batch == 1 and b > 1:
+        forcing = forcing.repeat(b)
+    weights = weights or DEFAULT_WEIGHTS
+    fld, used = field, torch.zeros(b, dtype=DTYPE)
+    acc = SeasonAccumulator(b, max(1, days // 365))
+    with torch.inference_mode():
+        for t in range(days):
+            ad = base.day(t)
+            feats = _day_feats(model, fld.state, forcing.day(t), ad)
+            u = torch.cat([policies[i](feats[i:i + 1])
+                           for i in range(b)]) * u_scale
+            ad = cap_budget({**ad, "irrigation": u[:, 0],
+                             "n_fert": u[:, 1]}, budget)
+            used = used + ad["irrigation"]
+            fld, fl = model.step(fld, ad, forcing.day(t), t)
+            acc(t, fld.state, fl)
+    m = acc.result().unsqueeze(1)
+    return metric_reward(m, weights) - price * used, used
+
+
+def nash_gap(model, field: Field, forcing: Forcing, base: Actions,
+             policies: list, budget: float = 15.0, price: float = 0.05,
+             levels: tuple[float, ...] = (0.0, 5.0, 10.0, 20.0, 30.0),
+             weights: dict[str, float] | None = None,
+             u_scale: float = 1.0) -> dict:
+    """Per-agent best-response regret under the shared budget.
+
+    For each agent, every constant irrigation level is substituted for its
+    policy output (others held fixed); the gap between the best response
+    and the achieved reward quantifies distance from Nash equilibrium.
+    """
+    r, _ = eval_policies(model, field, forcing, base, policies, budget,
+                         price, weights, u_scale)
+    gaps = []
+    for i in range(field.batch):
+        best = float(r[i])
+        for u in levels:
+            def pol(f, _p=policies[i], _u=u):
+                out = _p(f).clone()
+                out[:, 0] = _u
+                return out
+            alt = list(policies)
+            alt[i] = pol
+            ri, _ = eval_policies(model, field, forcing, base, alt, budget,
+                                  price, weights, u_scale)
+            best = max(best, float(ri[i]))
+        gaps.append(round(best - float(r[i]), 4))
+    return {"nash_gap": gaps, "mean_gap": round(sum(gaps) / len(gaps), 4)}

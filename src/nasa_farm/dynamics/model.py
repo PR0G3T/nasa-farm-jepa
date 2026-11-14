@@ -23,8 +23,9 @@ from nasa_farm.dynamics import water
 from nasa_farm.dynamics.atmosphere import (
     day_length, et0_penman_monteith, extraterrestrial_radiation,
 )
+from nasa_farm.dynamics.extra import EXTRAS, step_extra
 from nasa_farm.dynamics.hjepa import HLatent
-from nasa_farm.dynamics.latent import LatentDyn
+from nasa_farm.dynamics.latent import OPS, FactorDyn, LatentDyn
 from nasa_farm.dynamics.residual import RESIDUAL_VARS, ResidualNet, featurize
 from nasa_farm.state.crops import IDX, CropLibrary
 from nasa_farm.state.field import Field, FieldState
@@ -42,6 +43,9 @@ class WorldModel(nn.Module):
                  latent_dim: int = 0, latent_hidden: int = 64,
                  stochastic: bool = False, ctx_dim: int = 0,
                  latent_strides: tuple[int, ...] = (),
+                 latent_factors: dict[str, tuple[int, ...]] | str | None = None,
+                 link: str = "identity",
+                 extra: tuple[str, ...] = (),
                  diffusion: bool = False,
                  nn_dtype: torch.dtype = DTYPE,
                  seed: int | None = None) -> None:
@@ -54,9 +58,15 @@ class WorldModel(nn.Module):
         # dynamics. Kept out of crop_table — it is a model parameter.
         self.var_emb = (nn.Parameter(self.crops.var.clone())
                         if self.crops.var is not None else None)
-        z_dim = latent_dim * max(len(latent_strides), 1)
+        parts = (OPS if latent_factors == "ops" else latent_factors) or None
+        z_dim = (latent_dim * len(parts) if parts
+                 else latent_dim * max(len(latent_strides), 1))
         lctx = ctx_dim + (self.var_emb.shape[1] if self.var_emb is not None
                           else 0)
+        for n in extra:
+            if n not in EXTRAS:
+                raise KeyError(f"unknown extra process: {n}")
+        self.extra = tuple(extra)
         # latent z conditions the residual: what the physics does not model
         # gets to correct the physics — the physics-anchored JEPA contract.
         # diffusion=True: the residual also emits process-noise variances,
@@ -66,12 +76,14 @@ class WorldModel(nn.Module):
                          if residual else None)
         self.latent = None
         if latent_dim:
-            if len(latent_strides) > 1:
+            if parts:
+                self.latent = FactorDyn(latent_dim, parts, latent_hidden, lctx)
+            elif len(latent_strides) > 1:
                 self.latent = HLatent(latent_dim, latent_hidden,
                                       latent_strides, stochastic, lctx)
             else:
                 self.latent = LatentDyn(latent_dim, latent_hidden,
-                                        stochastic, lctx)
+                                        stochastic, lctx, link=link)
         self._gen = (torch.Generator().manual_seed(seed)
                      if seed is not None else None)
         if nn_dtype != DTYPE:
@@ -258,6 +270,10 @@ class WorldModel(nn.Module):
             depth=s.depth,
             tair=0.5 * (forcing_d["tmin"] + forcing_d["tmax"]),
         )
+
+        if self.extra:
+            new_state = step_extra(self.extra, new_state, field.soil,
+                                   forcing_d, action, wflux)
 
         if self.residual is not None or (self.latent is not None and z is not None):
             feats = self._features(new_state, forcing_d, action)

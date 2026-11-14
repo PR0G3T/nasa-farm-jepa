@@ -25,7 +25,7 @@ def eig(obs_pred: torch.Tensor, r: torch.Tensor | float) -> torch.Tensor:
     spread, so days where members disagree rank highest.
     """
     r_t = torch.as_tensor(r, dtype=obs_pred.dtype, device=obs_pred.device)
-    cyy = obs_pred.var(unbiased=True)
+    cyy = obs_pred.var(unbiased=obs_pred.numel() > 1)
     return 0.5 * torch.log1p(cyy / r_t.clamp(min=1e-12))
 
 
@@ -86,3 +86,54 @@ def plan_schedule(model, field: Field, forcing: Forcing, actions: Actions,
             row[2] *= 1.0 - 0.9 * torch.exp(
                 torch.tensor(-abs(row[0] - t) / tau, dtype=DTYPE)).item()
     return out
+
+
+def fisher_design(model, field: Field, forcing: Forcing, actions: Actions,
+                  traits: tuple[str, ...], days: tuple[int, ...],
+                  channels: tuple[str, ...], r: float = 1.0,
+                  eps: float = 0.05,
+                  n_pick: int | None = None,
+                  ) -> list[tuple[int, str, float]]:
+    """Trait-oriented design: rank (day, channel) by Fisher information.
+
+    One rollout per perturbed trait gives the sensitivity Jacobian
+    J[t, c, p] = d obs / d trait (finite difference on eps·trait); the
+    marginal gain of a candidate is log1p of its Fisher contribution —
+    the measurement that most reduces trait equifinality ranks first.
+    Costs len(traits)+1 rollouts total.
+    """
+    import copy
+
+    from nasa_farm.state.crops import IDX
+    cand = set(days)
+    snap: dict[int, object] = {}
+
+    def cache(t: int, state, fluxes) -> None:
+        if t in cand:
+            snap[t] = state
+
+    def obs_at(m) -> dict[int, torch.Tensor]:
+        snap.clear()
+        with torch.inference_mode():
+            m.rollout(field, forcing, actions, observer=cache)
+        return {t: observables(snap[t], channels) for t in days if t in snap}
+
+    base = obs_at(model)
+    j = {t: torch.zeros(len(channels), len(traits)) for t in base}
+    for p_i, name in enumerate(traits):
+        m2 = copy.deepcopy(model)
+        with torch.no_grad():
+            col = IDX[name]
+            m2.crop_table[:, col] = m2.crop_table[:, col] * (1.0 + eps)
+        pert = obs_at(m2)
+        for t in j:
+            j[t][:, p_i] = ((pert[t] - base[t]).abs().mean(0)
+                           / (eps * float(model.crop_table[:, col].abs()
+                                          .mean()) + 1e-9))
+    ranked = []
+    for t, jt in j.items():
+        for c_i, c in enumerate(channels):
+            gain = float(torch.log1p((jt[c_i] ** 2).sum() / r))
+            ranked.append((t, c, round(gain, 6)))
+    ranked.sort(key=lambda x: -x[2])
+    return ranked[:n_pick] if n_pick is not None else ranked

@@ -101,6 +101,79 @@ def aci(alpha_t: float, err: bool, target: float = 0.1,
     return alpha_t + gamma * (target - float(err))
 
 
+class LocalConformal:
+    """Localized split conformal: kernel weights around each test point.
+
+    Standard conformal assumes all calibration residuals are exchangeable
+    with the test residual; heteroscedastic or shifted settings violate
+    that locally. Here the calibration set is reweighted by a Gaussian
+    kernel on feature distance (Guan's localizer), so each test point
+    calibrates against its similar neighbors — marginal coverage is kept
+    by the weighted-quantile machinery and conditional coverage improves
+    where similarity is informative.
+    """
+
+    def __init__(self, alpha: float = 0.1, bw: float | None = None,
+                 floor: float = 0.05) -> None:
+        self.alpha, self.bw, self.floor = alpha, bw, floor
+        self.scores: torch.Tensor | None = None
+        self.x: torch.Tensor | None = None
+
+    def fit(self, pred: torch.Tensor, y: torch.Tensor,
+            x: torch.Tensor) -> "LocalConformal":
+        """x: (N, F) calibration features (any distance-meaningful space)."""
+        self.scores = (pred - y).abs().flatten()
+        self.x = x.reshape(x.shape[0], -1)
+        if self.bw is None:                     # median-heuristic bandwidth
+            d = torch.cdist(self.x, self.x)
+            pos = d[d > 0]
+            self.bw = float(pos.median().clamp(min=1e-6)) \
+                if pos.numel() else 1.0
+        return self
+
+    def bound(self, pred: torch.Tensor, x: torch.Tensor,
+              ) -> tuple[torch.Tensor, torch.Tensor]:
+        """Per-point band: q_j = weighted conformal level near x_j."""
+        xt = x.reshape(x.shape[0], -1)
+        d = torch.cdist(xt, self.x)                          # (M, N)
+        w = torch.exp(-0.5 * (d / self.bw) ** 2) + self.floor
+        n = self.scores.numel()
+        q = min(1.0, math.ceil((n + 1) * (1.0 - self.alpha)) / n)
+        qs = torch.stack([weighted_quantile(self.scores, q, w[j])
+                          for j in range(xt.shape[0])]).reshape(pred.shape)
+        return pred - qs, pred + qs
+
+
+class PanelConformal:
+    """Online weighted conformal for panels — W-TQA-style calibration.
+
+    At each step the target unit borrows the other units' most recent
+    conformity scores, weighted by residual similarity (softmax of
+    η·corr over the rolling window) plus a uniform floor — coverage
+    holds marginally and tracks regime shifts the pooled split cannot.
+    The miscoverage level adapts online via ACI after every outcome.
+    """
+
+    def __init__(self, alpha: float = 0.1, eta: float = 3.0,
+                 gamma: float = 0.02, floor: float = 0.1,
+                 target: float = 0.1) -> None:
+        self.alpha_t, self.eta, self.gamma = alpha, eta, gamma
+        self.floor, self.target = floor, target
+
+    def bound(self, pred: float | torch.Tensor,
+              peers: torch.Tensor, sim: torch.Tensor
+              ) -> tuple[torch.Tensor, torch.Tensor]:
+        """peers (K,) other units' latest scores; sim (K,) similarity ∈ℝ."""
+        w = torch.softmax(self.eta * sim, 0) + self.floor / peers.numel()
+        q = conf_level(peers, self.alpha_t, w)
+        return pred - q, pred + q
+
+    def update(self, err: bool) -> float:
+        """Feed the realized miss → adapted alpha for the next round."""
+        self.alpha_t = aci(self.alpha_t, err, self.target, self.gamma)
+        return self.alpha_t
+
+
 def enbpi(pred: torch.Tensor, residuals: torch.Tensor,
           alpha: float = 0.1) -> tuple[torch.Tensor, torch.Tensor]:
     """Ensemble-batch prediction intervals: per-day band from the quantiles
@@ -109,3 +182,45 @@ def enbpi(pred: torch.Tensor, residuals: torch.Tensor,
     lo = torch.quantile(residuals, alpha / 2.0, dim=0)
     hi = torch.quantile(residuals, 1.0 - alpha / 2.0, dim=0)
     return pred + lo, pred + hi
+
+
+def spw_perturb(model, scale: float = 0.05,
+                gen: torch.Generator | None = None) -> dict:
+    """Stochastically perturbed weights: zero-cost ensemble member.
+
+    Gaussian noise on every learned tensor, scaled per-tensor by its std —
+    a weight-space analogue of forecast perturbations. Returns the backup
+    dict; `spw_restore` puts the originals back.
+    """
+    backup = {}
+    with torch.no_grad():
+        for n, p in model.named_parameters():
+            backup[n] = p.detach().clone()
+            p.add_(torch.randn(p.shape, generator=gen, dtype=p.dtype,
+                               device=p.device) * scale
+                   * p.std().clamp(min=1e-6))
+    return backup
+
+
+def spw_restore(model, backup: dict) -> None:
+    with torch.no_grad():
+        for n, p in model.named_parameters():
+            p.copy_(backup[n])
+
+
+def spw_rollout(model, field, forcing, actions, members: int = 8,
+                scale: float = 0.05, seed: int = 0) -> torch.Tensor:
+    """(S, B, H, M) seasonal metrics under weight perturbations — ensemble
+    spread at the cost of S rollouts and zero extra training."""
+    from nasa_farm.heads import SeasonAccumulator
+    gen = torch.Generator().manual_seed(seed)
+    out = []
+    for _ in range(members):
+        backup = spw_perturb(model, scale, gen)
+        with torch.inference_mode():
+            acc = SeasonAccumulator(field.batch, max(1, forcing.days // 365),
+                                    device=field.state.sw.device)
+            model.rollout(field, forcing, actions, observer=acc)
+            out.append(acc.result())
+        spw_restore(model, backup)
+    return torch.stack(out)

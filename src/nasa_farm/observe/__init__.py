@@ -14,7 +14,8 @@ from collections.abc import Callable
 import torch
 
 from nasa_farm.observe import optical, radiometer, sar
-from nasa_farm.observe.detect import infer_actions
+from nasa_farm.observe.detect import infer_actions, infer_irrigation
+from nasa_farm.observe.fill import fill_series, whittaker
 from nasa_farm.state.field import FieldState
 
 

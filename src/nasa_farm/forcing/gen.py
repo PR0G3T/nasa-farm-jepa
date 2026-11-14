@@ -1,15 +1,17 @@
-"""Generative weather forcing — noise-injection net trained on proper scores.
+"""Generative weather forcing — conditional flow matching on daily vectors.
 
-`WxGen` maps (seasonal phase, previous-day normalized weather, fresh noise)
-to the next day's normalized weather. Training minimizes the *energy score*
-— E‖X̂−y‖ − ½E‖X̂−X̂′‖ over K sampled members per day — a strictly proper
-multivariate scoring rule, so the learned ensemble preserves the joint
-precip × radiation × humidity dependence that compound heat–drought stress
-needs. One forward per member per day at sampling time.
+`WxGen` is a velocity net: conditioned on (seasonal phase, previous-day
+normalized weather, flow time τ), it transports standard noise to the next
+day's normalized weather by integrating the learned ODE dx/dτ = v. CFM
+regresses the analytic velocity x1 − x0 along the linear interpolant —
+simulation-free training that recovers the full joint conditional, so
+sampled members carry the true precip × radiation × humidity dependence
+compound stress needs. Sampling draws x0 ~ N(0, I) per member per day and
+integrates `steps` Euler steps — still autoregressive and seeded.
 
-The sampler is autoregressive and seeded: each member is a full-horizon
-trajectory, physically clamped back to the forcing contract (precip ≥ 0,
-tmax ≥ tmin, rh ∈ [0, 100]).
+The sampler clamps back to the physical forcing contract (precip ≥ 0,
+tmax ≥ tmin, rh ∈ [0, 100]). `energy_score` remains the ensemble
+diagnostic and optional fine-tune objective.
 
 Zero external data required: `fit_gen` trains on whatever history the
 caller has — synthetic years out of the box, POWER series when available.
@@ -27,6 +29,7 @@ from nasa_farm.types import Forcing
 
 W_VARS: tuple[str, ...] = ("tmin", "tmax", "srad", "precip", "rh", "u2")
 W_SCALE = torch.tensor([30.0, 40.0, 30.0, 50.0, 100.0, 10.0], dtype=DTYPE)
+NV = len(W_VARS)
 
 
 def _series_tensor(series: list[Forcing]) -> torch.Tensor:
@@ -39,26 +42,23 @@ def _series_tensor(series: list[Forcing]) -> torch.Tensor:
 
 
 class WxGen(nn.Module):
-    """Conditional one-step generator: (phase, v_{t-1}, eps) → v_t."""
+    """CFM velocity net: (phase, v_{t−1}, x_τ, τ) → dx/dτ toward v_t."""
 
-    def __init__(self, hidden: int = 128, depth: int = 3,
-                 noise_dim: int = 16) -> None:
+    def __init__(self, hidden: int = 128, depth: int = 3) -> None:
         super().__init__()
-        self.noise_dim = noise_dim
         layers: list[nn.Module] = []
-        d = 2 + len(W_VARS) + noise_dim
+        d = 2 + NV + NV + 1
         for _ in range(depth):
             layers += [nn.Linear(d, hidden), nn.SiLU()]
             d = hidden
-        layers += [nn.Linear(d, len(W_VARS))]
+        layers += [nn.Linear(d, NV)]
         self.net = nn.Sequential(*layers)
         self.to(DTYPE)
 
     def forward(self, phase: torch.Tensor, prev: torch.Tensor,
-                eps: torch.Tensor) -> torch.Tensor:
-        """phase (B,2) sin/cos doy, prev (B,6), eps (B,N) → v_t (B,6)."""
-        x = torch.cat([phase, prev, eps], dim=-1)
-        return prev + self.net(x)
+                x: torch.Tensor, tau: torch.Tensor) -> torch.Tensor:
+        """phase (B,2), prev (B,6), x (B,6), tau (B,1) → velocity (B,6)."""
+        return self.net(torch.cat([phase, prev, x, tau], dim=-1))
 
 
 def _phase(doy: torch.Tensor) -> torch.Tensor:
@@ -78,7 +78,8 @@ def energy_score(pred: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
 def fit_gen(series: list[Forcing], epochs: int = 400, lr: float = 2e-3,
             hidden: int = 128, members: int = 8,
             seed: int = 0, model: WxGen | None = None) -> WxGen:
-    """Energy-score training over every (day, series-row) transition."""
+    """CFM training over every (day, series-row) transition, vectorized:
+    one batch covers all (N × T−1) pairs per epoch."""
     v = _series_tensor(series)
     n, t = v.shape[0], v.shape[1]
     doy = series[0].doy[0]
@@ -87,17 +88,15 @@ def fit_gen(series: list[Forcing], epochs: int = 400, lr: float = 2e-3,
         torch.manual_seed(seed)
     opt = torch.optim.Adam(m.parameters(), lr=lr)
     gen = torch.Generator().manual_seed(seed)
+    prev = v[:, :-1].reshape(-1, NV)                          # (N·(T−1), 6)
+    x1 = v[:, 1:].reshape(-1, NV)
+    ph = _phase(doy[1:]).unsqueeze(0).expand(n, -1, -1).reshape(-1, 2)
     for _ in range(epochs):
         opt.zero_grad(set_to_none=True)
-        loss = torch.zeros((), dtype=DTYPE)
-        for s in range(1, t):
-            prev = v[:, s - 1].repeat_interleave(members, 0)  # (N·K, 6)
-            ph = _phase(doy[s].expand(n)).repeat_interleave(members, 0)
-            eps = torch.randn(n * members, m.noise_dim, generator=gen,
-                              dtype=DTYPE)
-            pred = m(ph, prev, eps).view(members, n, -1)
-            loss = loss + energy_score(pred, v[:, s])
-        loss = loss / (t - 1)
+        x0 = torch.randn_like(x1)
+        tau = torch.rand(len(x1), 1, generator=gen, dtype=DTYPE)
+        xt = (1.0 - tau) * x0 + tau * x1
+        loss = torch.nn.functional.mse_loss(m(ph, prev, xt, tau), x1 - x0)
         loss.backward()
         opt.step()
     return m
@@ -115,7 +114,8 @@ def _clamp(v: torch.Tensor) -> torch.Tensor:
 
 @torch.no_grad()
 def sample_gen(m: WxGen, days: int, n: int, start_doy: int = 1,
-               seed: int = 0, prev: torch.Tensor | None = None) -> Forcing:
+               seed: int = 0, steps: int = 8,
+               prev: torch.Tensor | None = None) -> Forcing:
     """(n, days) ensemble of forcing trajectories, reproducible by seed."""
     gen = torch.Generator().manual_seed(seed)
     ph = lambda d: _phase(torch.full((n,), float(d), dtype=DTYPE))
@@ -124,9 +124,13 @@ def sample_gen(m: WxGen, days: int, n: int, start_doy: int = 1,
          .expand(n, -1).clone())
     cols = []
     d = start_doy
+    taus = torch.linspace(0.0, 1.0, steps + 1, dtype=DTYPE)
     for _ in range(days):
-        eps = torch.randn(n, m.noise_dim, generator=gen, dtype=DTYPE)
-        v = _clamp(m(ph(d), v, eps))
+        x = torch.randn(n, NV, generator=gen, dtype=DTYPE)
+        for k in range(steps):
+            tau = taus[k].expand(n, 1)
+            x = x + m(ph(d), v, x, tau) * (1.0 / steps)
+        v = _clamp(x)
         cols.append(v)
         d = d % DAYS_PER_YEAR + 1
     w = torch.stack(cols, dim=1) * W_SCALE                    # (n, T, 6)

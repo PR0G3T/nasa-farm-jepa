@@ -205,6 +205,11 @@ def _site(point: Point, req: PlanRequest, crops: CropLibrary,
         field = Field(state=initial_state(1, soil), soil=soil,
                       lat=torch.tensor([point.lat], dtype=DTYPE))
         model = WorldModel(crops, residual=req.residual)
+        if req.residual and (root := os.environ.get("NASA_FARM_LAKE")):
+            pt = Path(root) / "residual.pt"
+            if pt.is_file():
+                model.residual.load_state_dict(
+                    torch.load(pt, weights_only=True))
         ev = evaluate(model, field, plans, ens,
                       irr_mm_day=req.irrig, n_fert_kg=req.fert,
                       workers=workers, device=device, compile=compile)
