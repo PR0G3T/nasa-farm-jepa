@@ -21,7 +21,7 @@ from pydantic import BaseModel, Field as PField
 
 from nasa_farm import CropLibrary, Field, WorldModel, initial_state
 from nasa_farm.acquire.power import PowerClient, series_to_forcing, series_to_wet
-from nasa_farm.acquire.soilgrids import SoilGridsClient
+from nasa_farm.acquire.soilgrid import SoilGridClient
 from nasa_farm.constants import DTYPE
 from nasa_farm.forcing import ensemble, synthetic_year
 from nasa_farm.plan import enumerate_rotations, evaluate, expand_actions, recommend
@@ -205,7 +205,7 @@ def _site(point: Point, req: PlanRequest, crops: CropLibrary,
         elif req.offline:
             soil = SoilProfile.preset("loam", depths=depths)
         else:
-            soil = SoilGridsClient().profile(point.lat, point.lon)
+            soil = SoilGridClient().profile(point.lat, point.lon)
 
         field = Field(state=initial_state(1, soil), soil=soil,
                       lat=torch.tensor([point.lat], dtype=DTYPE))

@@ -1,11 +1,14 @@
 """Lake → training tensors — the shared contract with the live path.
 
-Series come straight out of `lake.db` packed blobs into numpy arrays;
-`vars_to_forcing` stays the single source of truth for fill/clamp so
-train-on-lake and serve-on-live produce identical forcings by
-construction. Reads open the lake read-only — no files are created, and
-a missing `lake.db` raises `FileNotFoundError` (callers' documented
-fallback to live sources).
+Forcing series rebuild through `vars_to_forcing` — the same converter
+the live path uses — so train and serve can never diverge. Observation
+series land under canonical names as (dates, values, weights) triples —
+weights come from the `{var}_w` coverage shards the crawler writes next
+to every footprint-sampled obs, so QA propagates into the loss rather
+than a plain mask.
+
+Reads open `lake.db` read-only (no files created); a missing lake raises
+`FileNotFoundError` — the callers' documented fallback to live sources.
 """
 
 from __future__ import annotations
@@ -24,6 +27,7 @@ from nasa_farm.types import Forcing
 
 OBS_VARS = ("sm", "sme2", "et", "lst", "ndvi")
 PROXY_VARS = ("smg",)
+"""Model-produced context series — never a training target."""
 
 
 @contextmanager
@@ -36,7 +40,7 @@ def _lk(x):
 
 
 def _param_map(L: Lake, fid: str) -> dict[str, dict[str, float]]:
-    """Canonical-name → {yyyymmdd: value} as vars_to_forcing expects."""
+    """Lake forcing shards → canonical {var: {yyyymmdd: v}} dict."""
     out: dict[str, dict[str, float]] = {}
     for p in FORCING_VARS:
         if (s := L.get(fid, "forcing", p)) is not None:
@@ -56,7 +60,6 @@ def _forcings(L: Lake, fid: str, years: list[int]) -> list[Forcing]:
 
 def forcings(root: Lake | Path | str, fid: str,
              years: list[int]) -> list[Forcing]:
-    """Rebuild per-year forcings from lake series."""
     with _lk(root) as L:
         return _forcings(L, fid, years)
 
@@ -69,7 +72,7 @@ def _wet(L: Lake, fid: str) -> np.ndarray | None:
 
 
 def wetness(root: Lake | Path | str, fid: str) -> np.ndarray | None:
-    """Wetness series: observed sm, else POWER proxy smg."""
+    """Observed root-zone wetness; falls back to the POWER model proxy."""
     with _lk(root) as L:
         return _wet(L, fid)
 
@@ -83,20 +86,38 @@ def _targets(L: Lake, fid: str) -> dict:
     return out
 
 
-def targets(root: Lake | Path | str, fid: str) -> dict:
-    """Observed targets: {var: (dates, values, weights|None)}."""
+def targets(root: Lake | Path | str, fid: str
+            ) -> dict[str, tuple[np.ndarray, np.ndarray, np.ndarray | None]]:
+    """Observed channel targets — (dates, values, weights) per channel."""
     with _lk(root) as L:
         return _targets(L, fid)
 
 
-def emb(root: Lake | Path | str, fid: str, name: str = "aef"):
-    """Foundation-model embedding as a flat f32 array, or None."""
+def emb(root: Lake | Path | str, fid: str, name: str = "aef"
+        ) -> np.ndarray | None:
+    """Foundation-model embedding vector, or None."""
     with _lk(root) as L:
         return L.vec(fid, name)
 
 
-def dataset(root: Lake | Path | str, fids: list[str],
-            years: list[int]) -> dict:
+def soil(d: dict | None) -> SoilProfile | None:
+    """Stored profile dict → SoilProfile; None passes through."""
+    if d is None:
+        return None
+    return SoilProfile(**{k: torch.as_tensor(np.asarray(v), dtype=DTYPE)
+                          for k, v in d.items()})
+
+
+def soil_sample(d_lo: dict | None, d_hi: dict | None, n: int, seed: int = 0
+                ) -> SoilProfile | None:
+    """Stored Q05/Q95 dicts → n-member uncertainty ensemble."""
+    lo, hi = soil(d_lo), soil(d_hi)
+    return None if lo is None or hi is None \
+        else SoilProfile.sample(lo, hi, n, seed)
+
+
+def dataset(root: Lake | Path | str, fids: list[str], years: list[int]
+            ) -> dict[str, dict]:
     """Full training batch for `fids` — one lake open for all of them."""
     with _lk(root) as L:
         return {fid: {"forcings": _forcings(L, fid, years),
@@ -109,34 +130,8 @@ def dataset(root: Lake | Path | str, fids: list[str],
                 for fid in fids}
 
 
-def soil(d: dict) -> SoilProfile:
-    """SoilGrid attrs dict → SoilProfile (shared with live crawl)."""
-    return SoilProfile(
-        clay=float(d["clay"]), sand=float(d["sand"]), bd=float(d["bd"]),
-        soc=float(d.get("soc", 15.0)), ph=float(d.get("ph", 6.5)),
-        depth=float(d.get("depth", 150.0)),
-    )
-
-
-def soil_sample(lo: dict, hi: dict, n: int,
-                seed: int = 0) -> list[SoilProfile]:
-    """n profiles sampled uniformly within the [lo, hi] uncertainty box —
-    stochastic soil ensemble for risk-aware objectives."""
-    rng = np.random.default_rng(seed)
-    keys = ("clay", "sand", "bd", "soc", "ph")
-    out = []
-    for i in range(n):
-        d = {"depth": lo.get("depth", 150.0)}
-        for k in keys:
-            a, b = float(lo.get(k, np.nan)), float(hi.get(k, np.nan))
-            d[k] = float(a + (b - a) * rng.random()) if a == a and b == b \
-                else float(lo.get(k, {"clay": 30, "sand": 30, "bd": 1.35,
-                                      "soc": 15.0, "ph": 6.5}[k]))
-        out.append(soil(d))
-    return out
-
-
-def to_tensors(obs: dict) -> dict[str, torch.Tensor]:
-    """{var: (dates, values, w)} → {var: value tensor} — for the loss."""
-    return {v: torch.as_tensor(np.asarray(x[1]), dtype=DTYPE)
-            for v, x in obs.items()}
+def to_tensors(obs: dict[str, tuple]) -> dict[str, tuple]:
+    return {v: (torch.from_numpy(np.asarray(d)),
+                torch.from_numpy(np.asarray(x)),
+                None if w is None else torch.from_numpy(np.asarray(w)))
+            for v, (d, x, w) in obs.items()}

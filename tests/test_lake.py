@@ -31,7 +31,9 @@ class TestCal:
     def test_monotone(self):
         seq = [19991231, 20000101, 20231231, 20240101,
                20240228, 20240229, 20240301]
-        assert np.all(np.diff(to_ord(np.array(seq))) == 1)
+        assert np.all(np.diff(to_ord(np.array(seq))) > 0)
+        run = [20240227, 20240228, 20240229, 20240301, 20240302]
+        assert np.all(np.diff(to_ord(np.array(run))) == 1)
 
 
 class TestSeries:
@@ -72,9 +74,12 @@ class TestSeries:
         assert np.array_equal(v, np.array(
             [model[k] for k in sorted(model)], np.float32))
 
-    @given(st.lists(st.integers(20200101, 20201231), min_size=1, max_size=48))
+    @given(st.lists(
+        st.dates(min_value=dt.date(2020, 1, 1),
+                 max_value=dt.date(2020, 12, 31)),
+        min_size=1, max_size=48, unique=True))
     def test_codec_roundtrip(self, days):
-        d = np.array(sorted(set(days)), np.int32)
+        d = np.array(sorted(_ymd(x) for x in days), np.int32)
         v = np.arange(len(d), dtype=np.float32)
         d2, v2 = decode(*encode(d, v))
         assert np.array_equal(d2, d) and np.array_equal(v2, v)

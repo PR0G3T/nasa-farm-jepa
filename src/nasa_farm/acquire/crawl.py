@@ -1,30 +1,43 @@
-"""Batch acquisition → lake: POWER + soil always; SMAP/ECOSTRESS/NLDAS
-when configured.
+"""Crawler — batch acquisition into the lake, resumable via granule marks.
 
-Every source lands inside `Lake.tx()` units sized so a crash can never
+Two regimes, one sink:
+- point APIs (POWER, SoilGrids): per-field fetches, raw dumps land under
+  `forcing/` (+ `obs/smg` for GWETROOT — a model proxy, not a retrieval)
+  and `soil`/`soil_lo`/`soil_hi` attrs for profile-uncertainty sampling;
+- granule products (SMAP, NISAR, ECOSTRESS, NLDAS-3): searched once over
+  the union bbox, each file downloaded once, every field extracted by
+  footprint-weighted sampling under the product's QA confidence map —
+  O(fields) extraction per O(1) download — then marked so re-runs skip
+  them. Each obs lands with a `{var}_w` coverage weight. Files are
+  deleted after sampling.
+
+Every write lands inside `Lake.tx()` units sized so a crash can never
 leave data written but unmarked: one tx per POWER field, per NLDAS
-field-month (marks replayed in the same tx as the writes they cover),
-and per satellite granule (all field puts + its mark). `has_granule`
-makes every granule-level source resumable; `put` merging makes POWER
-re-crawls converge for free.
+field-month (marks commit with the writes they cover — a mid-month crash
+re-downloads the month, never silently skips it), and per satellite
+granule (all field puts + the mark). `put` is a no-op on unchanged
+merges, so re-crawls write nothing.
 """
 
 from __future__ import annotations
 
+import dataclasses
 import datetime as dt
-import json
+import tempfile
 from concurrent.futures import ThreadPoolExecutor
 from itertools import groupby
 from pathlib import Path
+from typing import Callable, Iterable
 
 import numpy as np
+import xarray as xr
 
 from nasa_farm.acquire.base import BBox, Temporal
+from nasa_farm.acquire.earthdata import granule_day, granule_id
 from nasa_farm.acquire.power import CANON, PowerClient
+from nasa_farm.acquire.products import SPECS as GRANULE_SPECS, Spec
 from nasa_farm.acquire.soilgrid import SoilGridClient
 from nasa_farm.lake import Lake
-
-from .products import SPECS as GRANULE_SPECS
 
 
 def _day_keys(years: list[int]) -> dict[int, list[str]]:
@@ -39,7 +52,8 @@ def _day_keys(years: list[int]) -> dict[int, list[str]]:
 
 
 def _power(fields: list[dict], lake: Lake, years: list[int],
-           workers: int, log, client: PowerClient | None = None) -> None:
+           workers: int, log,
+           client: PowerClient | None = None) -> None:
     """POWER daily point series per field — one tx per field."""
     client = client or PowerClient()
     for f in fields:
@@ -61,29 +75,29 @@ def _power(fields: list[dict], lake: Lake, years: list[int],
 
 def _soil(fields: list[dict], lake: Lake, log,
           client: SoilGridClient | None = None) -> None:
-    """SoilGrid profiles → field attrs (single-shot per field)."""
+    """SoilGrids Q05/Q50/Q95 profiles → field attrs (profile dicts)."""
     client = client or SoilGridClient()
     for f in fields:
-        d = client.sample(f["lat"], f["lon"])
-        lo = dict(d, clay=d["clay_lo"], sand=d["sand_lo"], bd=d["bd_lo"])
-        hi = dict(d, clay=d["clay_hi"], sand=d["sand_hi"], bd=d["bd_hi"])
-        lake.attrs(f["id"], soil=d, soil_lo=lo, soil_hi=hi)
+        lo, mid, hi = client.bounds(f["lat"], f["lon"])
+        lake.attrs(f["id"], soil=dataclasses.asdict(mid),
+                   soil_lo=dataclasses.asdict(lo),
+                   soil_hi=dataclasses.asdict(hi))
         log(f"soil {f['id']} ok")
 
 
 def _nldas(fields: list[dict], lake: Lake, years: list[int], log) -> None:
-    """NLDAS-2 CONUS forcing — one tx per field-month: writes + marks land
-    together, so a crash mid-month re-downloads the month, never silently
-    skips it."""
+    """NLDAS-3 daily forcing → canonical shards; one open per day feeds
+    every in-domain field. Days accumulate in memory per field and flush
+    with their marks in one tx per month — no read-modify-write per day."""
     from nasa_farm.acquire import nldas
     na = [f for f in fields if nldas.covers(f["lat"], f["lon"])]
     if not na:
         log("nldas: no fields in domain")
         return
-    days = [dt.date(y, m, d)
-            for y in years for m in range(1, 13)
-            for d in range(1, (dt.date(y + (m == 12), m % 12 + 1, 1)
-                               - dt.date(y, m, 1)).days + 1)]
+    fs = nldas._fs()
+    days = [dt.date(years[0], 1, 1) + dt.timedelta(i)
+            for i in range((dt.date(years[-1], 12, 31)
+                            - dt.date(years[0], 1, 1)).days + 1)]
     for (y, m), mdays in groupby(days, key=lambda d: (d.year, d.month)):
         pend: dict[str, dict[str, list]] = {f["id"]: {} for f in na}
         marked: list[str] = []
@@ -92,7 +106,7 @@ def _nldas(fields: list[dict], lake: Lake, years: list[int], log) -> None:
             if lake.has_granule(key):
                 continue
             try:
-                ds = nldas.open_day(day, nldas._fs())
+                ds = nldas.open_day(day, fs)
             except (OSError, KeyError, ValueError) as e:
                 log(f"nldas {day} skip ({e})")
                 continue
@@ -118,37 +132,51 @@ def _nldas(fields: list[dict], lake: Lake, years: list[int], log) -> None:
         log(f"nldas {y}-{m:02d} ok")
 
 
-def _granule(work):
-    spec, g, fields = work
-    from nasa_farm.observe import fetch
-    try:
-        ds = fetch(spec.source, g, BBox(*spec.bbox), Temporal(spec.span))
-    except (OSError, ValueError, KeyError) as e:
-        return g.id, f"skip ({type(e).__name__})"
-    with ds:
-        day = spec.day_of(ds)
-        return g.id, (day, {
-            f["id"]: (float(spec.read(ds, f["lat"], f["lon"])),
-                      float(spec.coverage(ds, f["lat"], f["lon"])))
-            for f in fields
-        })
+def _granule(res, spec: Spec, fields: list[dict], tmp: str
+             ) -> tuple[int, dict[str, tuple[float, float]]] | None:
+    """Download + extract one granule → {fid: (v, w)}. Pure I/O — the
+    caller serializes lake writes."""
+    import earthaccess
+    gid = granule_id(res)
+    out = {}
+    for path in earthaccess.download([res], tmp) or []:
+        day = granule_day(gid)
+        kw = {"group": spec.source.group} if spec.source.group else {}
+        with xr.open_dataset(path, engine="h5netcdf",
+                             phony_dims="access", **kw) as ds:
+            if spec.var(ds) is None:
+                return None
+            for f in fields:
+                v = spec.read(ds, f["lat"], f["lon"])
+                w = spec.coverage(ds, f["lat"], f["lon"])
+                if np.isfinite(v) and w > 0.0:
+                    out[f["id"]] = (v, w)
+        Path(path).unlink(missing_ok=True)
+    return day, out
 
 
-def _granules(spec, fields: list[dict], lake: Lake,
-              temporal: Temporal, log) -> None:
+def _granules(spec: Spec, fields: list[dict], lake: Lake,
+              temporal: Temporal, log, workers: int = 4) -> None:
     """Satellite granules → obs series + coverage weights — one tx per
     granule (all field puts + the mark), so re-crawl never re-downloads."""
-    results = spec.source.search(
-        BBox(*spec.bbox), temporal, limit=spec.limit)
-    todo = [g for g in results if not lake.has_granule(g.id)]
-    log(f"{spec.obs}: {len(todo)}/{len(results)} new granules")
-    if not todo:
+    import earthaccess
+    earthaccess.login(strategy="environment")
+    aoi = BBox(min(f["lon"] for f in fields), min(f["lat"] for f in fields),
+               max(f["lon"] for f in fields), max(f["lat"] for f in fields))
+    results = [r for r in spec.source.fetch(aoi, temporal, count=spec.limit)
+               if not lake.has_granule(granule_id(r))]
+    log(f"{spec.obs}: {len(results)} granules to fetch")
+    if not results:
         return
-    def work(g): return _granule((spec, g, fields))
-    with ThreadPoolExecutor(max_workers=spec.workers) as pool:
-        for gid, got in pool.map(work, todo):
-            if not isinstance(got, tuple):
-                log(f"{spec.obs} {gid} {got}")
+
+    def work(res):
+        with tempfile.TemporaryDirectory() as tmp:
+            return granule_id(res), _granule(res, spec, fields, tmp)
+
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        for gid, got in pool.map(work, results):
+            if got is None:
+                log(f"{spec.obs} {gid} skip (no var)")
                 continue
             day, vals = got
             di = np.array([day], np.int32)
@@ -163,17 +191,14 @@ def _granules(spec, fields: list[dict], lake: Lake,
             log(f"{spec.obs} {gid} ok")
 
 
-def crawl(fields: list[dict], root: Path | str,
-          years: list[int] | None = None,
-          sources: tuple[str, ...] = ("power", "soil"),
-          workers: int = 8, log=print,
+def crawl(fields: Iterable[dict], root: Path | str, years: list[int],
+          sources: tuple[str, ...] = ("power", "soil"), workers: int = 8,
+          log: Callable[[str], None] = print,
           power: PowerClient | None = None,
-          soil: SoilGridClient | None = None) -> Path:
+          soil: SoilGridClient | None = None) -> None:
     """Fetch everything `sources` covers for `fields` into `lake.db`."""
-    fields = [dict(f) for f in fields]
-    years = years or [dt.date.today().year]
-    temporal = Temporal(f"{min(years)}-01-01", f"{max(years)}-12-31")
-    root = Path(root)
+    root, fields = Path(root), [dict(f) for f in fields]
+    temporal = Temporal(f"{years[0]}-01-01", f"{years[-1]}-12-31")
     root.mkdir(parents=True, exist_ok=True)
     with Lake(root) as lake:
         with lake.tx():
@@ -188,11 +213,3 @@ def crawl(fields: list[dict], root: Path | str,
         for name, spec in GRANULE_SPECS.items():
             if name in sources:
                 _granules(spec, fields, lake, temporal, log)
-    return root
-
-
-def load_fields(path: Path | str) -> list[dict]:
-    """Field list JSON: [{id, lat, lon, name?}] — '-' reads stdin."""
-    import sys
-    raw = sys.stdin.read() if str(path) == "-" else Path(path).read_text()
-    return json.loads(raw)

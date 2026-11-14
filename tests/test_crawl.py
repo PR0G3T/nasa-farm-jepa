@@ -8,10 +8,11 @@ import pytest
 import torch
 import xarray as xr
 
-from nasa_farm.acquire.crawl import _day_keys, _granule_date, crawl
+from nasa_farm.acquire.crawl import _day_keys, crawl
+from nasa_farm.acquire.earthdata import granule_day
 from nasa_farm.acquire.support import sample
 from nasa_farm.acquire.power import PowerClient, series_to_forcing
-from nasa_farm.lake import get
+from nasa_farm.lake import Lake
 from nasa_farm.optimize.data import forcings, targets
 
 
@@ -32,9 +33,9 @@ class TestHelpers:
         assert len(keys[2024]) == 365 and "20240229" not in keys[2024]
         assert len(keys[2025]) == 365
 
-    def test_granule_date(self):
-        assert _granule_date("SPL3SMP_E.007_20230115T120000.h5") == 20230115
-        assert _granule_date("ECO_L3G_SEB_doy2023180") == 20230629
+    def testgranule_day(self):
+        assert granule_day("SPL3SMP_E.007_20230115T120000.h5") == 20230115
+        assert granule_day("ECO_L3G_SEB_doy2023180") == 20230629
 
     def test_sample_1d(self):
         ds = xr.Dataset(
@@ -60,10 +61,11 @@ class TestCrawl:
         f = {"id": "F1", "lat": 48.0, "lon": 1.5}
         crawl([f], tmp_path, [2024, 2025], sources=("power",),
               power=client, log=lambda m: None)
-        d, v = get(tmp_path, "F1", "obs", "smg")
-        assert len(d) == 730 and np.allclose(v, 0.6)
-        d, v = get(tmp_path, "F1", "forcing", "precip")
-        assert len(d) == 730 and "20240229" not in d.astype(str)
+        with Lake(tmp_path) as L:
+            d, v = L.get("F1", "obs", "smg")
+            assert len(d) == 730 and np.allclose(v, 0.6)
+            d, v = L.get("F1", "forcing", "precip")
+            assert len(d) == 730 and "20240229" not in d.astype(str)
 
     def test_lake_forcing_matches_live(self, tmp_path):
         """Crawled forcing rebuilds to the same Forcing as the live path."""
@@ -82,7 +84,7 @@ class TestCrawl:
 
     def test_targets(self, tmp_path):
         d = np.array([20240101], np.int32)
-        from nasa_farm.lake import put
-        put(tmp_path, "F1", "obs", "et", d, np.array([2.5], np.float32))
+        with Lake(tmp_path) as L:
+            L.put("F1", "obs", "et", d, np.array([2.5], np.float32))
         t = targets(tmp_path, "F1")
         assert "et" in t and t["et"][1][0] == pytest.approx(2.5)

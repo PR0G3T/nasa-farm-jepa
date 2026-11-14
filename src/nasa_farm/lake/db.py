@@ -137,7 +137,8 @@ class Lake:
             self.db.execute("COMMIT")
 
     def _w(self):
-        return nullcontext() if self._depth else self.tx()
+        """Autocommit outside tx; inside, statements join the open tx."""
+        return nullcontext()
 
     def close(self) -> None:
         if self._depth:

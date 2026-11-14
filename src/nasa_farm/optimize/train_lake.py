@@ -1,6 +1,5 @@
 """Residual training on lake observations — differentiable rollout vs
-observed wetness (retrieval `sm`, or the POWER `smg` proxy when no
-retrieval product covers the field).
+observed wetness (retrieval `sm`).
 
 Loss: observation-weighted MSE between model `sm_vol` root mean and the
 observed channel at matching dates, over each field's forcing years.
@@ -56,7 +55,7 @@ def train(root: Path | str, fids: list[str], years: list[int],
     losses = {}
     for fid in fids:
         ds = dataset(root, [fid], years)[fid]
-        obs = ds["obs"].get("sm") or ds["obs"].get("smg")
+        obs = ds["obs"].get("sm")
         if not ds["forcings"] or obs is None:
             continue
         soil = soil_of(ds["soil"]) or SoilProfile.preset("loam")
