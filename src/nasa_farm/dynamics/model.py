@@ -83,7 +83,7 @@ class WorldModel(nn.Module):
             s.gdd, s.vern, s.heat_acc, s.biomass, tr,
             forcing_d["tmin"], forcing_d["tmax"], forcing_d["srad"],
             daylen, forcing_d.get("co2"),
-            water_fac, n_fac, s.growing, s.lai,
+            water_fac, n_fac, s.growing,
         )
         vern, heat_acc = cflux["vern_new"], cflux["heat_new"]
 

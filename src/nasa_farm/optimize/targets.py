@@ -75,7 +75,8 @@ def synthetic_observation(model, field: Field, forcing: Forcing,
     if noise > 0:
         gen = torch.Generator().manual_seed(seed)
         obs_cells = torch.isfinite(values)
-        values = values + torch.randn(values.shape, generator=gen) \
+        values = values + torch.randn(values.shape, generator=gen,
+                                      dtype=values.dtype) \
             * noise * values.abs().clamp(min=1.0) * obs_cells
     return ObservedTrajectory(values=values)
 

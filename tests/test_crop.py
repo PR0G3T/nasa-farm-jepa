@@ -55,7 +55,7 @@ class TestCanopyStep:
             t(gdd0), t(0.0), t(0.0), t(0.0), tr,
             t(kw.get("tmin", 15.0)), t(kw.get("tmax", 28.0)),
             t(kw.get("srad", 25.0)), None, None,
-            t(water), t(n), torch.tensor([growing]), t(0.0))
+            t(water), t(n), torch.tensor([growing]))
 
     def test_gdd_accumulates_when_growing(self, crops):
         gdd, _, _, _ = self._step(crops)
@@ -90,7 +90,7 @@ class TestCanopyStep:
         gdd0 = tr[0, IDX["gdd_mat"]] - 1.0
         _, _, _, f = canopy_step(t(float(gdd0)), t(0.0), t(0.0), t(5000.0), tr,
                                  t(20.0), t(30.0), t(25.0), None, None,
-                                 t(1.0), t(1.0), torch.tensor([True]), t(5.0))
+                                 t(1.0), t(1.0), torch.tensor([True]))
         assert bool(f["mature"][0])
 
 
@@ -146,10 +146,10 @@ class TestPhotoperiod:
         tr = crops.get("soybean").unsqueeze(0)
         g1, *_ = canopy_step(t(100.0), t(0.0), t(0.0), t(0.0), tr,
                              t(15.0), t(25.0), t(20.0), None, None,
-                             t(1.0), t(1.0), torch.tensor([True]), t(0.0))
+                             t(1.0), t(1.0), torch.tensor([True]))
         g2, *_ = canopy_step(t(100.0), t(0.0), t(0.0), t(0.0), tr,
                              t(15.0), t(25.0), t(20.0), t(12.0), None,
-                             t(1.0), t(1.0), torch.tensor([True]), t(0.0))
+                             t(1.0), t(1.0), torch.tensor([True]))
         assert float(g1) == pytest.approx(float(g2))
 
 
@@ -162,7 +162,7 @@ class TestVernalization:
         gate = float(tr[0, IDX["gdd_fl"]] * tr[0, IDX["gdd_mat"]])
         gdd, *_ = canopy_step(t(gate), t(0.0), t(0.0), t(3000.0), tr,
                               t(15.0), t(25.0), t(20.0), None, None,
-                              t(1.0), t(1.0), torch.tensor([True]), t(2.0))
+                              t(1.0), t(1.0), torch.tensor([True]))
         assert float(gdd) <= gate + 1e-9
 
     def test_vernalized_proceeds(self, crops):
@@ -170,18 +170,18 @@ class TestVernalization:
         gate = float(tr[0, IDX["gdd_fl"]] * tr[0, IDX["gdd_mat"]])
         gdd, *_ = canopy_step(t(gate), t(50.0), t(0.0), t(3000.0), tr,
                               t(15.0), t(25.0), t(20.0), None, None,
-                              t(1.0), t(1.0), torch.tensor([True]), t(2.0))
+                              t(1.0), t(1.0), torch.tensor([True]))
         assert float(gdd) > gate
 
     def test_chill_accumulates_only_in_window(self, crops):
         tr = self._wheat(crops)
         args = (tr, t(0.0), t(5.0), t(5.0), None, None,
-                t(1.0), t(1.0), torch.tensor([True]), t(0.0))
+                t(1.0), t(1.0), torch.tensor([True]))
         *_, f_cool = canopy_step(t(0.0), t(10.0), t(0.0), t(0.0), *args)
         assert float(f_cool["vern_new"]) == pytest.approx(11.0)
         *_, f_hot = canopy_step(t(0.0), t(10.0), t(0.0), t(0.0), tr,
                                 t(15.0), t(30.0), t(5.0), None, None,
-                                t(1.0), t(1.0), torch.tensor([True]), t(0.0))
+                                t(1.0), t(1.0), torch.tensor([True]))
         assert float(f_hot["vern_new"]) == pytest.approx(10.0)  # no chill
 
 
@@ -190,14 +190,14 @@ class TestFrost:
         tr = crops.get("maize").unsqueeze(0)  # t_kill −2
         _, _, _, f = canopy_step(t(500.0), t(0.0), t(0.0), t(2000.0), tr,
                                  t(-5.0), t(2.0), t(10.0), None, None,
-                                 t(1.0), t(1.0), torch.tensor([True]), t(2.0))
+                                 t(1.0), t(1.0), torch.tensor([True]))
         assert bool(f["frost"][0]) and bool(f["mature"][0])
 
     def test_hardy_crop_survives_same_frost(self, crops):
         tr = crops.get("wheat").unsqueeze(0)  # t_kill −15
         _, _, _, f = canopy_step(t(500.0), t(0.0), t(0.0), t(2000.0), tr,
                                  t(-5.0), t(2.0), t(10.0), None, None,
-                                 t(1.0), t(1.0), torch.tensor([True]), t(2.0))
+                                 t(1.0), t(1.0), torch.tensor([True]))
         assert not bool(f["frost"][0]) and not bool(f["mature"][0])
 
     def test_frost_salvages_partial_yield(self, crops):
@@ -215,7 +215,7 @@ class TestHeatStress:
         def inc(gdd0):
             *_, f = canopy_step(t(gdd0), t(0.0), t(0.0), t(0.0), tr,
                                 t(25.0), t(40.0), t(25.0), None, None,
-                                t(1.0), t(1.0), torch.tensor([True]), t(3.0))
+                                t(1.0), t(1.0), torch.tensor([True]))
             return float(f["heat_dd"])
 
         assert inc(lo - 50.0) == 0.0
@@ -251,8 +251,8 @@ class TestCO2:
         args = (t(15.0), t(28.0), t(25.0), None)
         *_, f0 = canopy_step(t(800.0), t(0.0), t(0.0), t(5000.0), tr,
                              *args, None, t(1.0), t(1.0),
-                             torch.tensor([True]), t(3.0))
+                             torch.tensor([True]))
         *_, f4 = canopy_step(t(800.0), t(0.0), t(0.0), t(5000.0), tr,
                              *args, t(420.0), t(1.0), t(1.0),
-                             torch.tensor([True]), t(3.0))
+                             torch.tensor([True]))
         assert float(f0["delta_b"]) == pytest.approx(float(f4["delta_b"]))

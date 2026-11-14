@@ -11,8 +11,20 @@ import math
 
 import torch
 
+import torch.nn.functional as F
+
 from nasa_farm.constants import DAYS_PER_YEAR, DTYPE
 from nasa_farm.types import Forcing
+
+
+def ou_noise(b: int, t: int, rho: float, gen: torch.Generator) -> torch.Tensor:
+    """Unit-variance AR(1) noise (b, t) — temporally correlated perturbations."""
+    e = torch.randn(b, t, generator=gen, dtype=DTYPE)
+    k = min(t, 60)
+    w = (rho ** torch.arange(k, dtype=DTYPE)) * math.sqrt(1.0 - rho ** 2)
+    x = F.conv1d(e.unsqueeze(1), w.flip(0).view(1, 1, -1),
+                 padding=k - 1)[..., :t]
+    return x.squeeze(1)
 
 
 def synthetic_year(
@@ -71,7 +83,6 @@ def augment(f: Forcing, n: int, rho: float = 0.6,
     single deterministic forcing becomes an (B·(n+1), T) scenario ensemble —
     cheap probabilistic forcing for risk metrics and robust control.
     """
-    from nasa_farm.control import ou_noise
     B, T = f.batch, f.days
     g = torch.Generator().manual_seed(seed)
     e = [ou_noise(B * n, T, rho, g) for _ in range(5)]

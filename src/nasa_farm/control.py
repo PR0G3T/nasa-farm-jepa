@@ -15,9 +15,9 @@ import math
 from dataclasses import dataclass
 
 import torch
-import torch.nn.functional as F
 
 from nasa_farm.constants import DTYPE
+from nasa_farm.forcing import ou_noise
 from nasa_farm.heads import METRICS, SeasonAccumulator
 from nasa_farm.state.field import Field
 from nasa_farm.types import Actions, Forcing
@@ -26,16 +26,6 @@ DEFAULT_WEIGHTS: dict[str, float] = {
     "yield_kg": 1.0, "water_used": -0.3, "n_leached": -2.0,
     "stress_days": -3.0, "frost_days": -50.0, "heat_dd": -2.0,
 }
-
-
-def ou_noise(b: int, t: int, rho: float, gen: torch.Generator) -> torch.Tensor:
-    """Unit-variance AR(1) noise (b, t) — temporally correlated control moves."""
-    e = torch.randn(b, t, generator=gen, dtype=DTYPE)
-    k = min(t, 60)
-    w = (rho ** torch.arange(k, dtype=DTYPE)) * math.sqrt(1.0 - rho ** 2)
-    x = F.conv1d(e.unsqueeze(1), w.flip(0).view(1, 1, -1),
-                 padding=k - 1)[..., :t]
-    return x.squeeze(1)
 
 
 @dataclass(frozen=True, slots=True)

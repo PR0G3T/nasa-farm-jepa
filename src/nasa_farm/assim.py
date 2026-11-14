@@ -41,7 +41,7 @@ def enkf_update(state: FieldState, obs_pred: torch.Tensor,
     r_t = torch.as_tensor(r, dtype=x.dtype, device=x.device)
     cyy = ya.t() @ ya / (b - 1) \
         + torch.diag(r_t.expand(obs.numel()))
-    k = cxy @ torch.linalg.inv(cyy)                 # (V,C)
+    k = torch.linalg.solve(cyy, cxy.t()).t()        # (V,C) — never invert
     if perturb:
         noise = torch.randn(b, obs.numel(), generator=gen,
                             dtype=x.dtype, device=x.device) * r_t.sqrt()

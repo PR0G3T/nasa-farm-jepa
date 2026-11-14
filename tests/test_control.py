@@ -4,8 +4,8 @@ import pytest
 import torch
 
 from nasa_farm.constants import DTYPE
-from nasa_farm.control import mppi, ou_noise
-from nasa_farm.forcing import augment, synthetic_year
+from nasa_farm.control import mppi
+from nasa_farm.forcing import augment, ou_noise, synthetic_year
 from nasa_farm.heads import METRICS, SeasonAccumulator
 from nasa_farm.state.field import Field, initial_state
 from nasa_farm.types import Actions

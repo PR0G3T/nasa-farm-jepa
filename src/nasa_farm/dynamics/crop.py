@@ -58,7 +58,7 @@ def co2_factor(co2_ppm: torch.Tensor, tr: torch.Tensor, ref_ppm: float = 420.0) 
 
 
 def _vern_update(vern: torch.Tensor, tmean: torch.Tensor,
-                 tr: torch.Tensor, growing: torch.Tensor) -> torch.Tensor:
+                 growing: torch.Tensor) -> torch.Tensor:
     """Chill-day accumulation while growing; state preserved when fallow."""
     eff = ((tmean > VERN_T_LO) & (tmean < VERN_T_HI)).to(vern.dtype)
     return torch.where(growing, vern + eff, vern)
@@ -87,7 +87,6 @@ def canopy_step(
     water_fac: torch.Tensor,
     nitrogen_fac: torch.Tensor,
     growing: torch.Tensor,
-    lai: torch.Tensor,
 ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, dict[str, torch.Tensor]]:
     """Advance phenology + biomass one day. Returns (gdd', lai', biomass', fluxes).
 
@@ -98,7 +97,7 @@ def canopy_step(
     active = growing.to(gdd.dtype)
     tmean = 0.5 * (tmin + tmax)
 
-    vern_new = _vern_update(vern, tmean, tr, growing)
+    vern_new = _vern_update(vern, tmean, growing)
     pp = 1.0 if daylen is None else photoperiod_factor(daylen, tr)
     gdd_new = gdd + growing_degree_days(tmin, tmax, tr[:, IDX["tbase"]]) * pp * active
 
