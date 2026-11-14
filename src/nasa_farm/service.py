@@ -23,7 +23,7 @@ from nasa_farm import CropLibrary, Field, WorldModel, initial_state
 from nasa_farm.acquire.power import PowerClient, series_to_forcing, series_to_wet
 from nasa_farm.acquire.soilgrids import SoilGridsClient
 from nasa_farm.constants import DTYPE
-from nasa_farm.forcing import climatology_ensemble, synthetic_year
+from nasa_farm.forcing import ensemble, synthetic_year
 from nasa_farm.plan import enumerate_rotations, evaluate, expand_actions, recommend
 from nasa_farm.state.soil import DEPTHS, SoilProfile
 from nasa_farm.types import Actions, Forcing
@@ -57,6 +57,8 @@ class PlanRequest(BaseModel):
     irrig: float = PField(default=0.0, ge=0, le=50)
     fert: float = PField(default=0.0, ge=0, le=500)
     co2: float = PField(default=420.0, ge=200, le=1500)
+    source: str = "power"
+    members: int = PField(default=16, ge=1, le=51)
     soil: str | None = None
     depths: list[float] | None = None
     residual: bool = True
@@ -189,9 +191,12 @@ def _site(point: Point, req: PlanRequest, crops: CropLibrary,
           workers: int, device: str, compile: str) -> SiteResult:
     try:
         series, sm = _forcings(req, point)
-        ens = climatology_ensemble(
-            series, req.horizon,
-            delta_t=req.delta_t, precip_scale=req.precip_scale)
+        source = req.source if not req.offline else (
+            "power" if req.source == "power" else "synth")
+        ens = ensemble(source, point.lat, point.lon, (),
+                       req.horizon, req.members, 0, hist=series)
+        if req.delta_t or req.precip_scale != 1.0:
+            ens = ens.perturb(req.delta_t, req.precip_scale)
         ens = dataclasses.replace(
             ens, co2=torch.full_like(ens.tmin, req.co2))
 

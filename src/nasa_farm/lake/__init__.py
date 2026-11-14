@@ -1,15 +1,13 @@
-"""Data lake — crawled observations stored once, trained from forever.
+"""Data lake — one SQLite file (`lake.db`) for every crawled observation.
 
-Layout: one zarr group per field, series as `{group}/{var}/{dates,values}`.
-`forcing/` keeps source-native names (raw dump, feeds `series_to_forcing`);
-`obs/` keeps canonical `observe/` channel names (sm, sme2, et, lst, ndvi)
-with a `{var}_w` coverage-weight shard beside every footprint-sampled
-series; `smg` holds the POWER root-zone proxy — context, not a target.
-`emb/` stores foundation-model embedding vectors (2-D values).
-The sqlite catalog tracks coverage and processed granules — resumable.
+`series` packs each `{grp}/{var}` time series as zstd'd int32-ordinal +
+float32 blobs with coverage columns, `fields` keeps sites + JSONB attrs
+(soil profiles, names), `granules` makes crawls resumable, `emb` stores
+foundation-model vectors. `Lake` auto-migrates a legacy `*.zarr` +
+`catalog.db` layout on first open; `migrate` runs it on demand.
 """
 
-from nasa_farm.lake.catalog import Catalog
-from nasa_farm.lake.store import get, put
+from nasa_farm.lake.db import Lake
+from nasa_farm.lake.migrate import migrate
 
-__all__ = ["Catalog", "get", "put"]
+__all__ = ["Lake", "migrate"]

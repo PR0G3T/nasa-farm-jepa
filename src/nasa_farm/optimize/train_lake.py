@@ -87,6 +87,8 @@ def train(root: Path | str, fids: list[str], years: list[int],
 
 if __name__ == "__main__":
     import sys
+    from nasa_farm.lake import Lake
     root = Path(sys.argv[1] if len(sys.argv) > 1 else "lake")
-    fids = sorted(p.stem for p in root.glob("*.zarr"))
+    with Lake(root) as L:
+        fids = L.fids()
     print(train(root, fids, list(range(2021, 2026)), out=root / "residual.pt"))

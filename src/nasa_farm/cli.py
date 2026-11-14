@@ -57,6 +57,12 @@ def _plan_flags(pl: argparse.ArgumentParser) -> None:
                     help="TOML file; CLI flags override config values")
     pl.add_argument("--co2", type=float, default=420.0, help="ppm scenario")
     pl.add_argument("--offline", action="store_true", help="synthetic forcing, no network")
+    pl.add_argument("--source", default="power",
+                    choices=("power", "ens", "seas5", "synth"),
+                    help="forcing ensemble source: power climatology, "
+                         "operational IFS ENS / SEAS5 (Open-Meteo), synthetic")
+    pl.add_argument("--members", type=int, default=16,
+                    help="ensemble members for forecast sources (≤51)")
     pl.add_argument("--no-residual", action="store_true")
 
 
@@ -203,6 +209,8 @@ def _req(args, points: list[Point], **over) -> PlanRequest:
               years=args.years, delta_t=args.delta_t,
               precip_scale=args.precip_scale, irrig=args.irrig,
               fert=args.fert, co2=args.co2, soil=args.soil,
+              source=getattr(args, "source", "power"),
+              members=getattr(args, "members", 16),
               residual=not args.no_residual, offline=args.offline,
               top_k=args.top_k,
               depths=([float(x) for x in args.depths.split(",")]

@@ -231,13 +231,15 @@ class InverseDyn(nn.Module):
             layers += [nn.Linear(hidden, hidden), nn.SiLU()]
         layers += [nn.Linear(hidden, 2), nn.Softplus()]
         self.net = nn.Sequential(*layers)
+        self.register_buffer("x_mu", torch.zeros(d, dtype=DTYPE))
+        self.register_buffer("x_sd", torch.ones(d, dtype=DTYPE))
         self.to(torch.float64)
 
     def forward(self, feats: torch.Tensor, goal: torch.Tensor,
                 rem: torch.Tensor) -> torch.Tensor:
         g = goal.unsqueeze(0) if goal.dim() == 1 else goal
-        return self.net(torch.cat(
-            [feats, g.expand(feats.shape[0], -1), rem], dim=-1))
+        x = torch.cat([feats, g.expand(feats.shape[0], -1), rem], dim=-1)
+        return self.net((x - self.x_mu) / self.x_sd)
 
 
 def fit_idm(model, demos: list[tuple[Field, Forcing, Actions]],
@@ -268,10 +270,13 @@ def fit_idm(model, demos: list[tuple[Field, Forcing, Actions]],
     x, y = torch.cat(rows_x), torch.cat(rows_y)
     torch.manual_seed(seed)
     idm = InverseDyn(g.shape[-1], hidden=hidden)
+    idm.x_mu.copy_(x.mean(0))
+    idm.x_sd.copy_(x.std(0).clamp(min=1e-6))
     opt = torch.optim.Adam(idm.parameters(), lr=lr)
+    xn = (x - idm.x_mu) / idm.x_sd
     for _ in range(epochs):
         opt.zero_grad(set_to_none=True)
-        loss = (idm.net(x) - y).pow(2).mean()
+        loss = (idm.net(xn) - y).pow(2).mean()
         loss.backward()
         opt.step()
     return idm

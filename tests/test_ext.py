@@ -141,7 +141,7 @@ def test_diffusion_reproducible(crops, field, warm_year):
 # ── forcing/gen energy score ──────────────────────────────────────────
 
 def test_energy_score_proper():
-    from nasa_farm.forcing.gen import energy_score
+    from nasa_farm.metrics import energy_score
     g = torch.Generator().manual_seed(0)
     y = torch.randn(16, 6, generator=g, dtype=DTYPE)
     good = y + 0.01 * torch.randn(4, 16, 6, generator=g, dtype=DTYPE)

@@ -56,6 +56,9 @@ def members_to_forcing(dates: list[str],
     fall back to physical defaults so partial products still satisfy the
     FORCING_VARS contract."""
     ids = sorted(cols)[:members]
+    keep = [i for i, d in enumerate(dates)
+            if not d.endswith("-02-29")]        # POWER drops Feb 29
+    dates = [dates[i] for i in keep]
     n = len(dates)
 
     def col(var: str) -> torch.Tensor:
@@ -65,7 +68,8 @@ def members_to_forcing(dates: list[str],
             s = cols[i].get(api)
             v = (torch.full((n,), _FILL.get(var, 0.0), dtype=DTYPE)
                  if s is None else
-                 torch.tensor(s, dtype=DTYPE).nan_to_num(_FILL.get(var, 0.0)))
+                 torch.tensor([s[i] for i in keep],
+                              dtype=DTYPE).nan_to_num(_FILL.get(var, 0.0)))
             rows.append(v.clamp(_LO.get(var, float("-inf")),
                                 _HI.get(var, float("inf"))))
         return torch.stack(rows) if rows else torch.zeros(0, n, dtype=DTYPE)
