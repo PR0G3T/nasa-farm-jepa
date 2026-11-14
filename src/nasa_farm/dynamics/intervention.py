@@ -120,29 +120,29 @@ class Response(nn.Module):
         self.register_buffer("scale", scale.to(DTYPE))
         self.to(DTYPE)
 
-    def forward(self, feats: torch.Tensor, edit: torch.Tensor,
+    def forward(self, features: torch.Tensor, edit: torch.Tensor,
                 mask: torch.Tensor, context: torch.Tensor | None = None
                 ) -> torch.Tensor:
         scale = self.scale.to(edit.device)
         mb = mask.to(edit.dtype)
         if mb.dim() == 1:
-            mb = mb.expand(feats.shape[0], -1)
-        x = [feats, edit / scale, mb]
+            mb = mb.expand(features.shape[0], -1)
+        x = [features, edit / scale, mb]
         if self.context_dimension:
             c = (context if context is not None else
-                 torch.zeros(feats.shape[0], self.context_dimension, dtype=feats.dtype,
-                            device=feats.device))
-            x.append(c.to(feats.dtype))
+                 torch.zeros(features.shape[0], self.context_dimension, dtype=features.dtype,
+                            device=features.device))
+            x.append(c.to(features.dtype))
         output = torch.tanh(self.net(torch.cat(x, dim=-1))) * scale
         return output * (1.0 - mb)
 
 
 def apply_response(state: FieldState, response: Response,
-                   feats: torch.Tensor, mask: torch.Tensor,
+                   features: torch.Tensor, mask: torch.Tensor,
                    soil: SoilProfile | None = None,
                    context: torch.Tensor | None = None) -> FieldState:
     """edit_state + predicted propagation on the unmasked complement."""
-    delta = response(feats, get_variables(state), mask, context)
+    delta = response(features, get_variables(state), mask, context)
     return put_variables(state, get_variables(state) + delta, soil)
 
 
@@ -159,8 +159,8 @@ def whatif(model, field: Field, forcing: Forcing, actions: Actions,
     if response is not None:
         fd = forcing.day(min(day, forcing.days - 1))
         action = actions.day(min(day, actions.days - 1))
-        feats = model._features(s, fd, action)
-        s = apply_response(s, response, feats, mask, field.soil, field.context)
+        features = model._features(s, fd, action)
+        s = apply_response(s, response, features, mask, field.soil, field.context)
     field = Field(state=s, soil=field.soil, latitude=field.latitude, elevation=field.elevation,
                   context=field.context)
     for t in range(day, forcing.days):
@@ -202,7 +202,7 @@ def fit_response(model, response: Response, field: Field, forcing: Forcing,
     for _ in range(epochs):
         total = torch.zeros((), dtype=DTYPE)
         for t, (st, fd, action) in snapshot.items():
-            feats = model._features(st, fd, action).detach()
+            features = model._features(st, fd, action).detach()
             for _ in range(edits_per_day):
                 m = (torch.rand(e, generator=generation) < 0.4)
                 if not m.any() or m.all():
@@ -218,7 +218,7 @@ def fit_response(model, response: Response, field: Field, forcing: Forcing,
                     d_t = get_variables(model.step(edited, action, fd, t)[0].state) \
                         - get_variables(model.step(edited, action, fd, t)[0].state)
                 edited = torch.where(m, v, get_variables(st))
-                predicted = response(feats, edited, m, field.context)
+                predicted = response(features, edited, m, field.context)
                 total = total + (((predicted - d_t) * (~m).to(DTYPE)) /
                                  EDIT_SCALE_T).pow(2).mean()
         opt.zero_grad(set_to_none=True)

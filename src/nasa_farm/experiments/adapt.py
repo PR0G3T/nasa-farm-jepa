@@ -102,9 +102,9 @@ def run(specification: Specification) -> dict:
                          task=_task_reward, task_w=0.1, **keywords)
     ev_op = _obs_rmse(model, truth_f, f_op, sc, specification)
 
-    r_base = path_integral(model, blank, f0, sc.actions, iters=3, samples=16,
+    r_base = path_integral(model, blank, f0, sc.actions, iterations=3, samples=16,
                   seed=specification.seed).reward
-    r_ad = path_integral(model, f_op, f0, sc.actions, iters=3, samples=16,
+    r_ad = path_integral(model, f_op, f0, sc.actions, iterations=3, samples=16,
                 seed=specification.seed).reward
 
     return {"obs_rmse": {"frozen": ev_frozen,

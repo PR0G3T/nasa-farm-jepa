@@ -101,15 +101,15 @@ class Residual(nn.Module):
         """Full Sequential view (kept for tests/tooling)."""
         return nn.Sequential(*self.body, self.head)
 
-    def forward(self, feats: torch.Tensor,
+    def forward(self, features: torch.Tensor,
                 context: torch.Tensor | None = None) -> torch.Tensor:
         if self.context_dimension:
             if context is None:
-                context = feats.new_zeros(feats.shape[0], self.context_dimension)
-            feats = torch.cat([feats, context.to(feats.dtype)], dim=-1)
-        h = self.body(feats)
+                context = features.new_zeros(features.shape[0], self.context_dimension)
+            features = torch.cat([features, context.to(features.dtype)], dim=-1)
+        h = self.body(features)
         if self.short is not None:
-            h = h + self.short(feats)
+            h = h + self.short(features)
         output = self.head(h)
         if self.diffusion:
             mean, log_variance = output.chunk(2, dim=-1)

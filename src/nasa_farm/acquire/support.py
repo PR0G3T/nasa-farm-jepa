@@ -39,7 +39,7 @@ def _coords(ds: xarray.Dataset, var: str) -> tuple[numpy.ndarray, numpy.ndarray]
     raise KeyError(f"no lat/lon coords among {[v for v in ds][:12]}")
 
 
-def dist_km(glat: numpy.ndarray, glon: numpy.ndarray,
+def distance(glat: numpy.ndarray, glon: numpy.ndarray,
             latitude: float, longitude: float) -> numpy.ndarray:
     """Equirectangular great-circle distance, km — exact within footprints."""
     dy = (glat - latitude) * KM_PER_DEG
@@ -122,14 +122,14 @@ def at(grid: tuple, latitude: float, longitude: float,
     """(footprint-weighted value, coverage) at one point on a `prep` grid —
     the dist/kernel math runs once per call instead of twice."""
     v, glat, glon, c = grid
-    w = kernel(dist_km(glat, glon, latitude, longitude), radius_km)
+    w = kernel(distance(glat, glon, latitude, longitude), radius_km)
     c = numpy.ones_like(w) if c is None else c
     ok = numpy.isfinite(v) & (c > 0.0) & (w > 0.0)
-    val = float((w[ok] * c[ok] * v[ok]).sum() / (w[ok] * c[ok]).sum()) \
+    value = float((w[ok] * c[ok] * v[ok]).sum() / (w[ok] * c[ok]).sum()) \
         if ok.any() else float("nan")
     total = w.sum()
     covariance = float((w * c * ok).sum() / total) if total > 0.0 else 0.0
-    return val, covariance
+    return value, covariance
 
 
 def sample(ds: xarray.Dataset, var: str, latitude: float, longitude: float,

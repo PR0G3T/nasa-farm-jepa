@@ -81,16 +81,16 @@ def nrmse(predicted: torch.Tensor, observed: torch.Tensor,
         return _NAN
     if norm == "auto":
         norm = "mean" if o.abs().mean() > _EPS else "sd"
-    den = {"mean": lambda: o.abs().mean(),
+    density = {"mean": lambda: o.abs().mean(),
            "sd": lambda: o.std() if o.numel() > 1 else o.new_ones(()),
            "range": lambda: o.max() - o.min()}[norm]()
-    return ((p - o) ** 2).mean().sqrt() / den.clamp(min=_EPS)
+    return ((p - o) ** 2).mean().sqrt() / density.clamp(min=_EPS)
 
 
 def _pearson(p: torch.Tensor, o: torch.Tensor) -> torch.Tensor:
     pc, oc = p - p.mean(), o - o.mean()
-    den = pc.norm() * oc.norm()
-    return (pc * oc).sum() / den.clamp(min=_EPS)
+    density = pc.norm() * oc.norm()
+    return (pc * oc).sum() / density.clamp(min=_EPS)
 
 
 def r2(predicted: torch.Tensor, observed: torch.Tensor) -> torch.Tensor:
@@ -134,8 +134,8 @@ def d_index(predicted: torch.Tensor, observed: torch.Tensor) -> torch.Tensor:
     if not p.numel():
         return _NAN
     number = ((p - o) ** 2).sum()
-    den = ((p - o.mean()).abs() + (o - o.mean()).abs()) ** 2
-    return 1.0 - number / den.sum().clamp(min=_EPS)
+    density = ((p - o.mean()).abs() + (o - o.mean()).abs()) ** 2
+    return 1.0 - number / density.sum().clamp(min=_EPS)
 
 
 def ccc(predicted: torch.Tensor, observed: torch.Tensor) -> torch.Tensor:
@@ -144,9 +144,9 @@ def ccc(predicted: torch.Tensor, observed: torch.Tensor) -> torch.Tensor:
     if p.numel() < 2:
         return _NAN
     number = 2.0 * ((p - p.mean()) * (o - o.mean())).mean()
-    den = p.var(correction=0) + o.var(correction=0) \
+    density = p.var(correction=0) + o.var(correction=0) \
         + (p.mean() - o.mean()) ** 2
-    return number / den.clamp(min=_EPS)
+    return number / density.clamp(min=_EPS)
 
 
 # ---------------------------------------------------------------------------

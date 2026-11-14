@@ -253,7 +253,7 @@ def test_fit_value_and_mppi_horizon(physics_model, field, warm_year):
     acts = Actions.idle(1, 90)
     net = fit_value(physics_model, field, f90, acts, every=30, epochs=5)
     assert isinstance(net, Value)
-    result = path_integral(physics_model, field, f90, acts, iters=1, samples=8,
+    result = path_integral(physics_model, field, f90, acts, iterations=1, samples=8,
                horizon=45, value=net, seed=0)
     assert result.reward == result.reward and result.actions.days == 90
 

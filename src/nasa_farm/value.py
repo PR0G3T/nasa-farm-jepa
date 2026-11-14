@@ -34,8 +34,8 @@ class Value(nn.Module):
         self.net = nn.Sequential(*layers)
         self.to(DTYPE)
 
-    def forward(self, feats: torch.Tensor) -> torch.Tensor:
-        return self.net(feats.to(DTYPE)).squeeze(-1)
+    def forward(self, features: torch.Tensor) -> torch.Tensor:
+        return self.net(features.to(DTYPE)).squeeze(-1)
 
 
 def _suffix_reward(model, field: Field, forcing: Forcing, actions: Actions,
@@ -82,9 +82,9 @@ def fit_value(model, field: Field, forcing: Forcing, actions: Actions,
                   elevation=field.elevation, context=field.context)
         y = _suffix_reward(model, f, forcing, actions, t, weights, risk,
                            alpha)
-        feats = model._features(st, forcing.day(min(t, days - 1)),
+        features = model._features(st, forcing.day(min(t, days - 1)),
                                 actions.day(min(t, actions.days - 1)))
-        xs.append(feats)
+        xs.append(features)
         ys.append(y)
     x = torch.cat(xs)
     y = torch.cat(ys)
@@ -102,6 +102,6 @@ def fit_value(model, field: Field, forcing: Forcing, actions: Actions,
 def terminal_value(model, net: Value, state, forcing_day: dict,
                    action_d: dict, gamma: float = 1.0) -> torch.Tensor:
     """γ·V(s_end) — the bootstrapped remainder of the season."""
-    feats = model._features(state, forcing_day, action_d)
+    features = model._features(state, forcing_day, action_d)
     with torch.inference_mode():
-        return gamma * net(feats)
+        return gamma * net(features)

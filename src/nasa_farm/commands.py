@@ -40,8 +40,8 @@ def _plan_flags(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--years", type=int, default=5, help="climatology depth")
     parser.add_argument("--delta-t", type=float, default=0.0, help="+°C scenario shift")
     parser.add_argument("--precip-scale", type=float, default=1.0)
-    parser.add_argument("--irrig", type=float, default=0.0, help="mm/day post-sowing")
-    parser.add_argument("--fert", type=float, default=0.0, help="kg N/ha at sow+30d")
+    parser.add_argument("--irrigation", type=float, default=0.0, help="mm/day post-sowing")
+    parser.add_argument("--fertilizer", type=float, default=0.0, help="kg N/ha at sow+30d")
     parser.add_argument("--soil", default=None, help="texture preset override")
     parser.add_argument("--depths", default=None,
                     help="layer thicknesses m, comma-sep (e.g. 0.3,0.6,0.9)")
@@ -68,18 +68,18 @@ def _plan_flags(parser: argparse.ArgumentParser) -> None:
 
 def _build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="nasa-farm")
-    sub = p.add_subparsers(dest="cmd", required=True)
+    sub = p.add_subparsers(dest="command", required=True)
 
     parser = sub.add_parser("plan", help="rank rotations for a field")
     _plan_flags(parser)
-    parser.add_argument("--lat", type=float, required=True)
-    parser.add_argument("--lon", type=float, required=True)
+    parser.add_argument("--latitude", type=float, required=True)
+    parser.add_argument("--longitude", type=float, required=True)
 
     ex2 = sub.add_parser("export", help="batch plan → static JSON for the app")
     _plan_flags(ex2)
     ex2.add_argument("--fields", required=True,
                      help="fields JSON path, or '-' for stdin")
-    ex2.add_argument("--out", required=True, help="output JSON path")
+    ex2.add_argument("--output", required=True, help="output JSON path")
     ex2.add_argument("--scenario", action="append", default=None,
                      help="name[:k=v,...] — repeatable; k ∈ "
                           + ",".join(sorted(SCENARIO_KEYS)))
@@ -87,7 +87,7 @@ def _build_parser() -> argparse.ArgumentParser:
     cr = sub.add_parser("crawl", help="batch acquisition → data lake")
     cr.add_argument("--fields", required=True,
                     help="fields JSON path, or '-' for stdin")
-    cr.add_argument("--out", default="lake", help="lake root dir")
+    cr.add_argument("--output", default="lake", help="lake root dir")
     cr.add_argument("--years", type=int, default=5)
     cr.add_argument("--sources", default="power,soil",
                     help="power,soil,smap,ecostress-seb,ecostress-met")
@@ -102,31 +102,31 @@ def _build_parser() -> argparse.ArgumentParser:
                     help="cloudflared quick tunnel → public URL")
 
     cal = sub.add_parser("calibrate", help="gradient HPO on a trait cell")
-    cal.add_argument("--lat", type=float, required=True)
-    cal.add_argument("--lon", type=float, required=True)
+    cal.add_argument("--latitude", type=float, required=True)
+    cal.add_argument("--longitude", type=float, required=True)
     cal.add_argument("--crop", default="maize")
-    cal.add_argument("--param", default="rue", help="trait name to perturb+recover")
+    cal.add_argument("--parameter", default="rue", help="trait name to perturb+recover")
     cal.add_argument("--scale", type=float, default=0.8,
                    help="synthetic truth = trait × scale")
     cal.add_argument("--channel", default="yield_kg", help="METRICS channel")
     cal.add_argument("--epochs", type=int, default=120)
-    cal.add_argument("--lr", type=float, default=0.05)
+    cal.add_argument("--rate", type=float, default=0.05)
 
     nas = sub.add_parser("nas", help="residual architecture search")
-    nas.add_argument("--lat", type=float, default=42.0)
-    nas.add_argument("--lon", type=float, default=-93.6)
+    nas.add_argument("--latitude", type=float, default=42.0)
+    nas.add_argument("--longitude", type=float, default=-93.6)
     nas.add_argument("--candidates", type=int, default=24)
     nas.add_argument("--top-k", type=int, default=8)
     nas.add_argument("--rungs", default="10,30,90", help="fit budgets, comma-sep")
     nas.add_argument("--seed", type=int, default=0)
 
     ct = sub.add_parser("control", help="MPPI irrigation/N scheduling")
-    ct.add_argument("--lat", type=float, default=42.0)
+    ct.add_argument("--latitude", type=float, default=42.0)
     ct.add_argument("--crop", default="maize")
     ct.add_argument("--scenarios", type=int, default=8,
                     help="forcing ensemble size")
     ct.add_argument("--samples", type=int, default=64)
-    ct.add_argument("--iters", type=int, default=6)
+    ct.add_argument("--iterations", type=int, default=6)
     ct.add_argument("--weights", default=None,
                     help="reward mix, e.g. yield_kg=1.0,n_leached=-0.5")
     ct.add_argument("--risk", default="mean",
@@ -140,8 +140,8 @@ def _build_parser() -> argparse.ArgumentParser:
 
     ex = sub.add_parser("exp", help="run a research experiment")
     ex.add_argument("name", choices=experiments())
-    ex.add_argument("--lat", type=float, default=42.0)
-    ex.add_argument("--lon", type=float, default=-93.6)
+    ex.add_argument("--latitude", type=float, default=42.0)
+    ex.add_argument("--longitude", type=float, default=-93.6)
     ex.add_argument("--soil", default="silt_loam")
     ex.add_argument("--crop", default="maize")
     ex.add_argument("--horizon", type=int, default=1)
@@ -151,7 +151,7 @@ def _build_parser() -> argparse.ArgumentParser:
                     help="held-out truth realizations scored")
     ex.add_argument("--members", type=int, default=16,
                     help="forcing-ensemble / DA ensemble size")
-    ex.add_argument("--obs-every", type=int, default=10,
+    ex.add_argument("--cadence", type=int, default=10,
                     help="days between assimilated observations")
     ex.add_argument("--noise", type=float, default=0.05,
                     help="relative observation noise")
@@ -163,18 +163,18 @@ def _build_parser() -> argparse.ArgumentParser:
                     help="satellite channels assimilated, comma-sep")
     ex.add_argument("--alphas", default="0.1",
                     help="interval levels for PICP/interval score")
-    ex.add_argument("--latent-dim", type=int, default=8,
+    ex.add_argument("--latent-dimension", type=int, default=8,
                     help="JEPA latent size")
-    ex.add_argument("--hier", default="",
+    ex.add_argument("--hierarchy", default="",
                     help="latent strides, comma-sep; empty = flat JEPA")
     ex.add_argument("--ema", type=float, default=0.996,
                     help="JEPA target-encoder momentum")
     ex.add_argument("--sig-weight", type=float, default=1.0,
                     help="SIGReg regularization strength")
     ex.add_argument("--epochs", type=int, default=120)
-    ex.add_argument("--lr", type=float, default=0.05)
+    ex.add_argument("--rate", type=float, default=0.05)
     ex.add_argument("--seed", type=int, default=0)
-    ex.add_argument("--out", default=None, help="save report JSON here")
+    ex.add_argument("--output", default=None, help="save report JSON here")
     ex.add_argument("--latex", action="store_true",
                     help="also print booktabs rows of scalar results")
     ex.add_argument("--config", default=None,
@@ -207,8 +207,8 @@ def _arguments_with_config(argv: list[str]) -> list[str]:
 def _request(arguments, points: list[Point], **over) -> PlanRequest:
     keywords = dict(horizon=arguments.horizon, crops=arguments.crops.split(","),
               years=arguments.years, delta_t=arguments.delta_t,
-              precip_scale=arguments.precip_scale, irrig=arguments.irrig,
-              fertilizer=arguments.fert, co2=arguments.co2, soil=arguments.soil,
+              precip_scale=arguments.precip_scale, irrig=arguments.irrigation,
+              fertilizer=arguments.fertilizer, co2=arguments.co2, soil=arguments.soil,
               source=getattr(arguments, "source", "power"),
               members=getattr(arguments, "members", 16),
               residual=not arguments.no_residual, offline=arguments.offline,
@@ -220,7 +220,7 @@ def _request(arguments, points: list[Point], **over) -> PlanRequest:
 
 
 def cmd_plan(arguments) -> int:
-    result = plan(_request(arguments, [Point(latitude=arguments.lat, longitude=arguments.lon)]),
+    result = plan(_request(arguments, [Point(latitude=arguments.latitude, longitude=arguments.longitude)]),
                workers=arguments.workers, device=arguments.device,
                compile=arguments.compile).results[0]
     if result.status != "ok":
@@ -267,8 +267,8 @@ def cmd_export(arguments) -> int:
     output = {"version": __version__,
            "generated": dt.datetime.now(dt.UTC).isoformat(timespec="seconds"),
            "request": {"horizon": arguments.horizon, "crops": arguments.crops.split(","),
-                       "years": arguments.years, "irrig": arguments.irrig,
-                       "fert": arguments.fert, "co2": arguments.co2,
+                       "years": arguments.years, "irrig": arguments.irrigation,
+                       "fert": arguments.fertilizer, "co2": arguments.co2,
                        "offline": arguments.offline},
            "fields": metadata, "scenarios": {}}
     for name, over in scenarios.items():
@@ -286,8 +286,8 @@ def cmd_export(arguments) -> int:
                 f"{r.point.id or r.point.latitude} {r.status}"
                 f"{f' — {r.detail}' if r.detail else ''}\n")
         output["scenarios"][name] = {"params": over, "fields": fields}
-    Path(arguments.out).write_text(json.dumps(output) + "\n")
-    sys.stderr.write(f"wrote {arguments.out}\n")
+    Path(arguments.output).write_text(json.dumps(output) + "\n")
+    sys.stderr.write(f"wrote {arguments.output}\n")
     return 0
 
 
@@ -304,11 +304,11 @@ def cmd_crawl(arguments) -> int:
     fields = [{"id": str(f["id"]), "lat": f["lat"], "lon": f["lon"],
                "name": f.get("name", "")} for f in items]
     last = dt.date.today().year - 1
-    crawl(fields, arguments.out,
+    crawl(fields, arguments.output,
           list(range(last - arguments.years + 1, last + 1)),
           sources=tuple(arguments.sources.split(",")), workers=arguments.workers,
           log=lambda m: sys.stderr.write(f"{m}\n"))
-    sys.stderr.write(f"wrote {arguments.out}\n")
+    sys.stderr.write(f"wrote {arguments.output}\n")
     return 0
 
 
@@ -343,7 +343,7 @@ def cmd_calibrate(arguments) -> int:
     """Identifiability demo of the exact pipeline real observations will use:
     truth = trait×scale → obs → gradient-fit the cell → recovery %."""
     crops = CropLibrary.default()
-    i_c, i_p = crops.index(arguments.crop), INDEX[arguments.param]
+    i_c, i_p = crops.index(arguments.crop), INDEX[arguments.parameter]
 
     truth = WorldModel(crops, residual=False)
     tbl_t = truth.crop_table.detach().clone()
@@ -352,8 +352,8 @@ def cmd_calibrate(arguments) -> int:
 
     soil = SoilProfile.preset("silt_loam")
     field = Field(initial_state(1, soil), soil,
-                  torch.tensor([arguments.lat], dtype=DTYPE))
-    forcing = tile_to_horizon(synthetic_year(arguments.lat, seed=0), 1)
+                  torch.tensor([arguments.latitude], dtype=DTYPE))
+    forcing = tile_to_horizon(synthetic_year(arguments.latitude, seed=0), 1)
     actions = _demo_actions(crops, forcing.days, arguments.crop)
     observed = synthetic_observation(truth, field, forcing, actions, (arguments.channel,))
 
@@ -368,12 +368,12 @@ def cmd_calibrate(arguments) -> int:
         return trajectory_loss(
             season_metrics(candidate, field, forcing, actions), observed)
 
-    result = gradient(loss, {"v": p}, epochs=arguments.epochs, rate=arguments.lr)
+    result = gradient(loss, {"v": p}, epochs=arguments.epochs, rate=arguments.rate)
     truth_v, start_v, fit_v = (float(tbl_t[i_c, i_p]),
                                float(base[i_c, i_p]), float(p.detach()))
     span = truth_v - start_v
     output = {
-        "param": arguments.param, "crop": arguments.crop, "channel": arguments.channel,
+        "param": arguments.parameter, "crop": arguments.crop, "channel": arguments.channel,
         "start": start_v, "truth": truth_v, "fitted": fit_v,
         "recovery_pct": round(100 * (fit_v - start_v) / span, 1)
         if abs(span) > 1e-12 else 100.0,
@@ -390,8 +390,8 @@ def cmd_nas(arguments) -> int:
     crops = CropLibrary.default()
     soil = SoilProfile.preset("silt_loam")
     field = Field(initial_state(1, soil), soil,
-                  torch.tensor([arguments.lat], dtype=DTYPE))
-    forcing = tile_to_horizon(synthetic_year(arguments.lat, seed=0), 1)
+                  torch.tensor([arguments.latitude], dtype=DTYPE))
+    forcing = tile_to_horizon(synthetic_year(arguments.latitude, seed=0), 1)
     actions = _demo_actions(crops, forcing.days)
 
     reference = WorldModel(crops, residual=True)
@@ -434,15 +434,15 @@ def cmd_control(arguments) -> int:
     crops = CropLibrary.default()
     soil = SoilProfile.preset("silt_loam")
     field = Field(initial_state(1, soil), soil,
-                  torch.tensor([arguments.lat], dtype=DTYPE))
-    ensemble = augment(synthetic_year(arguments.lat, seed=arguments.seed),
+                  torch.tensor([arguments.latitude], dtype=DTYPE))
+    ensemble = augment(synthetic_year(arguments.latitude, seed=arguments.seed),
                   arguments.scenarios - 1, seed=arguments.seed)
     base = _demo_actions(crops, ensemble.days, arguments.crop)
     model = WorldModel(crops)
     weights = (None if arguments.weights is None else
                {k: float(v) for k, v in
                 (w.split("=") for w in arguments.weights.split(","))})
-    result = path_integral(model, field, ensemble, base, iters=arguments.iters,
+    result = path_integral(model, field, ensemble, base, iterations=arguments.iterations,
                samples=arguments.samples, weights=weights, risk=arguments.risk,
                alpha=arguments.alpha,
                sow_shifts=tuple(int(x) for x in arguments.sow_shifts.split(",")),
@@ -477,25 +477,25 @@ def cmd_exp(arguments) -> int:
     perturb = {k: float(v) for k, v in
                (p.split(":") for p in arguments.perturb.split(",") if p)}
     specification = Specification(
-        latitude=arguments.lat, longitude=arguments.lon, soil=arguments.soil, crop=arguments.crop,
+        latitude=arguments.latitude, longitude=arguments.longitude, soil=arguments.soil, crop=arguments.crop,
         horizon=arguments.horizon,
         years=tuple(int(y) for y in arguments.years.split(",") if y),
         realizations=arguments.realizations,
-        members=arguments.members, cadence=arguments.obs_every,
+        members=arguments.members, cadence=arguments.cadence,
         noise=arguments.noise, perturb=perturb,
         observed_channels=tuple(arguments.observed_channels.split(",")),
         channels=tuple(arguments.channels.split(",")),
         alphas=tuple(float(a) for a in arguments.alphas.split(",")),
-        latent_dimension=arguments.latent_dim,
-        hierarchy=tuple(int(s) for s in arguments.hier.split(",") if s),
+        latent_dimension=arguments.latent_dimension,
+        hierarchy=tuple(int(s) for s in arguments.hierarchy.split(",") if s),
         ema=arguments.ema,
         sig_weight=arguments.sig_weight,
-        epochs=arguments.epochs, rate=arguments.lr, seed=arguments.seed)
+        epochs=arguments.epochs, rate=arguments.rate, seed=arguments.seed)
     rep = exp_run(arguments.name, specification)
     output = {"experiment": rep.name, "seconds": rep.seconds,
            "spec": rep.specification, "meta": rep.metadata, "results": rep.results}
-    if arguments.out:
-        output["saved"] = str(rep.save(arguments.out))
+    if arguments.output:
+        output["saved"] = str(rep.save(arguments.output))
     json.dump(output, sys.stdout, indent=2)
     sys.stdout.write("\n")
     if arguments.latex:
@@ -506,7 +506,7 @@ def cmd_exp(arguments) -> int:
 def main(argv: list[str] | None = None) -> int:
     argv = _arguments_with_config(list(sys.argv[1:] if argv is None else argv))
     arguments = _build_parser().parse_args(argv)
-    match arguments.cmd:
+    match arguments.command:
         case "plan":
             return cmd_plan(arguments)
         case "export":

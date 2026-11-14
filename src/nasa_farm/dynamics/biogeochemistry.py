@@ -43,7 +43,7 @@ def wfps(sw_total: torch.Tensor, sat_total: torch.Tensor) -> torch.Tensor:
 def nitrogen_step(
     n_min: torch.Tensor,
     n_org: torch.Tensor,
-    bio: torch.Tensor,
+    biology: torch.Tensor,
     water_drain: torch.Tensor,
     water_store: torch.Tensor,
     n_demand: torch.Tensor,
@@ -54,7 +54,7 @@ def nitrogen_step(
 ) -> tuple[torch.Tensor, torch.Tensor, dict[str, torch.Tensor]]:
     """Mineral/organic N update. `w` = WFPS driving denitrification.
     Returns (n_min', n_org', fluxes)."""
-    mineralized = n_org * K_MIN * bio
+    mineralized = n_org * K_MIN * biology
     n_org_a = n_org - mineralized
 
     scarcity = torch.clamp(1.0 - n_min / N_SUFFICIENT, 0.0, 1.0)
@@ -65,7 +65,7 @@ def nitrogen_step(
         n_pre * K_LEACH * water_drain / torch.clamp(water_store, min=1.0),
         torch.relu(n_pre - uptake),
     )
-    denit = (n_pre - uptake - leached).clamp(min=0.0) * K_DENIT * (w ** 2) * bio \
+    denit = (n_pre - uptake - leached).clamp(min=0.0) * K_DENIT * (w ** 2) * biology \
         if not isinstance(w, float) else n_pre * 0.0
     n2o = denit * N2O_FRAC
 
@@ -85,7 +85,7 @@ def carbon_step(
     litter: torch.Tensor,
     soc_f: torch.Tensor,
     soc_s: torch.Tensor,
-    bio: torch.Tensor,
+    biology: torch.Tensor,
     residue_in: torch.Tensor,
     till: torch.Tensor | None = None,
     res_remove: torch.Tensor | None = None,
@@ -105,7 +105,7 @@ def carbon_step(
     litter_a = litter_a - exported
 
     incorporated = litter_a * TILL_MIX * till
-    bio_eff = torch.minimum(bio * (1.0 + TILL_BIO * till), torch.ones_like(bio))
+    bio_eff = torch.minimum(biology * (1.0 + TILL_BIO * till), torch.ones_like(biology))
     litter_a = litter_a - incorporated
     soc_f_a = soc_f + incorporated
 

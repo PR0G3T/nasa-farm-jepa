@@ -22,7 +22,7 @@ class Granule:
     raw: Any
 
 
-def granule_id(result: Any) -> str:
+def granule(result: Any) -> str:
     """GranuleUR / ProducerGranuleId from a CMR search result."""
     for k in ("GranuleUR", "ProducerGranuleId"):
         try:
@@ -69,7 +69,7 @@ class Earthdata:
         }
         if area is not None:
             keywords["bounding_box"] = area.as_tuple()
-        return [Granule(granule_id(r), r)
+        return [Granule(granule(r), r)
                 for r in earthaccess.search_data(**keywords)]
 
     def fetch(self, area: Bounds | None, temporal: Temporal, *,

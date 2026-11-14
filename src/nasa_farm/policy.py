@@ -30,8 +30,8 @@ class Policy(nn.Module):
         self.net = nn.Sequential(*layers)
         self.to(torch.float64)
 
-    def forward(self, feats: torch.Tensor) -> torch.Tensor:
-        return self.net(feats)
+    def forward(self, features: torch.Tensor) -> torch.Tensor:
+        return self.net(features)
 
 
 def _day_feats(model, state, forcing_day: dict, action_d: dict) -> torch.Tensor:
@@ -161,13 +161,13 @@ class FlowPolicy(nn.Module):
         self.to(torch.float64)
 
     def forward(self, a: torch.Tensor, t: torch.Tensor,
-                feats: torch.Tensor) -> torch.Tensor:
+                features: torch.Tensor) -> torch.Tensor:
         return self.net(torch.cat(
-            [a, t.to(a.dtype).expand(a.shape[0], 1), feats], dim=-1))
+            [a, t.to(a.dtype).expand(a.shape[0], 1), features], dim=-1))
 
 
 def fit_flow(policy: FlowPolicy, chunks: torch.Tensor,
-             feats: torch.Tensor, epochs: int = 200,
+             features: torch.Tensor, epochs: int = 200,
              rate: float = 1e-3, seed: int = 0) -> dict:
     """CFM on (state-feats, action-chunk) demonstrations.
 
@@ -175,7 +175,7 @@ def fit_flow(policy: FlowPolicy, chunks: torch.Tensor,
     features at chunk start. Target velocity v = a − ε."""
     generation = torch.Generator().manual_seed(seed)
     opt = torch.optim.Adam(policy.parameters(), lr=rate)
-    a1, f = chunks.to(DTYPE), feats.to(DTYPE)
+    a1, f = chunks.to(DTYPE), features.to(DTYPE)
     n, history = a1.shape[0], []
     for _ in range(epochs):
         i = torch.randint(0, n, (n,), generator=generation)
@@ -190,12 +190,12 @@ def fit_flow(policy: FlowPolicy, chunks: torch.Tensor,
     return {"best_loss": round(min(history), 8), "history": history}
 
 
-def flow_sample(policy: FlowPolicy, feats: torch.Tensor, n: int = 1,
+def flow_sample(policy: FlowPolicy, features: torch.Tensor, n: int = 1,
                 steps: int = 8, seed: int = 0) -> torch.Tensor:
     """feats (B, N_FEATURES) → (B·n, 2H) schedule chunks."""
     generation = torch.Generator().manual_seed(seed)
-    b = feats.shape[0]
-    f = feats.repeat_interleave(n, dim=0).to(DTYPE)
+    b = features.shape[0]
+    f = features.repeat_interleave(n, dim=0).to(DTYPE)
     a = torch.randn(b * n, 2 * policy.horizon, generator=generation, dtype=DTYPE)
     for s in range(steps):
         t = torch.full((b * n, 1), s / steps, dtype=DTYPE)
@@ -234,10 +234,10 @@ class Inverse(nn.Module):
         self.register_buffer("x_sd", torch.ones(d, dtype=DTYPE))
         self.to(torch.float64)
 
-    def forward(self, feats: torch.Tensor, goal: torch.Tensor,
+    def forward(self, features: torch.Tensor, goal: torch.Tensor,
                 remaining: torch.Tensor) -> torch.Tensor:
         g = goal.unsqueeze(0) if goal.dim() == 1 else goal
-        x = torch.cat([feats, g.expand(feats.shape[0], -1), remaining], dim=-1)
+        x = torch.cat([features, g.expand(features.shape[0], -1), remaining], dim=-1)
         return self.net((x - self.x_mu) / self.x_sd)
 
 

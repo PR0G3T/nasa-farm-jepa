@@ -55,7 +55,7 @@ class Hierarchy(nn.Module):
         return torch.cat(
             [z] + [torch.zeros_like(z)] * (len(self.strides) - 1), dim=-1)
 
-    def forward(self, feats: torch.Tensor, z: torch.Tensor,
+    def forward(self, features: torch.Tensor, z: torch.Tensor,
                 zh: torch.Tensor | None = None,
                 context: torch.Tensor | None = None,
                 generation: torch.Generator | None = None, t: int = 0
@@ -65,20 +65,20 @@ class Hierarchy(nn.Module):
         zh_parts = list(
             (zh if zh is not None else z.new_zeros(z.shape[0], n * h))
             .chunk(n, dim=-1))
-        context = context if context is not None else feats[:, :0]
+        context = context if context is not None else features[:, :0]
         z_new, zh_new = list(z_parts), list(zh_parts)
         for i in range(n - 1, -1, -1):          # top first: lower levels
             if t % self.strides[i] != 0:        # see the fresh upper latent
                 continue
             up = z_new[i + 1].detach() if i + 1 < n else torch.zeros_like(z)
             lvl = self.levels[i]
-            lvl_ctx = torch.cat([context.to(feats.dtype), up[:, :k]], dim=-1)
-            z_new[i], zh_new[i] = lvl(feats, z_parts[i], zh_parts[i],
+            lvl_ctx = torch.cat([context.to(features.dtype), up[:, :k]], dim=-1)
+            z_new[i], zh_new[i] = lvl(features, z_parts[i], zh_parts[i],
                                       lvl_ctx, generation)
         return torch.cat(z_new, dim=-1), torch.cat(zh_new, dim=-1)
 
 
-def hierarchical_loss(z_traj: torch.Tensor, z_tgt: torch.Tensor,
+def hierarchical_loss(z_traj: torch.Tensor, z_target: torch.Tensor,
                hlatent: Hierarchy, every: int = 1) -> torch.Tensor:
     """Per-level prediction loss: level l's committed latent predicts the
     target embedding `strides[l]` days ahead. z_traj (B, N, L·K) online
@@ -89,6 +89,6 @@ def hierarchical_loss(z_traj: torch.Tensor, z_tgt: torch.Tensor,
         sh = max(round(s / every), 1)
         z_l = z_traj[:, 1:, i * k:(i + 1) * k]
         target = torch.cat(
-            [z_tgt[:, 1:], z_tgt[:, -1:].expand(-1, sh, -1)], dim=1)
+            [z_target[:, 1:], z_target[:, -1:].expand(-1, sh, -1)], dim=1)
         total = total + (z_l - target[:, :z_l.shape[1]]).pow(2).mean()
     return total / len(hlatent.strides)

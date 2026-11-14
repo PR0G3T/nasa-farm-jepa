@@ -36,7 +36,7 @@ def vwc(state: FieldState) -> torch.Tensor:
     return state.biomass * 6.0e-5
 
 
-def lst(state: FieldState) -> torch.Tensor:
+def list(state: FieldState) -> torch.Tensor:
     """Land-surface temperature proxy (°C): air temperature plus a
     moisture-stress heating increment — dry surface heats toward ~+8 °C."""
     ta = state.tair if state.tair is not None else torch.full_like(state.et, 20.0)
@@ -67,7 +67,7 @@ CHANNELS: dict[str, Callable[[FieldState], torch.Tensor]] = {
     "openet": lambda s: s.et,      # OpenET ensemble daily ET (field-scale)
     "sme2": lambda s: sm_vol(s, 0),  # NISAR L3 SME2 ~ 0-5 cm VSM
     "tws": tws,
-    "lst": lst,
+    "lst": list,
     "n2o": lambda s: s.n2o,
     "soc": lambda s: s.soc_f + s.soc_s,
     "soc_f": lambda s: s.soc_f,

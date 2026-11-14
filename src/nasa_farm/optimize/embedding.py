@@ -148,12 +148,12 @@ def embedding_fit(model, encoder, field: Field, forcing: Forcing,
             p.copy_(best_params[n])
         target.update_from(encoder)
         z_pred, targets, source = unroll()
-        z_tgt = target(targets)
+        z_target = target(targets)
         z_std = float(encoder(source).std())
         encoded = encoder(source)
         signal = float(regularization(encoded.reshape(-1, encoded.shape[-1])))
     return {"best_loss": round(best, 8), "history": history,
             "epochs_run": len(history), "tgt": target,
-            "z_pred": z_pred.detach(), "z_tgt": z_tgt.detach(),
+            "z_pred": z_pred.detach(), "z_tgt": z_target.detach(),
             "obs": targets.detach(), "z_std_final": round(z_std, 6),
             "sigreg_final": round(signal, 6)}

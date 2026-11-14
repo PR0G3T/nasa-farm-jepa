@@ -106,7 +106,7 @@ def _tiny_run(physics_model, field, warm_year, **keywords):
     sow[0, 150] = 0
     base = Actions(sow=sow, irrigation=base.irrigation,
                    n_fert=base.n_fert)
-    return path_integral(physics_model, field, ensemble, base, iters=2, samples=12,
+    return path_integral(physics_model, field, ensemble, base, iterations=2, samples=12,
                 seed=0, **keywords), base
 
 

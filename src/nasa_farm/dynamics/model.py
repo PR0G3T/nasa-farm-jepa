@@ -107,10 +107,10 @@ class WorldModel(nn.Module):
         self.step = torch.compile(self.step, **compile_kw)  # type: ignore[method-assign]
         return self
 
-    def _nn(self, net: nn.Module, feats: torch.Tensor, *arguments):
+    def _nn(self, net: nn.Module, features: torch.Tensor, *arguments):
         arguments = tuple(a.to(self.nn_dtype) if isinstance(a, torch.Tensor) else a
                      for a in arguments)
-        output = net(feats.to(self.nn_dtype), *arguments)
+        output = net(features.to(self.nn_dtype), *arguments)
         if isinstance(output, tuple):
             return tuple(o.to(DTYPE) for o in output)
         return output.to(DTYPE)
@@ -123,8 +123,8 @@ class WorldModel(nn.Module):
             forcing_day, action_d,
         )
 
-    def _apply_residual(self, state: FieldState, soil, feats: torch.Tensor) -> FieldState:
-        output = self._nn(self.residual, feats, state.z)
+    def _apply_residual(self, state: FieldState, soil, features: torch.Tensor) -> FieldState:
+        output = self._nn(self.residual, features, state.z)
         if self.residual.diffusion:
             delta, logvar = output
             if self._gen is not None:
@@ -203,15 +203,15 @@ class WorldModel(nn.Module):
         et = wflux["es"] + wflux["t"].sum(-1)
         tws = s.tws * (1.0 - K_TWS) + wflux["deep"]
 
-        bio = bg.bio_factor(forcing_day["tmin"], forcing_day["tmax"], pawf)
+        biology = bg.bio_factor(forcing_day["tmin"], forcing_day["tmax"], pawf)
         n_demand = traits[:, INDEX["n_demand"]] * cflux["delta_b"]
         n_min, n_org, nflux = bg.nitrogen_step(
-            s.n_min, s.n_org, bio, wflux["perc"] + wflux["deep"], sw.sum(-1),
+            s.n_min, s.n_org, biology, wflux["perc"] + wflux["deep"], sw.sum(-1),
             n_demand, traits[:, INDEX["legume"]], traits[:, INDEX["fix_frac"]],
             action["n_fert"], bg.wfps(sw.sum(-1), field.soil.sat.sum(-1)))
         n2o = s.n2o + nflux["n2o"]
         litter, soc_f, soc_s, c2flux = bg.carbon_step(
-            s.litter, s.soc_f, s.soc_s, bio, torch.zeros_like(s.litter),
+            s.litter, s.soc_f, s.soc_s, biology, torch.zeros_like(s.litter),
             action.get("till"), action.get("res_remove"))
 
         # Lifecycle events ------------------------------------------------
@@ -274,12 +274,12 @@ class WorldModel(nn.Module):
                                    forcing_day, action, wflux)
 
         if self.residual is not None or (self.latent is not None and z is not None):
-            feats = self._features(new_state, forcing_day, action)
+            features = self._features(new_state, forcing_day, action)
             if self.residual is not None:
-                new_state = self._apply_residual(new_state, field.soil, feats)
+                new_state = self._apply_residual(new_state, field.soil, features)
             if self.latent is not None and z is not None:
                 hierarchy = isinstance(self.latent, Hierarchy)
-                z2, zh2 = self._nn(self.latent, feats, new_state.z, zh,
+                z2, zh2 = self._nn(self.latent, features, new_state.z, zh,
                                    self._dctx(field), self._gen,
                                    *((t,) if hierarchy else ()))
                 new_state = new_state.replace(z=z2, zh=zh2)

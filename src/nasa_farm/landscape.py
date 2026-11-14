@@ -68,10 +68,10 @@ class Route(nn.Module):
         self.score = nn.Linear(2 * hidden, 1)
         self.to(DTYPE)
 
-    def forward(self, feats: torch.Tensor,
+    def forward(self, features: torch.Tensor,
                 adjacency: torch.Tensor) -> torch.Tensor:
         """feats (B, F) → W (B, B) row-stochastic on `adj` (incl self)."""
-        h = self.embed(feats)
+        h = self.embed(features)
         b = h.shape[0]
         high = h.unsqueeze(1).expand(b, b, h.shape[-1])
         hj = h.unsqueeze(0).expand(b, b, h.shape[-1])
@@ -112,14 +112,14 @@ class RouteGraph:
 
     def weights(self, field: Field, fluxes: dict) -> torch.Tensor:
         s = field.state
-        feats = torch.stack(
+        features = torch.stack(
             [s.sw.sum(-1) / s.sw.sum(-1).max().clamp(min=1e-9),
              fluxes["runoff"] / fluxes["runoff"].max().clamp(min=1e-9),
              s.tws / s.tws.max().clamp(min=1e-9)], dim=-1)
-        return self.net(feats, self.adjacency)
+        return self.net(features, self.adjacency)
 
 
-def fit_route(graph: RouteGraph, feats: torch.Tensor,
+def fit_route(graph: RouteGraph, features: torch.Tensor,
               w_ref: torch.Tensor, epochs: int = 100,
               rate: float = 1e-3) -> dict:
     """Imitation-fit the router on (features → reference matrix) pairs:
@@ -129,7 +129,7 @@ def fit_route(graph: RouteGraph, feats: torch.Tensor,
     best, history = float("inf"), []
     for _ in range(epochs):
         opt.zero_grad(set_to_none=True)
-        w = graph.net(feats.to(DTYPE), graph.adjacency)
+        w = graph.net(features.to(DTYPE), graph.adjacency)
         loss = (w - w_ref).pow(2).mean()
         if not torch.isfinite(loss):
             break

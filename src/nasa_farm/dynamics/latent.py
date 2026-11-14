@@ -44,22 +44,22 @@ class Dynamics(nn.Module):
         self.kl = torch.zeros((), dtype=torch.float64)
         self.to(torch.float64)
 
-    def forward(self, feats: torch.Tensor, z: torch.Tensor,
+    def forward(self, features: torch.Tensor, z: torch.Tensor,
                 zh: torch.Tensor | None = None,
                 context: torch.Tensor | None = None,
                 generation: torch.Generator | None = None
                 ) -> tuple[torch.Tensor, torch.Tensor]:
         if self.context_dimension:
             c = context if context is not None else torch.zeros(
-                feats.shape[0], self.context_dimension,
-                dtype=feats.dtype, device=feats.device)
-            x = torch.cat([feats, z, c.to(feats.dtype)], dim=-1)
+                features.shape[0], self.context_dimension,
+                dtype=features.dtype, device=features.device)
+            x = torch.cat([features, z, c.to(features.dtype)], dim=-1)
         else:
-            x = torch.cat([feats, z], dim=-1)
+            x = torch.cat([features, z], dim=-1)
         if zh is None:
-            zh = torch.zeros(feats.shape[0], self.hidden_dimension,
-                             dtype=feats.dtype, device=feats.device)
-        zh = self.gru(x, zh.to(feats.dtype))
+            zh = torch.zeros(features.shape[0], self.hidden_dimension,
+                             dtype=features.dtype, device=features.device)
+        zh = self.gru(x, zh.to(features.dtype))
         output = self.head(zh)
         if not self.stochastic:
             self.kl = torch.zeros((), dtype=output.dtype, device=output.device)
@@ -305,26 +305,26 @@ class Factor(nn.Module):
     def _slot(self, t: torch.Tensor, i: int, w: int) -> torch.Tensor:
         return t[:, i * w:(i + 1) * w]
 
-    def forward(self, feats: torch.Tensor, z: torch.Tensor,
+    def forward(self, features: torch.Tensor, z: torch.Tensor,
                 zh: torch.Tensor | None = None,
                 context: torch.Tensor | None = None,
                 generation: torch.Generator | None = None
                 ) -> tuple[torch.Tensor, torch.Tensor]:
         if zh is None:
-            zh = torch.zeros(feats.shape[0], self.hidden_dimension,
-                             dtype=feats.dtype, device=feats.device)
+            zh = torch.zeros(features.shape[0], self.hidden_dimension,
+                             dtype=features.dtype, device=features.device)
         if self.context_dimension and context is None:
-            context = torch.zeros(feats.shape[0], self.context_dimension,
-                              dtype=feats.dtype, device=feats.device)
+            context = torch.zeros(features.shape[0], self.context_dimension,
+                              dtype=features.dtype, device=features.device)
         zs, hs = [], []
         for i, (name, cols) in enumerate(self.parts.items()):
             zk = self._slot(z, i, self.part_dim)
-            x = torch.cat([feats[:, list(cols)], zk] +
-                          ([context.to(feats.dtype)] if self.context_dimension else []), -1)
-            hk = self.cell[name](x, self._slot(zh, i, self.hp).to(feats.dtype))
+            x = torch.cat([features[:, list(cols)], zk] +
+                          ([context.to(features.dtype)] if self.context_dimension else []), -1)
+            hk = self.cell[name](x, self._slot(zh, i, self.hp).to(features.dtype))
             zs.append(zk + self.head[name](hk))
             hs.append(hk)
-        self.kl = torch.zeros((), dtype=feats.dtype, device=feats.device)
+        self.kl = torch.zeros((), dtype=features.dtype, device=features.device)
         return torch.cat(zs, -1), torch.cat(hs, -1)
 
     def seed(self, z: torch.Tensor) -> torch.Tensor:

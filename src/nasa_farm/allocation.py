@@ -64,8 +64,8 @@ def fit_allocation(model, field: Field, forcing: Forcing, base: Actions,
         accumulate = SeasonAccumulator(b, years)
         for t in range(days):
             action = base.day(t)
-            feats = _day_feats(model, field.state, forcing.day(t), action)
-            u = torch.cat([policies[i](feats[i:i + 1])
+            features = _day_feats(model, field.state, forcing.day(t), action)
+            u = torch.cat([policies[i](features[i:i + 1])
                            for i in range(b)]) * u_scale
             action = cap_budget({**action, "irrigation": u[:, 0],
                              "n_fert": u[:, 1]}, budget)
@@ -106,8 +106,8 @@ def evaluate_policies(model, field: Field, forcing: Forcing, base: Actions,
     with torch.inference_mode():
         for t in range(days):
             action = base.day(t)
-            feats = _day_feats(model, field.state, forcing.day(t), action)
-            u = torch.cat([policies[i](feats[i:i + 1])
+            features = _day_feats(model, field.state, forcing.day(t), action)
+            u = torch.cat([policies[i](features[i:i + 1])
                            for i in range(b)]) * u_scale
             action = cap_budget({**action, "irrigation": u[:, 0],
                              "n_fert": u[:, 1]}, budget)

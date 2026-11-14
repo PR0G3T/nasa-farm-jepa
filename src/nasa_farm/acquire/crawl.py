@@ -108,10 +108,10 @@ def _nldas(fields: list[dict], lake: Lake, years: list[int], log) -> None:
                 for f in na:
                     raw = {v: reanalysis.sample(ds, v, f["lat"], f["lon"])
                            for v in reanalysis.VARS if v in ds}
-                    for var, val in reanalysis.convert(raw).items():
+                    for var, value in reanalysis.convert(raw).items():
                         slot = pend[f["id"]].setdefault(var, ([], []))
                         slot[0].append(di)
-                        slot[1].append(val)
+                        slot[1].append(value)
             marked.append(key)
         if not marked:
             continue

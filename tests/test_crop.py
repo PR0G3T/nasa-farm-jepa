@@ -62,12 +62,12 @@ class TestCanopyStep:
         assert float(gdd) == pytest.approx((15 + 28) / 2 - 8.0)
 
     def test_no_accumulation_when_bare(self, crops):
-        gdd, lai, bio, _ = self._step(crops, growing=False)
-        assert float(gdd) == 0.0 and float(lai) == 0.0 and float(bio) == 0.0
+        gdd, lai, biology, _ = self._step(crops, growing=False)
+        assert float(gdd) == 0.0 and float(lai) == 0.0 and float(biology) == 0.0
 
     def test_biomass_needs_canopy(self, crops):
         """Before emergence: no LAI → no light interception → no growth."""
-        _, lai, bio, f = self._step(crops, gdd0=0.0)
+        _, lai, biology, f = self._step(crops, gdd0=0.0)
         assert float(f["delta_b"]) == 0.0
 
     def test_water_limited_growth(self, crops):

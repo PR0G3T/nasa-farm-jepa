@@ -38,8 +38,8 @@ def _kde_transport(y: torch.Tensor, observed: torch.Tensor, r: torch.Tensor,
     for _ in range(steps):
         d = (x.unsqueeze(1) - x.unsqueeze(0)) / h
         dens = torch.exp(-0.5 * (d ** 2).sum(-1))
-        den = dens.sum(1, keepdim=True).clamp(min=1e-9)
-        prior = (dens / den).unsqueeze(-1) * d * h
+        density = dens.sum(1, keepdim=True).clamp(min=1e-9)
+        prior = (dens / density).unsqueeze(-1) * d * h
         score_prior = prior.sum(1) - prior.sum(0)
         score_like = (observed - x) / r
         x = x + rate * (score_prior + score_like)

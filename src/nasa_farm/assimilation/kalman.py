@@ -85,10 +85,10 @@ def kalman_update(state: FieldState, observed_prediction: torch.Tensor,
                 r_t + 1e-10 * eye).t()
         else:
             noise = eps * r_t.sqrt()
-        innov = (observed + noise) - observed_prediction
+        innovation = (observed + noise) - observed_prediction
     else:
-        innov = observed - observed_prediction
-    xn = (x + innov @ k.t()).clamp(min=0.0)
+        innovation = observed - observed_prediction
+    xn = (x + innovation @ k.t()).clamp(min=0.0)
     return _put_variables(state, names, xn)
 
 
@@ -163,8 +163,8 @@ def _q_std(model, state: FieldState, forcing_day: dict,
     r = getattr(model, "residual", None)
     if r is None or not getattr(r, "diffusion", False):
         return None
-    feats = model._features(state, forcing_day, action_d)
-    output = model._nn(r, feats, state.z)
+    features = model._features(state, forcing_day, action_d)
+    output = model._nn(r, features, state.z)
     if not isinstance(output, tuple):
         return None
     return (0.5 * output[1]).exp() * r.scale.to(output[1].dtype)

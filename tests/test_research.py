@@ -92,9 +92,9 @@ class TestExtra:
 class TestFactor:
     def test_identity_at_init(self):
         fd = Factor(4, OPS)
-        feats = torch.randn(2, N_FEATURES, dtype=DTYPE)
+        features = torch.randn(2, N_FEATURES, dtype=DTYPE)
         z = torch.randn(2, fd.dim, dtype=DTYPE)
-        z2, zh = fd(feats, z, torch.randn(2, fd.hidden_dimension, dtype=DTYPE))
+        z2, zh = fd(features, z, torch.randn(2, fd.hidden_dimension, dtype=DTYPE))
         assert torch.equal(z2, z)
         assert zh.shape == (2, fd.hidden_dimension)
 
@@ -104,12 +104,12 @@ class TestFactor:
         with torch.no_grad():
             for h in fd.head.values():
                 h.weight.normal_(0, 0.5)
-        feats = torch.zeros(1, N_FEATURES, dtype=DTYPE)
+        features = torch.zeros(1, N_FEATURES, dtype=DTYPE)
         z = torch.zeros(1, fd.dim, dtype=DTYPE)
         zh = torch.zeros(1, fd.hidden_dimension, dtype=DTYPE)
-        f_irrig = feats.clone()
+        f_irrig = features.clone()
         f_irrig[:, 11] = 5.0          # irrigation column
-        z_a, _ = fd(feats, z, zh)
+        z_a, _ = fd(features, z, zh)
         z_b, _ = fd(f_irrig, z, zh)
         w_i, w_d = 0, fd.part_dim     # water slot, bio slot
         d = (z_b - z_a).detach()
@@ -120,8 +120,8 @@ class TestFactor:
         ld = Dynamics(4, link="relu")
         with torch.no_grad():
             ld.head.bias.fill_(-1.0)
-        feats = torch.randn(1, N_FEATURES, dtype=DTYPE)
-        z, _ = ld(feats, torch.ones(1, 4, dtype=DTYPE))
+        features = torch.randn(1, N_FEATURES, dtype=DTYPE)
+        z, _ = ld(features, torch.ones(1, 4, dtype=DTYPE))
         assert bool((z >= 0).all())
 
     def test_model_integration(self):
@@ -237,7 +237,7 @@ class TestControlOpt:
         f, a = _fa(120)
         f120 = _cut_f(f, 120)
         a120 = _cut_a(a, 120)
-        result = path_integral(m, _field(), f120, a120, iters=2, samples=16,
+        result = path_integral(m, _field(), f120, a120, iterations=2, samples=16,
                    refine=5, refine_alg="lbfgs", gate_k=2.0, seed=0)
         assert result.actions.irrigation.shape[-1] == 120
 
@@ -249,10 +249,10 @@ class TestTTTUQ:
         generation = torch.Generator().manual_seed(0)
         w = torch.randn(N_FEATURES, 4, generator=generation, dtype=DTYPE)
         for _ in range(32):
-            feats = torch.randn(4, N_FEATURES, generator=generation, dtype=DTYPE)
+            features = torch.randn(4, N_FEATURES, generator=generation, dtype=DTYPE)
             z = torch.randn(4, 4, generator=generation, dtype=DTYPE)
             zh = torch.randn(4, m.latent.hidden_dimension, generator=generation, dtype=DTYPE)
-            replay.push(feats, z, zh, z + feats @ w)
+            replay.push(features, z, zh, z + features @ w)
         first = replay.step(1)
         for _ in range(15):
             last = replay.step(1)

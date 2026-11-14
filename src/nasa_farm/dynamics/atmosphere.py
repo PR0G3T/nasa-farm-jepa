@@ -72,8 +72,8 @@ def et0_penman_monteith(
     rn = rns - rnl
 
     number = 0.408 * delta * rn + gamma * (900.0 / (tmean + 273.0)) * u2 * (es - ea)
-    den = delta + gamma * (1.0 + 0.34 * u2)
-    return torch.clamp(number / den, min=0.0)
+    density = delta + gamma * (1.0 + 0.34 * u2)
+    return torch.clamp(number / density, min=0.0)
 
 
 def et0_hargreaves(tmin: torch.Tensor, tmax: torch.Tensor, ra: torch.Tensor) -> torch.Tensor:

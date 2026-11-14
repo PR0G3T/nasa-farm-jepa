@@ -72,8 +72,8 @@ def water_balance_step(
     available = torch.cat(
         [torch.relu(sw[:, 0] - es - soil.wp[:, 0]).unsqueeze(1),
          available[:, 1:]], dim=1)
-    den = (root_w * available).sum(-1, keepdim=True)
-    share = torch.where(den > 0, root_w * available / den.clamp(min=1e-9),
+    density = (root_w * available).sum(-1, keepdim=True)
+    share = torch.where(density > 0, root_w * available / density.clamp(min=1e-9),
                         torch.zeros_like(available))
     t = torch.minimum(trans_actual.unsqueeze(-1) * share, available)
 

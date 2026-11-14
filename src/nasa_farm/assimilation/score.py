@@ -40,8 +40,8 @@ def score_update(state: FieldState, observed_prediction: torch.Tensor,
     for _ in range(steps):
         d = (xn.unsqueeze(1) - xn.unsqueeze(0)) / h
         dens = torch.exp(-0.5 * (d ** 2).sum(-1))    # (B, B) kernel affinity
-        den = dens.sum(1, keepdim=True).clamp(min=1e-9)
-        pull = (dens / den).unsqueeze(-1) * d * h    # KDE-score transport
+        density = dens.sum(1, keepdim=True).clamp(min=1e-9)
+        pull = (dens / density).unsqueeze(-1) * d * h    # KDE-score transport
         xn = xn + rate * (pull.sum(1) - pull.sum(0))
     xn = torch.nan_to_num(xn).clamp(min=0.0)
     return _put_variables(state, names, xn)

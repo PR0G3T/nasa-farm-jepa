@@ -46,7 +46,7 @@ class TestMPPI:
     def test_actions_within_bounds(self, physics_model, soil, crops):
         field, ensemble, base = self._setup(soil, crops)
         result = path_integral(physics_model, field, ensemble, base,
-                   iters=3, samples=24, seed=0)
+                   iterations=3, samples=24, seed=0)
         assert (result.actions.irrigation >= 0).all()
         assert (result.actions.irrigation <= 25.0).all()
         assert (result.actions.n_fert >= 0).all()
@@ -54,8 +54,8 @@ class TestMPPI:
 
     def test_deterministic_given_seed(self, physics_model, soil, crops):
         field, ensemble, base = self._setup(soil, crops)
-        r1 = path_integral(physics_model, field, ensemble, base, iters=2, samples=16, seed=5)
-        r2 = path_integral(physics_model, field, ensemble, base, iters=2, samples=16, seed=5)
+        r1 = path_integral(physics_model, field, ensemble, base, iterations=2, samples=16, seed=5)
+        r2 = path_integral(physics_model, field, ensemble, base, iterations=2, samples=16, seed=5)
         assert torch.equal(r1.actions.irrigation, r2.actions.irrigation)
 
     def test_optimized_schedule_helps_in_drought(self, physics_model, soil,
@@ -64,7 +64,7 @@ class TestMPPI:
         add water the reward already values."""
         field, ensemble, base = self._setup(soil, crops)
         result = path_integral(physics_model, field, ensemble, base,
-                   iters=3, samples=24, seed=0)
+                   iterations=3, samples=24, seed=0)
         i = METRICS.index("yield_kg")
 
         def y(acts):

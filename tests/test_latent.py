@@ -12,8 +12,8 @@ class TestLatentDyn:
     def test_zero_init_is_identity(self):
         dynamics = Dynamics(4)
         z = torch.randn(8, 4, dtype=DTYPE)
-        feats = torch.randn(8, N_FEATURES, dtype=DTYPE)
-        assert torch.equal(dynamics(feats, z, None)[0], z)
+        features = torch.randn(8, N_FEATURES, dtype=DTYPE)
+        assert torch.equal(dynamics(features, z, None)[0], z)
 
     def test_output_shape(self):
         dynamics = Dynamics(6)

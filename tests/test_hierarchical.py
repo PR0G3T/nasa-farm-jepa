@@ -55,8 +55,8 @@ class TestHLatent:
         from nasa_farm.dynamics.hierarchical import Hierarchy, hierarchical_loss
         h = Hierarchy(4, 8, (1, 4))
         z_traj = torch.randn(2, 10, 8, dtype=DTYPE)
-        z_tgt = torch.randn(2, 10, 4, dtype=DTYPE)
-        loss = hierarchical_loss(z_traj, z_tgt, h, every=1)
+        z_target = torch.randn(2, 10, 4, dtype=DTYPE)
+        loss = hierarchical_loss(z_traj, z_target, h, every=1)
         assert loss.dim() == 0 and torch.isfinite(loss)
 
     def test_jepa_fit_hier(self, field, warm_year):
@@ -120,9 +120,9 @@ class TestMPPIExt:
         from nasa_farm.control import path_integral
         f60 = _year30(warm_year)
         base = Actions.idle(1, 90)
-        r0 = path_integral(physics_model, field, f60, base, iters=2, samples=8,
+        r0 = path_integral(physics_model, field, f60, base, iterations=2, samples=8,
                   seed=0)
-        r1 = path_integral(physics_model, field, f60, base, iters=2, samples=8,
+        r1 = path_integral(physics_model, field, f60, base, iterations=2, samples=8,
                   refine=3, refine_lr=0.05, seed=0)
         assert r1.reward >= r0.reward - 1e-9
         assert (r1.actions.irrigation >= 0).all()
@@ -132,10 +132,10 @@ class TestMPPIExt:
         from nasa_farm.control import path_integral
         f60 = _year30(warm_year)
         result = path_integral(physics_model, field, f60, Actions.idle(1, 90),
-                   iters=2, samples=16, modes=2, seed=0)
+                   iterations=2, samples=16, modes=2, seed=0)
         assert torch.isfinite(result.actions.irrigation).all()
         res2 = path_integral(physics_model, field, f60, Actions.idle(1, 90),
-                    iters=2, samples=16, modes=2, seed=0)
+                    iterations=2, samples=16, modes=2, seed=0)
         assert torch.equal(result.actions.irrigation, res2.actions.irrigation)
 
     def test_goal_penalty(self, physics_model, field, warm_year):
@@ -147,7 +147,7 @@ class TestMPPIExt:
         f = Field(state=st, soil=field.soil, latitude=field.latitude)
         f60 = _year30(warm_year)
         goal = torch.full((4,), 3.0, dtype=DTYPE)
-        result = path_integral(m, f, f60, Actions.idle(1, 90), iters=1, samples=8,
+        result = path_integral(m, f, f60, Actions.idle(1, 90), iterations=1, samples=8,
                    goal=goal, goal_w=1.0, seed=0)
         assert torch.isfinite(torch.tensor(result.reward))
 
@@ -294,9 +294,9 @@ class TestFlowPolicy:
         p = FlowPolicy(horizon=8, hidden=32, depth=1, seed=0)
         g = torch.Generator().manual_seed(0)
         chunks = torch.randn(64, 16, generator=g, dtype=DTYPE).abs()
-        feats = torch.randn(64, N_FEATURES, generator=g, dtype=DTYPE)
-        rep = fit_flow(p, chunks, feats, epochs=10, rate=1e-3, seed=0)
-        a = flow_sample(p, feats[:2], n=2, steps=4, seed=0)
+        features = torch.randn(64, N_FEATURES, generator=g, dtype=DTYPE)
+        rep = fit_flow(p, chunks, features, epochs=10, rate=1e-3, seed=0)
+        a = flow_sample(p, features[:2], n=2, steps=4, seed=0)
         assert a.shape == (4, 16) and (a >= 0).all()
         assert rep["best_loss"] < rep["history"][0] + 1.0
 

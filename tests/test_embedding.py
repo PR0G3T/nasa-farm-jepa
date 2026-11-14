@@ -81,19 +81,19 @@ class TestJEPALossReg:
 class TestResidualCtx:
     def test_zero_init_ignores_ctx(self):
         r = Residual(context_dimension=4)
-        feats = torch.randn(8, N_FEATURES, dtype=DTYPE)
+        features = torch.randn(8, N_FEATURES, dtype=DTYPE)
         context = torch.randn(8, 4, dtype=DTYPE)
-        assert torch.equal(r(feats, context), torch.zeros(8, 5, dtype=DTYPE))
+        assert torch.equal(r(features, context), torch.zeros(8, 5, dtype=DTYPE))
 
     def test_ctx_reaches_output(self):
         torch.manual_seed(0)
         r = Residual(context_dimension=4)
         with torch.no_grad():
             r.head.weight.normal_(0, 0.1)
-        feats = torch.randn(8, N_FEATURES, dtype=DTYPE)
+        features = torch.randn(8, N_FEATURES, dtype=DTYPE)
         a = torch.zeros(8, 4, dtype=DTYPE)
         b = torch.ones(8, 4, dtype=DTYPE)
-        assert not torch.equal(r(feats, a), r(feats, b))
+        assert not torch.equal(r(features, a), r(features, b))
 
 
 class TestModelWiring:

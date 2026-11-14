@@ -91,22 +91,22 @@ def grow(x: torch.Tensor, y: torch.Tensor, k: int = 6,
     return index, w, names
 
 
-def distill_residual(net, feats: torch.Tensor, k: int = 6,
+def distill_residual(net, features: torch.Tensor, k: int = 6,
                      autogrow: bool = False,
                      ) -> dict[str, list[tuple[str, float]]]:
     """ResidualNet → {output_var: [(term, coef)]} human-readable sparse
     equations per output channel. autogrow=True grows the library from
     selected terms (AutoSINDy-style) before the final OMP fit."""
     from nasa_farm.dynamics.residual import RESIDUAL_VARS
-    y = net(feats)
+    y = net(features)
     if autogrow:
         output: dict[str, list[tuple[str, float]]] = {}
         for j, v in enumerate(RESIDUAL_VARS):
-            index, w, names = grow(feats, y[:, j], k)
+            index, w, names = grow(features, y[:, j], k)
             output[v] = [(names[i], float(c)) for i, c in
                       zip(index.tolist(), w)]
         return output
-    F = basis(feats)
+    F = basis(features)
     F = (F - F.mean(0)) / F.std(0).clamp(min=1e-9)
     names = basis_names()
     output: dict[str, list[tuple[str, float]]] = {}

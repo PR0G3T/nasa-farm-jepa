@@ -73,10 +73,10 @@ class Stage:
         if self._pin is None or self._pin.shape[0] < block.shape[0]:
             self._pin = torch.empty(
                 block.shape, dtype=block.dtype, pin_memory=True)
-        buf = self._pin[: block.shape[0]]
-        buf.copy_(block)
+        buffer = self._pin[: block.shape[0]]
+        buffer.copy_(block)
         with torch.cuda.stream(self.copy_s):
-            device = buf.to(self.device, non_blocking=True)
+            device = buffer.to(self.device, non_blocking=True)
         event = torch.cuda.Event()
         event.record(self.copy_s)
         self.comp_s.wait_event(event)

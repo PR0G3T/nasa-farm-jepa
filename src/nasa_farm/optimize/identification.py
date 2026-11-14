@@ -24,25 +24,25 @@ _SUB = (0, 1, 2, 3, 4, 5, 6, 8, 10, 11, 12, 13)
 they enter through their hinge terms)."""
 
 
-def library(feats: torch.Tensor) -> tuple[torch.Tensor, list[str]]:
+def library(features: torch.Tensor) -> tuple[torch.Tensor, list[str]]:
     """(N, F) → design matrix (N, n_terms) plus term names."""
-    q = feats.quantile(0.75, dim=0)
-    hinge = torch.relu(feats - q)
+    q = features.quantile(0.75, dim=0)
+    hinge = torch.relu(features - q)
     cols = [i for i in _SUB]
     pairs = [(i, j) for i in cols for j in cols if i < j]
-    prod = torch.stack([feats[:, i] * feats[:, j] for i, j in pairs], -1)
+    prod = torch.stack([features[:, i] * features[:, j] for i, j in pairs], -1)
     names = (list(FEATURES) + [f"relu({n})" for n in FEATURES] +
              [f"{FEATURES[i]}*{FEATURES[j]}" for i, j in pairs])
-    return torch.cat([feats, hinge, prod], -1), names
+    return torch.cat([features, hinge, prod], -1), names
 
 
 def thresholded(X: torch.Tensor, Y: torch.Tensor, lam: float = 1e-4,
-          threshold: float = 1e-3, iters: int = 10) -> torch.Tensor:
+          threshold: float = 1e-3, iterations: int = 10) -> torch.Tensor:
     """Sequential thresholded least squares → (n_terms, n_out) coefs."""
     d = X.shape[1]
     eye = lam * torch.eye(d, dtype=X.dtype, device=X.device)
     coef = torch.linalg.solve(X.t() @ X + eye, X.t() @ Y)
-    for _ in range(iters):
+    for _ in range(iterations):
         small = coef.abs() < threshold
         coef = coef.masked_fill(small, 0.0)
         for j in range(Y.shape[1]):
@@ -59,10 +59,10 @@ def collect(model, field: Field, forcing: Forcing, actions: Actions,
     """(N, F) residual inputs and (N, V) outputs along the model rollout."""
     X, Y = [], []
     for t in range(forcing.days):
-        feats = model._features(field.state, forcing.day(t), actions.day(t))
-        output = model._nn(model.residual, feats, field.state.z)
+        features = model._features(field.state, forcing.day(t), actions.day(t))
+        output = model._nn(model.residual, features, field.state.z)
         Y.append(output[0] if isinstance(output, tuple) else output)
-        X.append(feats)
+        X.append(features)
         field, _ = model.step(field, actions.day(t), forcing.day(t), t)
     return torch.cat(X), torch.cat(Y)
 

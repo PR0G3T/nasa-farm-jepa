@@ -95,11 +95,11 @@ def metric_reward(metrics: torch.Tensor,
 
 
 def _means(x: torch.Tensor, init: torch.Tensor,
-            iters: int = 8) -> torch.Tensor:
+            iterations: int = 8) -> torch.Tensor:
     """Assignment of rows x (E, D) to the nearest of `init` (M, D)
     centers — enough structure for elite clustering, no full solver."""
     c = init
-    for _ in range(iters):
+    for _ in range(iterations):
         a = torch.cdist(x, c).argmin(dim=1)
         for m in range(init.shape[0]):
             sel = a == m
@@ -109,7 +109,7 @@ def _means(x: torch.Tensor, init: torch.Tensor,
     return torch.cdist(x, c).argmin(dim=1)
 
 
-def _quasi_newton(loss_fn, parameters: list[torch.Tensor], iters: int,
+def _quasi_newton(loss_fn, parameters: list[torch.Tensor], iterations: int,
            m: int = 8) -> None:
     """In-place L-BFGS polish: two-loop recursion + Armijo backtracking.
 
@@ -127,7 +127,7 @@ def _quasi_newton(loss_fn, parameters: list[torch.Tensor], iters: int,
         return v, torch.cat([p.grad.reshape(-1) for p in parameters])
 
     v, g = flat()
-    for _ in range(iters):
+    for _ in range(iterations):
         q, al = g.clone(), []
         for s, y, r in zip(s_h[::-1], y_h[::-1], rho[::-1]):
             a = r * (s * q).sum()
@@ -166,7 +166,7 @@ def _quasi_newton(loss_fn, parameters: list[torch.Tensor], iters: int,
 
 
 def path_integral(model, field: Field, forcing: Forcing, base: Actions,
-         iters: int = 8, samples: int = 96, rho: float = 0.7,
+         iterations: int = 8, samples: int = 96, rho: float = 0.7,
          sigma: tuple[float, float] = (4.0, 10.0),
          bounds: tuple[tuple[float, float], tuple[float, float]] =
          ((0.0, 25.0), (0.0, 10.0)),
@@ -197,7 +197,7 @@ def path_integral(model, field: Field, forcing: Forcing, base: Actions,
     mu0 = torch.stack([base.irrigation[0], base.n_fert[0]])  # (2, T)
     if base_mu is not None:                      # policy-prior warm start
         mu0 = base_mu.to(mu0.dtype)
-    mus = mu0.unsqueeze(0).expand(modes, -1, -1).contiguous()  # (M, 2, T)
+    means = mu0.unsqueeze(0).expand(modes, -1, -1).contiguous()  # (M, 2, T)
     best_r, best_mu, best_sow = -math.inf, mu0, base.sow[0]
     history: list[float] = []
     n_shifts = len(sow_shifts)
@@ -239,14 +239,14 @@ def path_integral(model, field: Field, forcing: Forcing, base: Actions,
             .view(s_n, E).mean(1)
 
     r_sig = 0.0
-    for _ in range(iters):
+    for _ in range(iterations):
         per = -(-samples // modes)
         parts, sows_l = [], []
         for mi in range(modes):
             eps = torch.stack([noise(per, days, rho, generation),
                                noise(per, days, rho, generation)])
             parts.append(torch.stack(
-                [(mus[mi, c] + eps[c] * sigma[c]).clamp(*bounds[c])
+                [(means[mi, c] + eps[c] * sigma[c]).clamp(*bounds[c])
                  for c in range(2)]))                  # (2, per, T)
             sows_l.append(torch.stack([
                 base.sow[0].roll(sow_shifts[i % n_shifts], dims=0)
@@ -270,8 +270,8 @@ def path_integral(model, field: Field, forcing: Forcing, base: Actions,
         el = candidate[:, order[:elite]]                    # (2, E_e, T)
         if modes > 1:
             flat = torch.cat([el[0] / sigma[0], el[1] / sigma[1]], dim=-1)
-            flat0 = torch.cat([mus[:, 0] / sigma[0],
-                               mus[:, 1] / sigma[1]], dim=-1)
+            flat0 = torch.cat([means[:, 0] / sigma[0],
+                               means[:, 1] / sigma[1]], dim=-1)
             assign = _means(flat, flat0)
             w = (math.log(elite + 0.5)
                  - torch.log(torch.arange(1, elite + 1, dtype=DTYPE)))
@@ -280,15 +280,15 @@ def path_integral(model, field: Field, forcing: Forcing, base: Actions,
                 if not sel.any():
                     continue
                 wm = (w[sel] / w[sel].sum()).unsqueeze(0).unsqueeze(-1)
-                mus[mi] = mus[mi] + (wm * (el[:, sel] - mus[mi]
+                means[mi] = means[mi] + (wm * (el[:, sel] - means[mi]
                                            .unsqueeze(1))).sum(1)
         else:
             w = torch.zeros(candidate.shape[1], dtype=DTYPE)
             w[order[:elite]] = (math.log(elite + 0.5) - torch.log(
                 torch.arange(1, elite + 1, dtype=DTYPE)))
             w = w / w.sum()
-            mus[0] = mus[0] + (w.unsqueeze(0).unsqueeze(-1)
-                               * (candidate - mus[0].unsqueeze(1))).sum(1)
+            means[0] = means[0] + (w.unsqueeze(0).unsqueeze(-1)
+                               * (candidate - means[0].unsqueeze(1))).sum(1)
 
     if gate_k and best_mu is not mu0:
         # Sibling-disagreement gate: reject a plan whose margin over the
