@@ -1,9 +1,14 @@
 """WorldModel — differentiable latent dynamics of a field.
 
-step(field, action, forcing) composes: atmosphere → canopy → water balance →
-N/C pools → lifecycle events → optional learned residual. Operator splitting
-uses pre-step stress factors for growth; every subprocess is conservative
-so the composite step inherits auditable budgets.
+step(field, action, forcing) composes: atmosphere → canopy → N-layer water
+balance → N/C pools (incl. denitrification/N2O) → lifecycle events →
+optional learned residual and recurrent latent predictor. Operator
+splitting uses pre-step stress factors for growth; every subprocess is
+conservative so the composite step inherits auditable budgets.
+
+The aquifer store `tws` absorbs deep drainage (recharge) and drains with a
+slow first-order discharge — it is the GRACE-observable total-water-storage
+anomaly and the coupling variable for landscape routing.
 """
 
 from __future__ import annotations
@@ -22,19 +27,41 @@ from nasa_farm.dynamics.latent import LatentDyn
 from nasa_farm.dynamics.residual import RESIDUAL_VARS, ResidualNet, featurize
 from nasa_farm.state.crops import IDX, CropLibrary
 from nasa_farm.state.field import Field, FieldState
-from nasa_farm.types import Actions, Forcing
+from nasa_farm.state.soil import root_weights
+from nasa_farm.types import ACTION_VARS, Actions, Forcing
+
+K_TWS = 2.0e-3
+"""/d aquifer discharge rate (≈500 d e-folding, baseflow recession)."""
 
 
 class WorldModel(nn.Module):
     """Latent dynamics. `step`/`rollout` are pure w.r.t. the passed field."""
 
     def __init__(self, crops: CropLibrary | None = None, residual: bool = True,
-                 latent_dim: int = 0) -> None:
+                 latent_dim: int = 0, latent_hidden: int = 64,
+                 stochastic: bool = False, ctx_dim: int = 0,
+                 nn_dtype: torch.dtype = DTYPE,
+                 seed: int | None = None) -> None:
         super().__init__()
         self.crops = crops or CropLibrary.default()
         self.register_buffer("crop_table", self.crops.table)
+        self.nn_dtype = nn_dtype
         self.residual = ResidualNet() if residual else None
-        self.latent = LatentDyn(latent_dim) if latent_dim else None
+        self.latent = (LatentDyn(latent_dim, latent_hidden, stochastic, ctx_dim)
+                       if latent_dim else None)
+        self._gen = (torch.Generator().manual_seed(seed)
+                     if seed is not None else None)
+        if nn_dtype != DTYPE:
+            self.quantize(nn_dtype)
+
+    def quantize(self, dtype: torch.dtype) -> "WorldModel":
+        """Run the learned nets in a narrower dtype; physics stays float64 —
+        residual/latent outputs are cast back before touching state."""
+        self.nn_dtype = dtype
+        for net in (self.residual, self.latent):
+            if net is not None:
+                net.to(dtype)
+        return self
 
     def enable_compile(self, **compile_kw) -> "WorldModel":
         """JIT-compile `step` via torch.compile — ~2× on repeated rollouts.
@@ -45,21 +72,38 @@ class WorldModel(nn.Module):
         self.step = torch.compile(self.step, **compile_kw)  # type: ignore[method-assign]
         return self
 
+    def _nn(self, net: nn.Module, feats: torch.Tensor, *args):
+        args = tuple(a.to(self.nn_dtype) if isinstance(a, torch.Tensor) else a
+                     for a in args)
+        out = net(feats.to(self.nn_dtype), *args)
+        if isinstance(out, tuple):
+            return tuple(o.to(DTYPE) for o in out)
+        return out.to(DTYPE)
+
     def _features(self, state: FieldState, forcing_d: dict, action_d: dict) -> torch.Tensor:
         return featurize(
-            {**{k: getattr(state, k) for k in
-                ("sw1", "sw2", "n_min", "lai", "biomass", "gdd", "growing")}},
+            {"sw0": state.sw[:, 0], "swr": state.sw[:, 1:].sum(-1),
+             **{k: getattr(state, k) for k in
+                ("n_min", "lai", "biomass", "gdd", "growing")}},
             forcing_d, action_d,
         )
 
     def _apply_residual(self, state: FieldState, soil, feats: torch.Tensor) -> FieldState:
-        delta = self.residual(feats)
+        delta = self._nn(self.residual, feats)
         upd = dict(zip(RESIDUAL_VARS, delta.unbind(-1)))
-        sw1 = (state.sw1 + upd["sw1"]).clamp(soil.layer1.theta_air, soil.layer1.theta_sat)
-        sw2 = (state.sw2 + upd["sw2"]).clamp(min=0.0)
-        sw2 = torch.minimum(sw2, soil.layer2.theta_sat)
+        sw0 = (state.sw[:, 0] + upd["sw0"]).clamp(
+            soil.air[:, 0], soil.sat[:, 0])
+        if state.n_layers > 1:
+            root = state.sw[:, 1:]
+            w = root / root.sum(-1, keepdim=True).clamp(min=1e-9)
+            root = torch.minimum(
+                (root + upd["swr"].unsqueeze(-1) * w).clamp(min=0.0),
+                soil.sat[:, 1:])
+            sw = torch.cat([sw0.unsqueeze(1), root], dim=1)
+        else:
+            sw = sw0.unsqueeze(1)
         return state.replace(
-            sw1=sw1, sw2=sw2,
+            sw=sw,
             n_min=(state.n_min + upd["n_min"]).clamp(min=0.0),
             lai=(state.lai + upd["lai"]).clamp(min=0.0),
             biomass=(state.biomass + upd["biomass"]).clamp(min=0.0),
@@ -67,6 +111,15 @@ class WorldModel(nn.Module):
 
     def step(self, field: Field, action: dict, forcing_d: dict) -> tuple[Field, dict]:
         s = field.state
+        fb = forcing_d["tmin"].shape[0]
+        if s.batch == 1 and fb > 1:
+            # broadcast semantics: a single field under an ensemble of forcing
+            from dataclasses import replace
+            field = replace(
+                field, state=s.repeat(fb),
+                soil=field.soil.repeat(fb) if field.soil.batch == 1
+                else field.soil)
+            s = field.state
         tr = cp.traits(self.crop_table, s.crop)
 
         ra = extraterrestrial_radiation(field.lat, forcing_d["doy"])
@@ -75,8 +128,8 @@ class WorldModel(nn.Module):
             forcing_d["u2"], forcing_d["srad"], ra, field.elev_or_default())
         daylen = day_length(field.lat, forcing_d["doy"])
 
-        water_fac = water.water_uptake_factor(s.sw1, s.sw2, field.soil)
-        pawf = water.paw_fraction(s.sw1, s.sw2, field.soil)
+        water_fac = water.water_uptake_factor(s.sw, field.soil)
+        pawf = water.paw_fraction(s.sw, field.soil)
         n_fac = bg.nitrogen_stress(s.n_min)
 
         gdd, lai, biomass, cflux = cp.canopy_step(
@@ -90,16 +143,22 @@ class WorldModel(nn.Module):
         ep = cp.potential_evaporation(et0, lai, tr, s.growing)
         tp = cp.potential_transpiration(et0, lai, tr, s.growing)
         infiltration = forcing_d["precip"] + action["irrigation"]
-        sw1, sw2, wflux = water.water_balance_step(
-            s.sw1, s.sw2, field.soil, infiltration, ep, tp,
-            cp.water_uptake_split(tr))
+        rw = root_weights(tr[:, IDX["root_frac2"]], s.n_layers)
+        sw, wflux = water.water_balance_step(
+            s.sw, field.soil, infiltration, ep, tp, rw)
+        et = wflux["es"] + wflux["t"].sum(-1)
+        tws = s.tws * (1.0 - K_TWS) + wflux["deep"]
 
         bio = bg.bio_factor(forcing_d["tmin"], forcing_d["tmax"], pawf)
         n_demand = tr[:, IDX["n_demand"]] * cflux["delta_b"]
         n_min, n_org, nflux = bg.nitrogen_step(
-            s.n_min, s.n_org, bio, wflux["perc"] + wflux["deep"], sw1 + sw2,
-            n_demand, tr[:, IDX["legume"]], tr[:, IDX["fix_frac"]], action["n_fert"])
-        litter, soc, c2flux = bg.carbon_step(s.litter, s.soc, bio, torch.zeros_like(s.litter))
+            s.n_min, s.n_org, bio, wflux["perc"] + wflux["deep"], sw.sum(-1),
+            n_demand, tr[:, IDX["legume"]], tr[:, IDX["fix_frac"]],
+            action["n_fert"], bg.wfps(sw.sum(-1), field.soil.sat.sum(-1)))
+        n2o = s.n2o + nflux["n2o"]
+        litter, soc_f, soc_s, c2flux = bg.carbon_step(
+            s.litter, s.soc_f, s.soc_s, bio, torch.zeros_like(s.litter),
+            action.get("till"), action.get("res_remove"))
 
         # Lifecycle events ------------------------------------------------
         yield_event = torch.zeros_like(s.biomass)
@@ -146,12 +205,16 @@ class WorldModel(nn.Module):
         cum_yield = s.cum_yield + yield_event
         litter = litter + residue_in
 
+        zh = s.zh
         new_state = FieldState(
-            sw1=sw1, sw2=sw2, n_min=n_min, n_org=n_org, soc=soc, litter=litter,
+            sw=sw, n_min=n_min, n_org=n_org, litter=litter,
+            soc_f=soc_f, soc_s=soc_s, et=et, n2o=n2o, tws=tws,
             gdd=gdd, lai=lai, biomass=biomass,
             season_yield=season_yield, cum_yield=cum_yield,
             crop=crop, growing=growing, harvested=harvested,
-            vern=vern, heat_acc=heat_acc, z=z,
+            vern=vern, heat_acc=heat_acc, z=z, zh=zh,
+            depth=s.depth,
+            tair=0.5 * (forcing_d["tmin"] + forcing_d["tmax"]),
         )
 
         if self.residual is not None or (self.latent is not None and z is not None):
@@ -159,16 +222,18 @@ class WorldModel(nn.Module):
             if self.residual is not None:
                 new_state = self._apply_residual(new_state, field.soil, feats)
             if self.latent is not None and z is not None:
-                new_state = new_state.replace(
-                    z=self.latent(feats, new_state.z))
+                z2, zh2 = self._nn(self.latent, feats, new_state.z, zh,
+                                   field.ctx, self._gen)
+                new_state = new_state.replace(z=z2, zh=zh2)
 
         fluxes = {**wflux, **nflux, **c2flux,
-                  "et0": et0, "delta_b": cflux["delta_b"], "limiter": cflux["limiter"],
+                  "et0": et0, "et": et, "delta_b": cflux["delta_b"],
+                  "limiter": cflux["limiter"],
                   "water_fac": water_fac, "yield_event": yield_event,
                   "residue_in": residue_in,
                   "heat_dd": cflux["heat_dd"], "frost": cflux["frost"].to(DTYPE)}
         return field.__class__(state=new_state, soil=field.soil, lat=field.lat,
-                               elev=field.elev), fluxes
+                               elev=field.elev, ctx=field.ctx), fluxes
 
     def rollout(
         self,
@@ -188,7 +253,7 @@ class WorldModel(nn.Module):
         """
         ckpt = (checkpoint_every if torch.is_grad_enabled() else 0)
         if ckpt and not any(t.requires_grad for t in
-                            (field.state.sw1, forcing.tmin, *self.parameters())):
+                            (field.state.sw, forcing.tmin, *self.parameters())):
             ckpt = 0  # no backward possible → no activation-memory win
         if not ckpt:
             for t in range(forcing.days):
@@ -211,9 +276,10 @@ class WorldModel(nn.Module):
         names = [n for n in field.state.__dataclass_fields__
                  if getattr(field.state, n) is not None]
         acc = observer.acc if observer is not None else None
-        static = {"soil": field.soil, "lat": field.lat, "elev": field.elev}
+        static = {"soil": field.soil, "lat": field.lat, "elev": field.elev,
+                  "ctx": field.ctx}
         cls = field.__class__
-        avars = ("sow", "irrigation", "n_fert")
+        avars = ACTION_VARS
         nf, na = len(FORCING_VARS), len(avars)
 
         for t0 in range(0, forcing.days, every):

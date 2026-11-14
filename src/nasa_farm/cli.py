@@ -31,7 +31,7 @@ from nasa_farm.optimize.targets import (
 from nasa_farm.optimize.trainer import fit, leaf
 from nasa_farm.plan import enumerate_rotations, evaluate, recommend
 from nasa_farm.state.crops import IDX
-from nasa_farm.state.soil import SoilProfile
+from nasa_farm.state.soil import DEPTHS, SoilProfile
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -49,6 +49,8 @@ def _build_parser() -> argparse.ArgumentParser:
     pl.add_argument("--irrig", type=float, default=0.0, help="mm/day post-sowing")
     pl.add_argument("--fert", type=float, default=0.0, help="kg N/ha at sow+30d")
     pl.add_argument("--soil", default=None, help="texture preset override")
+    pl.add_argument("--depths", default=None,
+                    help="layer thicknesses m, comma-sep (e.g. 0.3,0.6,0.9)")
     pl.add_argument("--top-k", type=int, default=5)
     pl.add_argument("--workers", type=int, default=0,
                     help="rollout threads; 0 = auto (physical cores, no-GIL)")
@@ -91,6 +93,13 @@ def _build_parser() -> argparse.ArgumentParser:
     ct.add_argument("--iters", type=int, default=6)
     ct.add_argument("--weights", default=None,
                     help="reward mix, e.g. yield_kg=1.0,n_leached=-0.5")
+    ct.add_argument("--risk", default="mean",
+                    choices=("mean", "cvar", "conf"),
+                    help="scenario risk aggregation")
+    ct.add_argument("--alpha", type=float, default=0.2,
+                    help="CVaR tail level / conformal miscoverage")
+    ct.add_argument("--sow-shifts", default="0",
+                    help="sow-day shifts searched, comma-sep (e.g. -14,0,14)")
     ct.add_argument("--seed", type=int, default=0)
     return p
 
@@ -136,10 +145,12 @@ def cmd_plan(args) -> int:
     ens = dataclasses.replace(
         ens, co2=torch.full_like(ens.tmin, args.co2))
 
+    depths = (tuple(float(x) for x in args.depths.split(","))
+              if args.depths else DEPTHS)
     if args.soil:
-        soil = SoilProfile.preset(args.soil)
+        soil = SoilProfile.preset(args.soil, depths=depths)
     elif args.offline:
-        soil = SoilProfile.preset("loam")
+        soil = SoilProfile.preset("loam", depths=depths)
     else:
         soil = SoilGridsClient().profile(args.lat, args.lon)
 
@@ -290,7 +301,10 @@ def cmd_control(args) -> int:
                {k: float(v) for k, v in
                 (w.split("=") for w in args.weights.split(","))})
     res = mppi(model, field, ens, base, iters=args.iters,
-               samples=args.samples, weights=weights, seed=args.seed)
+               samples=args.samples, weights=weights, risk=args.risk,
+               alpha=args.alpha,
+               sow_shifts=tuple(int(x) for x in args.sow_shifts.split(",")),
+               seed=args.seed)
 
     idx = {n: i for i, n in enumerate(METRICS)}
 

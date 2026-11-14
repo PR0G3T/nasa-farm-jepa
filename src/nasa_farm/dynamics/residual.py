@@ -11,8 +11,10 @@ from __future__ import annotations
 import torch
 import torch.nn as nn
 
-RESIDUAL_VARS: tuple[str, ...] = ("sw1", "sw2", "n_min", "lai", "biomass")
-BOUND_SCALE = {"sw1": 5.0, "sw2": 5.0, "n_min": 2.0, "lai": 0.3, "biomass": 60.0}
+RESIDUAL_VARS: tuple[str, ...] = ("sw0", "swr", "n_min", "lai", "biomass")
+"""sw0 = surface layer; swr = root-zone total below it (any L)."""
+
+BOUND_SCALE = {"sw0": 5.0, "swr": 5.0, "n_min": 2.0, "lai": 0.3, "biomass": 60.0}
 
 N_FEATURES = 14  # see featurize()
 
@@ -22,17 +24,17 @@ def featurize(state_fields: dict[str, torch.Tensor],
               action: dict[str, torch.Tensor]) -> torch.Tensor:
     """(B, N_FEATURES) input vector for the residual net."""
     cols = [
-        state_fields["sw1"], state_fields["sw2"], state_fields["n_min"],
+        state_fields["sw0"], state_fields["swr"], state_fields["n_min"],
         state_fields["lai"], state_fields["biomass"], state_fields["gdd"],
-        state_fields["growing"].to(state_fields["sw1"].dtype),
+        state_fields["growing"].to(state_fields["sw0"].dtype),
         forcing["tmin"], forcing["tmax"], forcing["srad"], forcing["precip"],
         action["irrigation"], action["n_fert"],
-        action["sow"].to(state_fields["sw1"].dtype),
+        action["sow"].to(state_fields["sw0"].dtype),
     ]
     scales = torch.tensor(
         [300.0, 500.0, 80.0, 6.0, 20_000.0, 2500.0, 1.0,
          30.0, 40.0, 30.0, 50.0, 20.0, 100.0, 6.0],
-        dtype=state_fields["sw1"].dtype, device=state_fields["sw1"].device,
+        dtype=state_fields["sw0"].dtype, device=state_fields["sw0"].device,
     )
     return torch.stack(cols, dim=-1) / scales
 

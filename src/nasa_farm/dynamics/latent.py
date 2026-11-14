@@ -2,9 +2,15 @@
 
 `s_t` stays fully interpretable; `z` carries what the physics does not model
 (variety, micro-relief, management history) as a learned embedding advanced
-by `LatentDyn`. Training follows LeJEPA: next-latent prediction plus SIGReg,
-the sketched isotropic-Gaussian regularizer that makes the latent space
-well-posed for planning.
+by `LatentDyn`, a recurrent predictor whose hidden state `zh` persists
+between days. Optional stochastic innovation (mu/logvar head + reparam)
+turns it into an RSSM-style latent whose KL term is exposed for the loss.
+A static site context `ctx` (e.g. foundation-model embeddings, soil
+texture) conditions every transition.
+
+Training follows LeJEPA: next-latent prediction plus SIGReg, the sketched
+isotropic-Gaussian regularizer that keeps the latent space well-posed.
+Zero-initialized head ⇒ identity at init, same contract as ResidualNet.
 """
 
 from __future__ import annotations
@@ -16,23 +22,54 @@ from nasa_farm.dynamics.residual import N_FEATURES
 
 
 class LatentDyn(nn.Module):
-    """z' = z + MLP([feats, z]) — zero-initialized head ⇒ identity at init,
-    same contract as ResidualNet: the model is the physics until trained."""
+    """GRU transition predictor: zh' = GRU([feats, z, ctx?], zh); z' = z + head(zh')."""
 
-    def __init__(self, dim: int, hidden: int = 64) -> None:
+    def __init__(self, dim: int, hidden: int = 64, stochastic: bool = False,
+                 ctx_dim: int = 0) -> None:
         super().__init__()
         self.dim = dim
-        self.body = nn.Sequential(
-            nn.Linear(N_FEATURES + dim, hidden), nn.SiLU(),
-            nn.Linear(hidden, hidden), nn.SiLU(),
-        )
-        self.head = nn.Linear(hidden, dim)
+        self.h_dim = hidden
+        self.stochastic = stochastic
+        self.ctx_dim = ctx_dim
+        self.gru = nn.GRUCell(N_FEATURES + dim + ctx_dim, hidden)
+        self.head = nn.Linear(hidden, dim * (2 if stochastic else 1))
         nn.init.zeros_(self.head.weight)
         nn.init.zeros_(self.head.bias)
+        self.kl = torch.zeros((), dtype=torch.float64)
         self.to(torch.float64)
 
-    def forward(self, feats: torch.Tensor, z: torch.Tensor) -> torch.Tensor:
-        return z + self.head(self.body(torch.cat([feats, z], dim=-1)))
+    def forward(self, feats: torch.Tensor, z: torch.Tensor,
+                zh: torch.Tensor | None = None,
+                ctx: torch.Tensor | None = None,
+                gen: torch.Generator | None = None
+                ) -> tuple[torch.Tensor, torch.Tensor]:
+        x = torch.cat([feats, z] + ([] if self.ctx_dim == 0 else
+                                    [ctx.to(feats.dtype)]), dim=-1)
+        if zh is None:
+            zh = torch.zeros(feats.shape[0], self.h_dim,
+                             dtype=feats.dtype, device=feats.device)
+        zh = self.gru(x, zh.to(feats.dtype))
+        out = self.head(zh)
+        if not self.stochastic:
+            self.kl = torch.zeros((), dtype=out.dtype, device=out.device)
+            return z + out, zh
+        mu, logvar = out.chunk(2, dim=-1)
+        logvar = logvar.clamp(-8.0, 4.0)
+        sig = (0.5 * logvar).exp()
+        eps = torch.randn(mu.shape, generator=gen,
+                          dtype=mu.dtype, device=mu.device)
+        self.kl = 0.5 * (mu.pow(2) + sig.pow(2) - logvar - 1.0).mean()
+        return z + mu + sig * eps, zh
+
+    def unroll(self, feats_seq: torch.Tensor, z: torch.Tensor,
+               zh: torch.Tensor | None = None, ctx: torch.Tensor | None = None,
+               gen: torch.Generator | None = None) -> torch.Tensor:
+        """Multi-step rollout of the predictor alone. feats_seq (T, B, F)."""
+        zs = []
+        for t in range(feats_seq.shape[0]):
+            z, zh = self(feats_seq[t], z, zh, ctx, gen)
+            zs.append(z)
+        return torch.stack(zs)
 
 
 class ObsEncoder(nn.Module):
@@ -77,11 +114,16 @@ def sigreg(z: torch.Tensor, directions: torch.Tensor | None = None,
 
 
 def jepa_loss(z_obs: torch.Tensor, z_pred: torch.Tensor,
-              sig_weight: float = 1.0, sig_seed: int = 0) -> torch.Tensor:
-    """Predictor loss + latent regularizer.
+              sig_weight: float = 1.0, kl: torch.Tensor | float = 0.0,
+              kl_weight: float = 0.0, sig_seed: int = 0) -> torch.Tensor:
+    """Predictor loss + latent regularizer + stochastic-prior KL.
 
-    z_pred: predictor outputs (B, K); z_obs: encoder targets, compared with a
-    stop-gradient — the encoder teaches the dynamics, never the reverse.
+    z_pred: predictor outputs (B, K) or (T, B, K) for multi-step unrolls;
+    z_obs: encoder targets, compared with a stop-gradient — the encoder
+    teaches the dynamics, never the reverse.
     """
     pred = (z_pred - z_obs.detach()).pow(2).mean()
-    return pred + sig_weight * sigreg(z_obs, seed=sig_seed)
+    kl_term = kl if isinstance(kl, torch.Tensor) else torch.tensor(
+        float(kl), dtype=z_pred.dtype, device=z_pred.device)
+    return pred + sig_weight * sigreg(z_obs.reshape(-1, z_obs.shape[-1]),
+                                      seed=sig_seed) + kl_weight * kl_term

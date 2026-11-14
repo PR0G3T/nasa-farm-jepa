@@ -13,13 +13,13 @@ class TestLatentDyn:
         dyn = LatentDyn(4)
         z = torch.randn(8, 4, dtype=DTYPE)
         feats = torch.randn(8, N_FEATURES, dtype=DTYPE)
-        assert torch.equal(dyn(feats, z), z)
+        assert torch.equal(dyn(feats, z, None)[0], z)
 
     def test_output_shape(self):
         dyn = LatentDyn(6)
-        out = dyn(torch.randn(3, N_FEATURES, dtype=DTYPE),
-                  torch.randn(3, 6, dtype=DTYPE))
-        assert out.shape == (3, 6)
+        out, zh = dyn(torch.randn(3, N_FEATURES, dtype=DTYPE),
+                      torch.randn(3, 6, dtype=DTYPE))
+        assert out.shape == (3, 6) and zh.shape == (3, 64)
 
 
 class TestObsEncoder:

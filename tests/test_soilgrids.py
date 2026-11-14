@@ -32,12 +32,12 @@ def test_profile_from_mocked_api():
     client = SoilGridsClient(httpx.Client(
         transport=httpx.MockTransport(lambda r: httpx.Response(200, json=PAYLOAD))))
     p = client.profile(41.0, -93.0)
-    assert float(p.clay1[0]) == pytest.approx(22.0)
-    assert float(p.layer1.theta_fc) > float(p.layer1.theta_wp)
+    assert float(p.clay[0, 0]) == pytest.approx(22.0)
+    assert float(p.layer(0).theta_fc) > float(p.layer(0).theta_wp)
 
 
 def test_profile_fallback_on_error():
     client = SoilGridsClient(httpx.Client(
         transport=httpx.MockTransport(lambda r: httpx.Response(500))))
     p = client.profile(0.0, 0.0, fallback_texture="clay")
-    assert float(p.clay1[0]) == pytest.approx(50.0)
+    assert float(p.clay[0, 0]) == pytest.approx(50.0)

@@ -17,9 +17,9 @@ def _state(batch: int, **kw) -> object:
 
 def _fluxes(batch: int, **kw) -> dict:
     z = torch.zeros(batch, dtype=DTYPE)
-    base = {"yield_event": z, "es": z, "t1": z, "t2": z, "runoff": z,
-            "deep": z, "leached": z, "heat_dd": z, "frost": z,
-            "water_fac": torch.ones(batch, dtype=DTYPE)}
+    base = {"yield_event": z, "es": z, "t": torch.zeros(batch, 2, dtype=DTYPE),
+            "runoff": z, "deep": z, "leached": z, "n2o": z, "heat_dd": z,
+            "frost": z, "water_fac": torch.ones(batch, dtype=DTYPE)}
     return {**base, **kw}
 
 

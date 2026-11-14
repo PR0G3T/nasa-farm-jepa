@@ -15,6 +15,9 @@ from nasa_farm.constants import DTYPE
 FORCING_VARS: tuple[str, ...] = (
     "tmin", "tmax", "srad", "precip", "rh", "u2", "doy", "co2")
 
+ACTION_VARS: tuple[str, ...] = (
+    "sow", "irrigation", "n_fert", "till", "res_remove")
+
 CO2_REF_PPM = 420.0
 """Reference atmospheric CO2 at which crop `co2_resp` traits are calibrated."""
 
@@ -81,11 +84,24 @@ class Forcing:
 
 @dataclass(frozen=True, slots=True)
 class Actions:
-    """Daily management drivers, (B, T). sow: long, −1 = no sowing."""
+    """Daily management drivers, (B, T).
 
-    sow: torch.Tensor        # (B, T) long
-    irrigation: torch.Tensor # (B, T) mm
-    n_fert: torch.Tensor     # (B, T) kg N/ha
+    sow: long, −1 = no sowing. till: tillage fraction of the surface layer
+    mixed into the soil that day ∈ [0,1]. res_remove: fraction of surface
+    residue exported (baling, grazing) ∈ [0,1].
+    """
+
+    sow: torch.Tensor            # (B, T) long
+    irrigation: torch.Tensor     # (B, T) mm
+    n_fert: torch.Tensor         # (B, T) kg N/ha
+    till: torch.Tensor | None = None       # (B, T) ∈ [0,1]
+    res_remove: torch.Tensor | None = None # (B, T) ∈ [0,1]
+
+    def __post_init__(self) -> None:
+        for k in ("till", "res_remove"):
+            if getattr(self, k) is None:
+                object.__setattr__(self, k,
+                                   torch.zeros_like(self.irrigation))
 
     @property
     def batch(self) -> int:
@@ -96,8 +112,7 @@ class Actions:
         return self.sow.shape[1]
 
     def day(self, t: int) -> DayDict:
-        return {"sow": self.sow[:, t], "irrigation": self.irrigation[:, t],
-                "n_fert": self.n_fert[:, t]}
+        return {k: getattr(self, k)[:, t] for k in ACTION_VARS}
 
     @classmethod
     def idle(cls, batch: int, days: int) -> "Actions":
@@ -108,9 +123,7 @@ class Actions:
         )
 
     def repeat(self, n: int) -> "Actions":
-        return Actions(self.sow.repeat(n, 1), self.irrigation.repeat(n, 1),
-                       self.n_fert.repeat(n, 1))
+        return Actions(*(getattr(self, k).repeat(n, 1) for k in ACTION_VARS))
 
     def to(self, device: torch.device | str) -> "Actions":
-        return Actions(self.sow.to(device), self.irrigation.to(device),
-                       self.n_fert.to(device))
+        return Actions(*(getattr(self, k).to(device) for k in ACTION_VARS))

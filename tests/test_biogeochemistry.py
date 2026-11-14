@@ -63,17 +63,30 @@ class TestNitrogen:
 class TestCarbon:
     def test_litter_decay_feeds_soc(self):
         litter, soc = t(1000.0), t(20_000.0)
-        l2, s2, f = carbon_step(litter, soc, t(0.5), t(0.0))
+        l2, sf2, ss2, f = carbon_step(litter, soc * 0.15, soc * 0.85,
+                                      t(0.5), t(0.0))
         assert float(f["litter_decay"]) == pytest.approx(1000.0 * 3e-3 * 0.5)
         assert float(l2) < float(litter)
-        # Δsoc = humified − soc_decay
-        assert float(s2 - soc) == pytest.approx(
-            float(f["humified"] - f["soc_decay"]))
+        # Δ(soc_f + soc_s) = humified − active-pool decay − stable-pool decay
+        delta = (f["humified"] - f["soc_f_decay"] - f["soc_s_decay"]
+                 + f["stabilized"])
+        assert float((sf2 + ss2) - soc) == pytest.approx(float(delta))
 
     def test_residue_input_enters_litter(self):
-        l2, _, _ = carbon_step(t(0.0), t(0.0), t(0.0), t(500.0))
+        l2, _, _, _ = carbon_step(t(0.0), t(0.0), t(0.0), t(0.0), t(500.0))
         assert float(l2) == pytest.approx(500.0)
 
+    def test_tillage_incorporates_and_residue_removal_exports(self):
+        l0, sf0, ss0, f0 = carbon_step(t(1000.0), t(3000.0), t(17_000.0),
+                                       t(0.5), t(0.0), t(1.0), t(0.5))
+        # res_remove exports half the litter first
+        assert float(f0["exported"]) == pytest.approx(500.0)
+        # tillage then incorporates 60 % of the remainder into soc_f
+        assert float(f0["incorporated"]) == pytest.approx(300.0)
+        tot0 = float(l0 + sf0 + ss0)
+        tot_budget = 1000.0 + 20_000.0 - float(f0["exported"] + f0["respired"])
+        assert tot0 == pytest.approx(tot_budget)
+
     def test_pools_nonnegative(self):
-        l2, s2, _ = carbon_step(t(0.0), t(0.0), t(1.0), t(0.0))
-        assert float(l2) >= 0.0 and float(s2) >= 0.0
+        l2, sf, ss, _ = carbon_step(t(0.0), t(0.0), t(0.0), t(1.0), t(0.0))
+        assert float(l2) >= 0.0 and float(sf) >= 0.0 and float(ss) >= 0.0

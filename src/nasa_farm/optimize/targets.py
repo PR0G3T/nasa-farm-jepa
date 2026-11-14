@@ -27,7 +27,7 @@ def season_metrics(model, field: Field, forcing: Forcing,
     data-assimilation path: gradients must reach the model parameters.
     """
     acc = SeasonAccumulator(field.batch, forcing.days // 365,
-                            device=field.state.sw1.device)
+                            device=field.state.sw.device)
     model.rollout(field, forcing, actions, observer=acc)
     return acc.result()
 

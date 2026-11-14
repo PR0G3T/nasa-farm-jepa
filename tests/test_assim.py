@@ -11,46 +11,53 @@ from nasa_farm.types import Actions
 
 
 class TestUpdate:
+    def _with_sw0(self, s, v):
+        sw = s.sw.clone()
+        sw[:, 0] = v
+        return s.replace(sw=sw)
+
     def test_analysis_shrinks_spread_and_recenters(self, soil):
-        s = initial_state(16, soil)
-        s = s.replace(sw1=torch.linspace(50.0, 90.0, 16, dtype=DTYPE))
-        pred = s.sw1.unsqueeze(-1)                  # observe sw1 directly
+        s = self._with_sw0(initial_state(16, soil),
+                           torch.linspace(50.0, 90.0, 16, dtype=DTYPE))
+        pred = s.sw[:, 0].unsqueeze(-1)           # observe sw0 directly
         g = torch.Generator().manual_seed(0)
         s2 = enkf_update(s, pred, torch.tensor([80.0], dtype=DTYPE), 1.0,
                          gen=g)
-        assert float(s2.sw1.var()) < float(s.sw1.var())
-        assert abs(float(s2.sw1.mean()) - 80.0) \
-            < abs(float(s.sw1.mean()) - 80.0)
+        assert float(s2.sw[:, 0].var()) < float(s.sw[:, 0].var())
+        assert abs(float(s2.sw[:, 0].mean()) - 80.0) \
+            < abs(float(s.sw[:, 0].mean()) - 80.0)
 
     def test_cross_covariance_updates_unobserved(self, soil):
-        """Observing sw1 moves sw2 when the ensemble links them."""
+        """Observing sw0 moves the root zone when the ensemble links them."""
         s = initial_state(16, soil)
-        sw1 = torch.linspace(60.0, 100.0, 16, dtype=DTYPE)
-        s = s.replace(sw1=sw1, sw2=4.0 * sw1 + 20.0)
-        s2 = enkf_update(s, s.sw1.unsqueeze(-1),
+        sw0 = torch.linspace(60.0, 100.0, 16, dtype=DTYPE)
+        sw = s.sw.clone()
+        sw[:, 0], sw[:, 1] = sw0, 4.0 * sw0 + 20.0
+        s = s.replace(sw=sw)
+        s2 = enkf_update(s, s.sw[:, 0].unsqueeze(-1),
                          torch.tensor([80.0], dtype=DTYPE), 1.0,
                          gen=torch.Generator().manual_seed(0))
-        prior = float((s.sw2 - (4.0 * 80.0 + 20.0)).abs().mean())
-        post = float((s2.sw2 - (4.0 * 80.0 + 20.0)).abs().mean())
+        prior = float((s.sw[:, 1] - (4.0 * 80.0 + 20.0)).abs().mean())
+        post = float((s2.sw[:, 1] - (4.0 * 80.0 + 20.0)).abs().mean())
         assert post < prior
 
     def test_states_stay_nonnegative(self, soil):
-        s = initial_state(16, soil).replace(
-            sw1=torch.full((16,), 5.0, dtype=DTYPE))
-        s2 = enkf_update(s, s.sw1.unsqueeze(-1),
+        s = self._with_sw0(initial_state(16, soil),
+                           torch.full((16,), 5.0, dtype=DTYPE))
+        s2 = enkf_update(s, s.sw[:, 0].unsqueeze(-1),
                          torch.tensor([300.0], dtype=DTYPE), 0.01,
                          gen=torch.Generator().manual_seed(0))
-        assert (s2.sw1 >= 0).all() and (s2.n_min >= 0).all() \
+        assert (s2.sw >= 0).all() and (s2.n_min >= 0).all() \
             and (s2.lai >= 0).all() and (s2.biomass >= 0).all()
 
     def test_deterministic_given_seed(self, soil):
         s = initial_state(16, soil)
-        pred = s.sw1.unsqueeze(-1)
+        pred = s.sw[:, 0].unsqueeze(-1)
         a = enkf_update(s, pred, torch.tensor([80.0]), 1.0,
                         gen=torch.Generator().manual_seed(3))
         b = enkf_update(s, pred, torch.tensor([80.0]), 1.0,
                         gen=torch.Generator().manual_seed(3))
-        assert torch.equal(a.sw1, b.sw1)
+        assert torch.equal(a.sw[:, 0], b.sw[:, 0])
 
 
 class TestAssimilate:
@@ -89,9 +96,11 @@ class TestAssimilate:
             Field(initial_state(1, soil), soil,
                   torch.tensor([42.0], dtype=DTYPE)), forcing,
             Actions(sow, a.irrigation, a.n_fert))
-        biased = initial_state(16, soil).replace(
-            sw1=initial_state(1, soil).sw1 - 25.0
-            + torch.linspace(-8.0, 8.0, 16, dtype=DTYPE))
+        biased = initial_state(16, soil)
+        bsw = biased.sw.clone()
+        bsw[:, 0] = (initial_state(1, soil).sw[0, 0] - 25.0
+                     + torch.linspace(-8.0, 8.0, 16, dtype=DTYPE))
+        biased = biased.replace(sw=bsw)
         acts = Actions(sow.repeat(16, 1), a.irrigation.repeat(16, 1),
                        a.n_fert.repeat(16, 1))
         free = physics_model.rollout(

@@ -221,7 +221,7 @@ def _rollout_metrics(model: WorldModel, field0: Field, plans: torch.Tensor,
                       actions.irrigation.repeat_interleave(s, dim=0),
                       actions.n_fert.repeat_interleave(s, dim=0))
     forcing = forcing_ens.repeat(r)
-    acc = SeasonAccumulator(r * s, h, device=field.state.sw1.device)
+    acc = SeasonAccumulator(r * s, h, device=field.state.sw.device)
     with torch.inference_mode():
         model.rollout(field, forcing, actions, observer=acc)
     return acc.result()

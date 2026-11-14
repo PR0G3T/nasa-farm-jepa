@@ -63,3 +63,49 @@ class SplitConformal:
         q = torch.stack([conf_level(self.scores[..., c], self.alpha)
                          for c in range(self.scores.shape[-1])])
         return pred - q, pred + q
+
+
+class TrajectoryConformal:
+    """Joint conformal band over a whole trajectory.
+
+    The score is the sup-norm of scaled per-day residuals,
+    s_i = max_t |y_it − ŷ_it| / scale_t, so the returned band covers the
+    entire predicted trajectory simultaneously at level 1−α (not just
+    pointwise)."""
+
+    def __init__(self, alpha: float = 0.1) -> None:
+        self.alpha = alpha
+        self.scale: torch.Tensor | None = None
+        self.scores: torch.Tensor | None = None
+
+    def fit(self, pred: torch.Tensor, y: torch.Tensor,
+            scale: torch.Tensor | None = None) -> "TrajectoryConformal":
+        """pred/y: (N, T[, C]) calibration trajectories."""
+        self.scale = (torch.ones_like(pred[0]) if scale is None
+                      else scale.clamp(min=1e-9))
+        self.scores = ((pred - y).abs() / self.scale).amax(
+            dim=tuple(range(1, pred.dim())))
+        return self
+
+    def bound(self, pred: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+        q = conf_level(self.scores, self.alpha)
+        m = q * self.scale
+        return pred - m, pred + m
+
+
+def aci(alpha_t: float, err: bool, target: float = 0.1,
+        gamma: float = 0.02) -> float:
+    """Adaptive conformal inference step: after a miss the miscoverage
+    level drops (intervals widen), after a cover it rises (intervals
+    narrow) — online calibration under distribution shift."""
+    return alpha_t + gamma * (target - float(err))
+
+
+def enbpi(pred: torch.Tensor, residuals: torch.Tensor,
+          alpha: float = 0.1) -> tuple[torch.Tensor, torch.Tensor]:
+    """Ensemble-batch prediction intervals: per-day band from the quantiles
+    of a rolling residual window (bootstrap-after-fit UQ that needs no
+    retraining). residuals: (N, T)."""
+    lo = torch.quantile(residuals, alpha / 2.0, dim=0)
+    hi = torch.quantile(residuals, 1.0 - alpha / 2.0, dim=0)
+    return pred + lo, pred + hi

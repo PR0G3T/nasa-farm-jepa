@@ -36,14 +36,26 @@ class ControlResult:
 
 
 def metric_reward(metrics: torch.Tensor,
-                  weights: dict[str, float] | None = None) -> torch.Tensor:
-    """(S, E, H, M) → (S,) reward: weighted metric sum over years, mean over
-    forcing scenarios."""
+                  weights: dict[str, float] | None = None,
+                  risk: str = "mean", alpha: float = 0.2,
+                  margin: torch.Tensor | float = 0.0) -> torch.Tensor:
+    """(S, E, H, M) → (S,) reward: weighted metric sum over years, aggregated
+    over forcing scenarios.
+
+    risk: "mean" scenario average; "cvar" mean of the worst-α tail
+    (drought-robust scheduling); "conf" mean minus a conformal calibration
+    margin (chance-constrained reward).
+    """
     weights = weights or DEFAULT_WEIGHTS
     idx = {n: i for i, n in enumerate(METRICS)}
     r = torch.zeros(metrics.shape[0], metrics.shape[1], dtype=DTYPE)
     for name, w in weights.items():
         r = r + w * metrics[..., idx[name]].sum(dim=-1)
+    if risk == "cvar":
+        k = max(1, int(round(alpha * r.shape[1])))
+        return r.sort(dim=1).values[:, :k].mean(1)
+    if risk == "conf":
+        return r.mean(1) - torch.as_tensor(margin, dtype=DTYPE)
     return r.mean(1)
 
 
@@ -53,6 +65,10 @@ def mppi(model, field: Field, forcing: Forcing, base: Actions,
          bounds: tuple[tuple[float, float], tuple[float, float]] =
          ((0.0, 25.0), (0.0, 10.0)),
          weights: dict[str, float] | None = None,
+         risk: str = "mean", alpha: float = 0.2,
+         margin: torch.Tensor | float = 0.0,
+         base_mu: torch.Tensor | None = None,
+         sow_shifts: tuple[int, ...] = (0,),
          reward=None, seed: int = 0) -> ControlResult:
     """Optimize continuous irrigation (mm/day) and N (kg/ha/day) channels.
 
@@ -65,8 +81,11 @@ def mppi(model, field: Field, forcing: Forcing, base: Actions,
     E = forcing.batch
     gen = torch.Generator().manual_seed(seed)
     mu = torch.stack([base.irrigation[0], base.n_fert[0]])  # (2, T)
-    best_r, best_mu = -math.inf, mu
+    if base_mu is not None:                      # policy-prior warm start
+        mu = base_mu.to(mu.dtype)
+    best_r, best_mu, best_sow = -math.inf, mu, base.sow[0]
     hist: list[float] = []
+    n_shifts = len(sow_shifts)
 
     for _ in range(iters):
         eps = torch.stack([ou_noise(samples, days, rho, gen),
@@ -75,19 +94,26 @@ def mppi(model, field: Field, forcing: Forcing, base: Actions,
                             for c in range(2)])                    # (2, S, T)
         cand[:, 0] = mu  # incumbent: the mean itself is scored each round
         b = samples * E
+        # discrete search channel: each shift group gets its own sow timing
+        sows = torch.stack([
+            base.sow[0].roll(sow_shifts[i % n_shifts], dims=0)
+            for i in range(samples)])
         acts = Actions(
-            sow=base.sow.expand(b, days),
+            sow=sows.repeat_interleave(E, dim=0),
             irrigation=cand[0].repeat_interleave(E, dim=0),
             n_fert=cand[1].repeat_interleave(E, dim=0))
         fld, frc = field.repeat(b), forcing.repeat(samples)
-        acc = SeasonAccumulator(b, years, device=fld.state.sw1.device)
+        acc = SeasonAccumulator(b, years, device=fld.state.sw.device)
         with torch.inference_mode():
             model.rollout(fld, frc, acts, observer=acc)
         m = acc.result().view(samples, E, years, -1)
-        r = reward(m) if reward is not None else metric_reward(m, weights)
+        r = (reward(m) if reward is not None
+             else metric_reward(m, weights, risk, alpha, margin))
         r = r.view(samples, -1).mean(1)
-        if float(r[0]) > best_r:
-            best_r, best_mu = float(r[0]), mu
+        i_star = int(r.argmax())
+        if float(r[i_star]) > best_r:
+            best_r, best_mu = float(r[i_star]), cand[:, i_star]
+            best_sow = sows[i_star]
         hist.append(best_r)                  # best reward found so far
         # Rank-based elite recombination (CMA-style): only the top quartile
         # moves the mean — scale-free and immune to the drift a flat softmax
@@ -100,6 +126,7 @@ def mppi(model, field: Field, forcing: Forcing, base: Actions,
         w = w / w.sum()
         mu = mu + (w.unsqueeze(0).unsqueeze(-1) * (cand - mu.unsqueeze(1))).sum(1)
 
-    acts = Actions(sow=base.sow, irrigation=best_mu[0].clamp(*bounds[0]),
-                   n_fert=best_mu[1].clamp(*bounds[1]))
+    acts = Actions(sow=best_sow.unsqueeze(0),
+                   irrigation=best_mu[0].clamp(*bounds[0]).unsqueeze(0),
+                   n_fert=best_mu[1].clamp(*bounds[1]).unsqueeze(0))
     return ControlResult(acts, best_r, tuple(hist))

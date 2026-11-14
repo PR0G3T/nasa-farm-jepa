@@ -15,6 +15,7 @@ dependencies = [
 
 [project.optional-dependencies]
 hpo = ["optuna>=5.0.0"]
+gee = ["earthengine-api>=1.5.26"]
 
 [project.scripts]
 nasa-farm = "nasa_farm.cli:main"

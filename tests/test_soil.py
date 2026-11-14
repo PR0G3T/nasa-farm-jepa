@@ -30,25 +30,25 @@ class TestProfile:
     def test_storages_scale_with_depth(self):
         p = SoilProfile.preset("loam")
         # layer2 is 1.50 m vs layer1 0.30 m → 5× the storage
-        assert float(p.layer2.theta_fc) > float(p.layer1.theta_fc)
-        assert float(p.layer2.theta_sat / p.layer1.theta_sat) == pytest.approx(1.5 / 0.3, rel=0.1)
+        assert float(p.layer(1).theta_fc) > float(p.layer(0).theta_fc)
+        assert float(p.layer(1).theta_sat / p.layer(0).theta_sat) == pytest.approx(1.5 / 0.3, rel=0.1)
 
     def test_bounds_hold_as_storages(self):
         for name in ("sand", "loamy_sand", "sandy_loam", "loam", "silt_loam",
                      "clay_loam", "clay"):
             p = SoilProfile.preset(name)
-            for l in (p.layer1, p.layer2):
+            for l in ((p.layer(0), p.layer(1))):
                 assert float(l.theta_air) < float(l.theta_wp)
                 assert float(l.theta_wp) < float(l.theta_fc)
                 assert float(l.theta_fc) < float(l.theta_sat)
 
     def test_batch(self):
         p = SoilProfile.preset("loam", batch=4)
-        assert p.batch == 4 and p.layer1.theta_fc.shape == (4,)
+        assert p.batch == 4 and p.layer(0).theta_fc.shape == (4,)
 
     def test_to_device(self):
         p = SoilProfile.preset("loam").to(torch.device("cpu"))
-        assert p.layer1.theta_fc.device.type == "cpu"
+        assert p.layer(0).theta_fc.device.type == "cpu"
 
 
 class TestUncertaintySample:
@@ -56,14 +56,12 @@ class TestUncertaintySample:
         lo, hi = SoilProfile.preset("sandy_loam"), SoilProfile.preset("clay_loam")
         s = SoilProfile.sample(lo, hi, 16, seed=0)
         assert s.batch == 16
-        for name, a, b in (("sand1", lo.sand1, hi.sand1),
-                           ("clay1", lo.clay1, hi.clay1),
-                           ("sand2", lo.sand2, hi.sand2),
-                           ("clay2", lo.clay2, hi.clay2)):
-            v = getattr(s, name)
-            assert (v >= torch.minimum(a, b) - 1e-9).all()
-            assert (v <= torch.maximum(a, b) + 1e-9).all()
-        for l in (s.layer1, s.layer2):
+        for a, b, i in ((lo.sand, hi.sand, 0), (lo.clay, hi.clay, 0),
+                        (lo.sand, hi.sand, 1), (lo.clay, hi.clay, 1)):
+            v = s.sand[:, i] if a is lo.sand else s.clay[:, i]
+            assert (v >= torch.minimum(a[:, i], b[:, i]) - 1e-9).all()
+            assert (v <= torch.maximum(a[:, i], b[:, i]) + 1e-9).all()
+        for l in (s.layer(0), s.layer(1)):
             assert (l.theta_wp < l.theta_fc).all()
             assert (l.theta_fc < l.theta_sat).all()
             assert (l.theta_air < l.theta_wp).all()
@@ -72,7 +70,7 @@ class TestUncertaintySample:
         lo, hi = SoilProfile.preset("loam"), SoilProfile.preset("clay_loam")
         a, b = SoilProfile.sample(lo, hi, 8, seed=3), \
             SoilProfile.sample(lo, hi, 8, seed=3)
-        assert torch.equal(a.layer1.theta_fc, b.layer1.theta_fc)
+        assert torch.equal(a.layer(0).theta_fc, b.layer(0).theta_fc)
 
     def test_multi_field_expands(self):
         """B bound rows × n draws → B·n members, field-major order."""

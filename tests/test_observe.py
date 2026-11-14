@@ -112,7 +112,8 @@ class TestTrace:
 class TestDerivedChannels:
     def test_sm_vol_units(self, field):
         """sw1 mm over 0.3 m → m3/m3."""
-        s = field.state.replace(sw1=t(120.0))
+        s = field.state.replace(
+            sw=torch.stack([t(120.0), t(300.0)], dim=1))
         assert float(sm_vol(s)) == pytest.approx(0.4)
 
     def test_vwc_scales_with_biomass(self, field):

@@ -34,7 +34,7 @@ class TestResidualIdentity:
                                    forcing, actions)
         f2 = hybrid_model.rollout(Field(field.state.clone(), field.soil, field.lat),
                                   forcing, actions)
-        for name in ("sw1", "sw2", "n_min", "n_org", "soc", "litter", "gdd",
+        for name in ("sw", "n_min", "n_org", "soc_f", "soc_s", "litter", "gdd",
                      "lai", "biomass", "cum_yield"):
             assert torch.equal(getattr(f1.state, name), getattr(f2.state, name)), name
 
@@ -57,8 +57,9 @@ class TestWaterBudgetOverSeason:
 
         rain = forcing.precip.sum(1)
         tot_out = sum(sum(f[k] for f in acc) for k in
-                      ("es", "t1", "t2", "runoff", "deep"))
-        stored = (final.state.sw1 + final.state.sw2) - (f0.sw1 + f0.sw2)
+                      ("es", "runoff", "deep")) + sum(
+                          f["t"].sum(-1) for f in acc)
+        stored = final.state.sw.sum(-1) - f0.sw.sum(-1)
         assert torch.allclose(stored, rain - tot_out, atol=1e-8)
 
 
@@ -121,7 +122,7 @@ class TestForcingResponse:
                                   forcing, actions)
         b = physics_model.rollout(Field(field.state.clone(), field.soil, field.lat),
                                   forcing, actions)
-        assert torch.equal(a.state.sw1, b.state.sw1)
+        assert torch.equal(a.state.sw, b.state.sw)
         assert torch.equal(a.state.cum_yield, b.state.cum_yield)
 
 
@@ -143,7 +144,7 @@ class TestCompiledParity:
             Field(field.state.clone(), field.soil, field.lat),
             forcing, actions)
 
-        for name in ("sw1", "sw2", "n_min", "n_org", "soc", "litter",
+        for name in ("sw", "n_min", "n_org", "soc_f", "soc_s", "litter",
                      "lai", "biomass", "cum_yield"):
             torch.testing.assert_close(
                 getattr(jit.state, name), getattr(eager.state, name),
@@ -155,7 +156,7 @@ class TestDifferentiability:
         """Data assimilation path: loss on a flux differentiates into the
         residual net — the mechanism that will let observations calibrate it."""
         f, fx = hybrid_model.step(field, day_action(), day_forcing())
-        loss = fx["delta_b"].sum() + f.state.biomass.sum() + f.state.sw1.sum()
+        loss = fx["delta_b"].sum() + f.state.biomass.sum() + f.state.sw[:, 0].sum()
         loss.backward()
         last = hybrid_model.residual.net[-1]
         assert last.weight.grad is not None
@@ -168,7 +169,7 @@ class TestDifferentiability:
         for t in range(days):
             f, _ = hybrid_model.step(f, day_action(
                 sow=crops.index("maize") if t == 100 else -1), day_forcing(doy=float(t + 1)))
-        total = f.state.biomass.sum() + f.state.sw1.sum()
+        total = f.state.biomass.sum() + f.state.sw[:, 0].sum()
         total.backward()
         grads = [p.grad for p in hybrid_model.residual.parameters() if p.grad is not None]
         assert grads and all(torch.isfinite(g).all() for g in grads)
@@ -187,11 +188,11 @@ class TestBoundsOverRollout:
 
         violations = []
         def obs(t, s, fx):
-            l1, l2 = soil.layer1, soil.layer2
-            if not ((s.sw1 >= l1.theta_air - 1e-6).all() and
-                    (s.sw1 <= l1.theta_sat + 1e-6).all()):
-                violations.append(("sw1", t))
-            if (s.n_min < -1e-9).any() or (s.soc < -1e-9).any():
+            l1, l2 = soil.layer(0), soil.layer(1)
+            if not ((s.sw[:, 0] >= l1.theta_air - 1e-6).all() and
+                    (s.sw[:, 0] <= l1.theta_sat + 1e-6).all()):
+                violations.append(("sw0", t))
+            if (s.n_min < -1e-9).any() or (s.soc_s < -1e-9).any():
                 violations.append(("pools", t))
             if (s.lai < -1e-9).any():
                 violations.append(("lai", t))
@@ -214,7 +215,7 @@ class TestCheckpointedRollout:
         f2 = hybrid_model.rollout(
             Field(field.state.clone(), field.soil, field.lat),
             forcing, actions, observer=a2, checkpoint_every=30)
-        for name in ("sw1", "sw2", "n_min", "soc", "gdd", "lai", "biomass",
+        for name in ("sw", "n_min", "soc_f", "soc_s", "gdd", "lai", "biomass",
                      "cum_yield", "vern", "heat_acc"):
             assert torch.equal(getattr(f1.state, name), getattr(f2.state, name)), name
         assert torch.equal(a1.result(), a2.result())

@@ -26,8 +26,8 @@ class ObsTrace:
         if t % self.every != 0:
             return
         if self.rec is None:
-            self.rec = state.sw1.new_zeros(state.batch, self.n,
-                                         len(self.channels))
+            self.rec = state.sw.new_zeros(state.batch, self.n,
+                                          len(self.channels))
         self.rec[:, t // self.every] = observables(state, self.channels)
 
     def result(self) -> torch.Tensor:

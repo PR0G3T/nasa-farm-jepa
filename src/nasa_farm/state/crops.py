@@ -84,3 +84,18 @@ class CropLibrary:
 
     def is_perennial(self, crop_idx: torch.Tensor) -> torch.Tensor:
         return self.table[crop_idx.clamp(min=0), IDX["gdd_mat"]] > 1e8
+
+    def mixture(self, name: str, a: str, b: str,
+                frac: float = 0.5) -> "CropLibrary":
+        """Append a composite cultivar row = frac·a + (1−frac)·b.
+
+        Mixtures and intercrops enter the model as data, not code: the
+        blended row is sown by its own index like any crop. Continuous
+        traits interpolate; sow_doy rounds to the weighted day.
+        """
+        i, j = self.index(a), self.index(b)
+        row = frac * self.table[i] + (1.0 - frac) * self.table[j]
+        row = row.clone()
+        row[IDX["sow_doy"]] = row[IDX["sow_doy"]].round()
+        table = torch.cat([self.table, row.unsqueeze(0)], dim=0)
+        return CropLibrary(table=table, names=self.names + (name,))

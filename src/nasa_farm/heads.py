@@ -16,16 +16,20 @@ METRICS: tuple[str, ...] = (
     "water_used",    # mm evapotranspired in year h
     "water_lost",    # mm runoff + deep drainage in year h
     "n_leached",     # kg N/ha leached in year h
+    "n2o_kg",        # kg N-N2O/ha emitted in year h
     "stress_days",   # d with water_fac < 0.5 while growing
     "cover_days",    # d with a living canopy
     "biomass_end",   # kg/ha standing biomass at year end
     "n_min_end",     # kg/ha mineral N at year end
-    "soc_end",       # kg/ha SOC at year end
+    "soc_end",       # kg/ha total SOC (active+stable) at year end
+    "soc_f_end",     # kg/ha active-pool SOC at year end
+    "tws_end",       # mm aquifer storage anomaly at year end
     "heat_dd",       # °C·d reproductive heat load in year h
     "frost_days",    # d with a lethal-frost event in year h
 )
 
-_END: tuple[str, ...] = ("biomass_end", "n_min_end", "soc_end")
+_END: tuple[str, ...] = ("biomass_end", "n_min_end", "soc_end", "soc_f_end",
+                         "tws_end")
 """Absolute-write metrics (last-day value), all others accumulate."""
 
 SUM_I = [i for i, n in enumerate(METRICS) if n not in _END]
@@ -39,14 +43,17 @@ def day_update(state: FieldState, fluxes: dict) -> torch.Tensor:
     g = state.growing.to(DTYPE)
     cols = {
         "yield_kg": fluxes["yield_event"],
-        "water_used": fluxes["es"] + fluxes["t1"] + fluxes["t2"],
+        "water_used": fluxes["es"] + fluxes["t"].sum(-1),
         "water_lost": fluxes["runoff"] + fluxes["deep"],
         "n_leached": fluxes["leached"],
+        "n2o_kg": fluxes["n2o"],
         "stress_days": ((fluxes["water_fac"] < 0.5) & state.growing).to(DTYPE),
         "cover_days": g,
         "biomass_end": state.biomass,
         "n_min_end": state.n_min,
-        "soc_end": state.soc,
+        "soc_end": state.soc_f + state.soc_s,
+        "soc_f_end": state.soc_f,
+        "tws_end": state.tws,
         "heat_dd": fluxes["heat_dd"],
         "frost_days": fluxes["frost"].to(DTYPE),
     }
@@ -105,6 +112,7 @@ def objectives(season_metrics: torch.Tensor, n_plans: int, n_scen: int,
     water = m[..., i["water_used"]].sum(-1)
     lost = m[..., i["water_lost"]].sum(-1)
     leach = m[..., i["n_leached"]].sum(-1)
+    n2o = m[..., i["n2o_kg"]].sum(-1)
     stress = m[..., i["stress_days"]].mean(-1)
     heat = m[..., i["heat_dd"]].sum(-1)
     frost = m[..., i["frost_days"]].sum(-1)
@@ -119,6 +127,7 @@ def objectives(season_metrics: torch.Tensor, n_plans: int, n_scen: int,
         "yield_risk": q(yield_tot),          # pessimistic-but-likely yield
         "water_used": mu(water + lost),      # total water consumed/lost
         "n_leached": mu(leach),
+        "n2o_kg": mu(n2o),
         "stress_days": mu(stress),
         "heat_dd": mu(heat),                 # reproductive heat load
         "frost_days": mu(frost),             # lethal-frost frequency
@@ -129,6 +138,6 @@ def objectives(season_metrics: torch.Tensor, n_plans: int, n_scen: int,
 
 OBJECTIVE_DIRECTION: dict[str, int] = {
     "yield_mean": +1, "yield_risk": +1, "water_used": -1,
-    "n_leached": -1, "stress_days": -1, "heat_dd": -1, "frost_days": -1,
-    "soc_gain": +1, "n_min_end": +1,
+    "n_leached": -1, "n2o_kg": -1, "stress_days": -1, "heat_dd": -1,
+    "frost_days": -1, "soc_gain": +1, "n_min_end": +1,
 }
