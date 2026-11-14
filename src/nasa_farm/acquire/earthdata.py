@@ -47,7 +47,7 @@ def granule_day(gid: str) -> int:
 
 
 @dataclass(frozen=True, slots=True)
-class EarthdataSource:
+class Earthdata:
     """Generic CMR granule source for one product short name.
 
     `group` is the HDF5 group holding data vars (None = root); `span` is
@@ -92,16 +92,16 @@ class EarthdataSource:
 
 
 # Challenge-relevant products, declared once.
-SMAP_L4 = EarthdataSource("SPL3SMP_E", name="smap-l4-soil-moisture",
+SMAP_L4 = Earthdata("SPL3SMP_E", name="smap-l4-soil-moisture",
                           group="Soil_Moisture_Retrieval_Data_AM")
-GPM_IMERG_DAILY = EarthdataSource("GPM_3IMERGDF", name="gpm-imerg-daily")
-HLS_L30 = EarthdataSource("HLSL30", name="hls-landsat-30m")
-ECOSTRESS_ET = EarthdataSource("ECO_L3T_JET", name="ecostress-et")
-ECOSTRESS_SEB = EarthdataSource("ECO_L3G_SEB", name="ecostress-seb")
-ECOSTRESS_MET = EarthdataSource("ECO_L3G_MET", name="ecostress-met")
-NLDAS2_FORCING = EarthdataSource("NLDAS_FORA0125_H", name="nldas2-forcing")
-GRACE_MASCON = EarthdataSource("TELLUS_GRAC-GRFO_MASCON_CRI_GRID_RL06.3_V4",
+GPM_IMERG_DAILY = Earthdata("GPM_3IMERGDF", name="gpm-imerg-daily")
+HLS_L30 = Earthdata("HLSL30", name="hls-landsat-30m")
+ECOSTRESS_ET = Earthdata("ECO_L3T_JET", name="ecostress-et")
+ECOSTRESS_SEB = Earthdata("ECO_L3G_SEB", name="ecostress-seb")
+ECOSTRESS_MET = Earthdata("ECO_L3G_MET", name="ecostress-met")
+NLDAS2_FORCING = Earthdata("NLDAS_FORA0125_H", name="nldas2-forcing")
+GRACE_MASCON = Earthdata("TELLUS_GRAC-GRFO_MASCON_CRI_GRID_RL06.3_V4",
                                name="grace-fo-mascon")
-NISAR_GCOV = EarthdataSource("NISAR_L2_GCOV_BETA_V1", name="nisar-l2-gcov")
-NISAR_SME = EarthdataSource("NISAR_L3_SME2_BETA_V1",
+NISAR_GCOV = Earthdata("NISAR_L2_GCOV_BETA_V1", name="nisar-l2-gcov")
+NISAR_SME = Earthdata("NISAR_L3_SME2_BETA_V1",
                             name="nisar-l3-soil-moisture")

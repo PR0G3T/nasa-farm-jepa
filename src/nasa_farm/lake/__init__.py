@@ -7,7 +7,7 @@ foundation-model vectors. `Lake` auto-migrates a legacy `*.zarr` +
 `catalog.db` layout on first open; `migrate` runs it on demand.
 """
 
-from nasa_farm.lake.db import Lake
+from nasa_farm.lake.database import Lake
 from nasa_farm.lake.migrate import migrate
 
 __all__ = ["Lake", "migrate"]

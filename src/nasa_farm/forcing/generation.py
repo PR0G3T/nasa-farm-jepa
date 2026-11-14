@@ -67,7 +67,7 @@ def _phase(doy: torch.Tensor) -> torch.Tensor:
     return torch.stack([a.sin(), a.cos()], dim=-1)
 
 
-def fit_gen(series: list[Forcing], epochs: int = 400, rate: float = 2e-3,
+def fit(series: list[Forcing], epochs: int = 400, rate: float = 2e-3,
             hidden: int = 128, members: int = 8,
             seed: int = 0, model: Generator | None = None) -> Generator:
     """CFM training over every (day, series-row) transition, vectorized:

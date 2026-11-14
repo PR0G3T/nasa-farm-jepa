@@ -103,7 +103,7 @@ def year_point(latitude: float, longitude: float, year: int) -> Forcing:
     return vars_to_forcing(data, year)
 
 
-class NldasClient:
+class Reanalysis:
     """DataSource contract — forcing over the NLDAS-3 domain."""
 
     name = "nldas3-forcing"

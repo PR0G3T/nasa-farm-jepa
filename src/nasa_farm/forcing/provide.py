@@ -21,8 +21,8 @@ def register(name: str, function: Callable[..., Forcing]) -> None:
 
 def _power(latitude, longitude, years, horizon, members, seed, history=None, **keywords) -> Forcing:
     if history is None:
-        from nasa_farm.acquire.power import PowerClient
-        history = PowerClient().forcing_years(latitude, longitude, list(years))
+        from nasa_farm.acquire.power import Power
+        history = Power().forcing_years(latitude, longitude, list(years))
     from nasa_farm.forcing.base import climatology_ensemble
     return climatology_ensemble(list(history), horizon)
 
@@ -61,15 +61,15 @@ def _forecast(fc: Forcing, latitude, longitude, years, horizon, members, seed,
 
 
 def _history(latitude, longitude, years) -> list[Forcing]:
-    from nasa_farm.acquire.power import PowerClient
-    return PowerClient().forcing_years(latitude, longitude, list(years))
+    from nasa_farm.acquire.power import Power
+    return Power().forcing_years(latitude, longitude, list(years))
 
 
 def _ens(latitude, longitude, years, horizon, members, seed, model="ecmwf_ifs025",
          client=None, **keywords) -> Forcing:
     """Key-free IFS ENS via Open-Meteo — ~15-day operational members."""
-    from nasa_farm.acquire.openmeteo import OpenMeteoClient
-    fc = (client or OpenMeteoClient()).ensemble(latitude, longitude, model=model,
+    from nasa_farm.acquire.openmeteo import OpenMeteo
+    fc = (client or OpenMeteo()).ensemble(latitude, longitude, model=model,
                                           members=members or 51)
     return _forecast(fc, latitude, longitude, years, horizon, members, seed, **keywords)
 
@@ -77,8 +77,8 @@ def _ens(latitude, longitude, years, horizon, members, seed, model="ecmwf_ifs025
 def _seas5(latitude, longitude, years, horizon, members, seed, model="ecmwf_seas5",
            client=None, **keywords) -> Forcing:
     """Key-free ECMWF SEAS5/EC46 via Open-Meteo — ~7-month members."""
-    from nasa_farm.acquire.openmeteo import OpenMeteoClient
-    fc = (client or OpenMeteoClient()).seas5(latitude, longitude, model=model,
+    from nasa_farm.acquire.openmeteo import OpenMeteo
+    fc = (client or OpenMeteo()).seas5(latitude, longitude, model=model,
                                            members=members or 51)
     return _forecast(fc, latitude, longitude, years, horizon, members, seed, **keywords)
 

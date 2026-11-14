@@ -62,7 +62,7 @@ def profile(d: dict) -> SoilProfile:
         None if organic is None else _t(organic / 10.0 * SOC_TO_OM))
 
 
-class SoilGridClient:
+class SoilGrids:
     name = "isric-soilgrid"
     requires_auth = False
 

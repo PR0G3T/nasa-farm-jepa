@@ -12,10 +12,10 @@ from __future__ import annotations
 import xarray as xarray
 
 from nasa_farm.acquire.base import Bounds, Temporal
-from nasa_farm.acquire.earthdata import EarthdataSource, Granule
+from nasa_farm.acquire.earthdata import Earthdata, Granule
 
 
-def fetch(source: EarthdataSource, granule: Granule,
+def fetch(source: Earthdata, granule: Granule,
           area: Bounds | None = None, temporal: Temporal | None = None
           ) -> xarray.Dataset:
     """Open one granule lazily; closing the dataset frees the handles."""

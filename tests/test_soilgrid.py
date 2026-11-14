@@ -4,7 +4,7 @@ import httpx2 as httpx
 import pytest
 
 from nasa_farm.acquire.soilgrid import (
-    DEFAULTS, SoilGridClient, parse, request_params,
+    DEFAULTS, SoilGrids, parse, request_params,
 )
 
 PAYLOAD = {
@@ -23,8 +23,8 @@ PAYLOAD = {
 }
 
 
-def _client(status: int = 200) -> SoilGridClient:
-    return SoilGridClient(httpx.Client(transport=httpx.MockTransport(
+def _client(status: int = 200) -> SoilGrids:
+    return SoilGrids(httpx.Client(transport=httpx.MockTransport(
         lambda r: httpx.Response(status, json=PAYLOAD))))
 
 

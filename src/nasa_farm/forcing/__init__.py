@@ -23,10 +23,10 @@ from nasa_farm.forcing.bias import (
     Correction, apply_correction, apply_mapping, fit_correction, fit_mapping,
 )
 from nasa_farm.forcing.seam import bridge, roll_to_ordinal, span
-from nasa_farm.forcing.generation import Generator, fit_gen, sample
+from nasa_farm.forcing.generation import Generator, fit, sample
 from nasa_farm.forcing.provide import ensemble, register
 from nasa_farm.forcing.reconcile import consensus
-from nasa_farm.forcing.shuffle import ecc, ranks, shuffle_forcing
+from nasa_farm.forcing.shuffle import coupling, ranks, shuffle_forcing
 
 __all__ = [
     "EnsBC", "WxGen", "analog_weights", "apply_ensbc", "apply_qmap",

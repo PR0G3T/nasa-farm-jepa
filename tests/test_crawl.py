@@ -11,7 +11,7 @@ import xarray as xarray
 from nasa_farm.acquire.crawl import _day_keys, crawl
 from nasa_farm.acquire.earthdata import granule_day
 from nasa_farm.acquire.support import sample
-from nasa_farm.acquire.power import PowerClient, series_to_forcing
+from nasa_farm.acquire.power import Power, series_to_forcing
 from nasa_farm.lake import Lake
 from nasa_farm.optimize.data import forcings, targets
 
@@ -57,7 +57,7 @@ class TestCrawl:
         def handler(request):
             year = int(request.url.parameters["start"][:4])
             return httpx.Response(200, json=_payload(year))
-        client = PowerClient(httpx.Client(transport=httpx.MockTransport(handler)))
+        client = Power(httpx.Client(transport=httpx.MockTransport(handler)))
         f = {"id": "F1", "lat": 48.0, "lon": 1.5}
         crawl([f], tmp_path, [2024, 2025], sources=("power",),
               power=client, log=lambda m: None)
@@ -72,7 +72,7 @@ class TestCrawl:
         year = 2025
         def handler(request):
             return httpx.Response(200, json=_payload(year))
-        client = PowerClient(httpx.Client(transport=httpx.MockTransport(handler)))
+        client = Power(httpx.Client(transport=httpx.MockTransport(handler)))
         f = {"id": "F1", "lat": 48.0, "lon": 1.5}
         crawl([f], tmp_path, [year], sources=("power",), power=client,
               log=lambda m: None)

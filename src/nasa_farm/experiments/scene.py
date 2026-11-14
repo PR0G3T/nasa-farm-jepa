@@ -59,8 +59,8 @@ def _forcings(specification: Specification) -> tuple[Forcing, Forcing]:
     Synthetic: seeds decorrelated from the ensemble's — a forecast
     ensemble is never centered on the truth."""
     if specification.years:
-        from nasa_farm.acquire.power import PowerClient
-        history = PowerClient().forcing_years(specification.latitude, specification.longitude, list(specification.years))
+        from nasa_farm.acquire.power import Power
+        history = Power().forcing_years(specification.latitude, specification.longitude, list(specification.years))
         r = min(specification.realizations, len(history))
         return (Forcing.concat([tile_to_horizon(y, specification.horizon)
                                 for y in history[-r:]]),

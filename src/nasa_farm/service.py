@@ -20,8 +20,8 @@ import torch
 from pydantic import BaseModel, Field as PField
 
 from nasa_farm import CropLibrary, Field, WorldModel, initial_state
-from nasa_farm.acquire.power import PowerClient, series_to_forcing, series_to_wet
-from nasa_farm.acquire.soilgrid import SoilGridClient
+from nasa_farm.acquire.power import Power, series_to_forcing, series_to_wet
+from nasa_farm.acquire.soilgrid import SoilGrids
 from nasa_farm.constants import DTYPE
 from nasa_farm.forcing import ensemble, synthetic_year
 from nasa_farm.plan import enumerate_rotations, evaluate, expand_actions, recommend
@@ -174,12 +174,12 @@ def _forcings(request: PlanRequest, p: Point) -> tuple[list, torch.Tensor | None
         except (KeyError, FileNotFoundError, ValueError):
             pass
     if not request.offline and _in_nldas(p):
-        from nasa_farm.acquire.reanalysis import NldasClient
+        from nasa_farm.acquire.reanalysis import Reanalysis
         try:
-            return NldasClient().forcing_years(p.latitude, p.longitude, years), None
+            return Reanalysis().forcing_years(p.latitude, p.longitude, years), None
         except (OSError, KeyError, ValueError):
             pass
-    client = PowerClient()
+    client = Power()
     raw = client.data_years(p.latitude, p.longitude, years)
     series = [series_to_forcing(d, y) for d, y in zip(raw, years)]
     sm = torch.cat([series_to_wet(d, y) for d, y in zip(raw, years)])
@@ -205,7 +205,7 @@ def _site(point: Point, request: PlanRequest, crops: CropLibrary,
         elif request.offline:
             soil = SoilProfile.preset("loam", depths=depths)
         else:
-            soil = SoilGridClient().profile(point.latitude, point.longitude)
+            soil = SoilGrids().profile(point.latitude, point.longitude)
 
         field = Field(state=initial_state(1, soil), soil=soil,
                       latitude=torch.tensor([point.latitude], dtype=DTYPE))

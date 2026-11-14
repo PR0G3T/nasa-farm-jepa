@@ -4,7 +4,7 @@ import pytest
 import torch
 
 from nasa_farm.assimilation import Observation, assimilate, kalman_update
-from nasa_farm.assimilation.error import Statistic, aoei
+from nasa_farm.assimilation.error import Statistic, inflate
 from nasa_farm.constants import DTYPE
 
 
@@ -48,18 +48,18 @@ class TestRStat:
 class TestAoei:
     def test_small_innovation_keeps_r(self):
         r = torch.tensor([1.0, 1.0], dtype=DTYPE)
-        output = aoei(torch.tensor([0.5, 0.8], dtype=DTYPE),
+        output = inflate(torch.tensor([0.5, 0.8], dtype=DTYPE),
                    torch.tensor([0.3, 0.3], dtype=DTYPE), r)
         assert torch.equal(output, r)
 
     def test_large_innovation_inflates(self):
-        output = aoei(torch.tensor([4.0], dtype=DTYPE),
+        output = inflate(torch.tensor([4.0], dtype=DTYPE),
                    torch.tensor([1.0], dtype=DTYPE), 2.0)
         assert float(output[0]) == pytest.approx(15.0)   # d² − var_ens
 
     def test_monotone_in_innovation(self):
-        a = aoei(torch.tensor([1.0]), torch.tensor([0.5]), 1.0)
-        b = aoei(torch.tensor([5.0]), torch.tensor([0.5]), 1.0)
+        a = inflate(torch.tensor([1.0]), torch.tensor([0.5]), 1.0)
+        b = inflate(torch.tensor([5.0]), torch.tensor([0.5]), 1.0)
         assert float(b[0]) >= float(a[0])
 
 

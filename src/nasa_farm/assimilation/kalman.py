@@ -127,7 +127,7 @@ def assimilate(model, field: Field, forcing: Forcing, actions: Actions,
     spread comes from the initial ensemble and/or soil.sample(). The step
     itself runs under inference_mode — EnKF needs no gradients.
     """
-    from nasa_farm.assimilation.error import aoei
+    from nasa_farm.assimilation.error import inflate
     update = update or kalman_update
     generation = torch.Generator().manual_seed(seed)
     t0 = 0
@@ -138,7 +138,7 @@ def assimilate(model, field: Field, forcing: Forcing, actions: Actions,
             predicted = observables(field.state, o.channels)
             r = o.std ** 2
             if adaptive:
-                r = aoei(o.values - predicted.mean(0), predicted.var(0), r)
+                r = inflate(o.values - predicted.mean(0), predicted.var(0), r)
             keywords = {"r": r, "names": names}
             try:
                 st = update(field.state, predicted, o.values, **keywords,

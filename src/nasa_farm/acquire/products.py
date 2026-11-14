@@ -22,7 +22,7 @@ import xarray as xarray
 
 from nasa_farm.acquire.base import Bounds, Temporal
 from nasa_farm.acquire.earthdata import (
-    ECOSTRESS_MET, ECOSTRESS_SEB, NISAR_SME, SMAP_L4, EarthdataSource,
+    ECOSTRESS_MET, ECOSTRESS_SEB, NISAR_SME, SMAP_L4, Earthdata,
     granule_day,
 )
 from nasa_farm.acquire.quality import FLAG_QC, SMAP_QC, Quality
@@ -43,7 +43,7 @@ class Specification:
     weights extraction and lands as the `{obs}_w` series.
     """
 
-    source: EarthdataSource
+    source: Earthdata
     observed: str
     vars: tuple[str, ...]
     radius_km: float = 0.0
@@ -103,7 +103,7 @@ SPECS = {"smap": SMAP_SM, "nisar": NISAR_SM,
 
 
 @dataclass(frozen=True, slots=True)
-class GeeSource:
+class EarthEngine:
     """One EE ImageCollection: name + the band(s) the caller wants."""
 
     collection: str
@@ -121,17 +121,17 @@ class GeeSource:
         return coll.getInfo()["features"]
 
 
-WORLDCEREAL = GeeSource("ESA/WorldCereal/2021_MARKERS_v100",
+WORLDCEREAL = EarthEngine("ESA/WorldCereal/2021_MARKERS_v100",
                         ("classification",), name="worldcereal-cropmask")
-ALPHA_EARTH = GeeSource("GOOGLE/SATELLITE_EMBEDDING/V1/ANNUAL",
+ALPHA_EARTH = EarthEngine("GOOGLE/SATELLITE_EMBEDDING/V1/ANNUAL",
                         tuple(f"A{i:02d}" for i in range(64)),
                         name="alphaearth-embeddings")
-FTW = GeeSource("projects/sat-io/open-datasets/FTW/field_boundaries",
+FTW = EarthEngine("projects/sat-io/open-datasets/FTW/field_boundaries",
                 ("b1",), name="ftw-boundaries")
 
 
 @dataclass(frozen=True, slots=True)
-class OpenETClient:
+class OpenET:
     """OpenET v2 REST client — ensemble ET rasters/point series."""
 
     api_key: str | None = None

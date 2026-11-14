@@ -8,7 +8,7 @@ import torch
 
 from nasa_farm.acquire.base import Temporal
 from nasa_farm.acquire.power import (
-    PowerClient, parse_daily, request_params, series_to_forcing,
+    Power, parse_daily, request_params, series_to_forcing,
     series_to_wet,
 )
 
@@ -85,13 +85,13 @@ class TestClientMocked:
             assert "power.larc.nasa.gov" in str(request.url)
             return httpx.Response(200, json=_payload())
 
-        client = PowerClient(httpx.Client(transport=httpx.MockTransport(handler)))
+        client = Power(httpx.Client(transport=httpx.MockTransport(handler)))
         output = client.fetch(None, Temporal("2020-01-01", "2020-01-03"),
                            latitude=42.0, longitude=-93.0)
         assert output["T2M_MAX"]["20200103"] == 20.0
 
     def test_http_error_raises(self):
-        client = PowerClient(httpx.Client(
+        client = Power(httpx.Client(
             transport=httpx.MockTransport(lambda r: httpx.Response(503))))
         with pytest.raises(httpx.HTTPStatusError):
             client.fetch(None, Temporal("2020-01-01", "2020-01-03"),

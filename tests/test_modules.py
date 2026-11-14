@@ -20,8 +20,8 @@ def _short(f: Forcing, days: int) -> Forcing:
 # ── forcing ──────────────────────────────────────────────────────────
 
 def test_wxgen_shapes_and_seed(warm_year):
-    from nasa_farm.forcing import fit_gen, sample
-    m = fit_gen([warm_year, warm_year], epochs=5, hidden=32, seed=0)
+    from nasa_farm.forcing import fit, sample
+    m = fit([warm_year, warm_year], epochs=5, hidden=32, seed=0)
     a, b = (sample(m, 30, 4, seed=s) for s in (1, 1))
     assert a.tmin.shape == (4, 30) and a.precip.min() >= 0
     assert torch.equal(a.tmin, b.tmin)          # seeded → reproducible

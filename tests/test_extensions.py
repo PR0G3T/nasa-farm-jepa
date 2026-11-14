@@ -150,8 +150,8 @@ def test_energy_score_proper():
 
 
 def test_sample_gen_spread(warm_year):
-    from nasa_farm.forcing import fit_gen, sample
-    m = fit_gen([warm_year, warm_year], epochs=3, hidden=32, seed=0)
+    from nasa_farm.forcing import fit, sample
+    m = fit([warm_year, warm_year], epochs=3, hidden=32, seed=0)
     a = sample(m, 30, 6, seed=2)
     assert a.precip.shape == (6, 30)
     assert float(a.precip.std(0).mean()) >= 0.0

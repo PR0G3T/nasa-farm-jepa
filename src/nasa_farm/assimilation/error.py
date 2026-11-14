@@ -45,7 +45,7 @@ class Statistic:
         return None if e is None else e.diagonal().clamp(min=1e-12)
 
 
-def aoei(innov: torch.Tensor, var_ens: torch.Tensor,
+def inflate(innov: torch.Tensor, var_ens: torch.Tensor,
          r: torch.Tensor | float) -> torch.Tensor:
     """Adaptive observation-error inflation, per channel.
 

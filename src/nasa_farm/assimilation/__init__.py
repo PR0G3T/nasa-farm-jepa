@@ -14,7 +14,7 @@ acquisition calendars.
 from nasa_farm.assimilation.kalman import (
     Observation, STATE_VARS, assimilate, kalman_update,
 )
-from nasa_farm.assimilation.error import Statistic, aoei
+from nasa_farm.assimilation.error import Statistic, inflate
 from nasa_farm.assimilation.score import score_update
 from nasa_farm.assimilation.latent import (
     Filter, score_langevin_update, fit_filter, network_update,

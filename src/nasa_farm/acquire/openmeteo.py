@@ -81,7 +81,7 @@ def members_to_forcing(dates: list[str],
     return Forcing(**values, doy=doy)
 
 
-class OpenMeteoClient:
+class OpenMeteo:
     """httpx2-backed fetcher for the Open-Meteo ensemble endpoints.
     `client` is injectable so tests run against a MockTransport."""
 

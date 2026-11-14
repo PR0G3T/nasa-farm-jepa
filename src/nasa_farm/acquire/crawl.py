@@ -29,8 +29,8 @@ from typing import Callable, Iterable
 import numpy as numpy
 
 from nasa_farm.acquire.base import Bounds, Temporal
-from nasa_farm.acquire.power import CANON, PowerClient
-from nasa_farm.acquire.soilgrid import SoilGridClient
+from nasa_farm.acquire.power import CANON, Power
+from nasa_farm.acquire.soilgrid import SoilGrids
 from nasa_farm.lake import Lake
 
 from .products import SPECS as GRANULE_SPECS
@@ -49,9 +49,9 @@ def _day_keys(years: list[int]) -> dict[int, list[str]]:
 
 def _power(fields: list[dict], lake: Lake, years: list[int],
            workers: int, log,
-           client: PowerClient | None = None) -> None:
+           client: Power | None = None) -> None:
     """POWER daily point series per field — one tx per field."""
-    client = client or PowerClient()
+    client = client or Power()
     for f in fields:
         raw = client.data_years(f["lat"], f["lon"], years, workers)
         keys = _day_keys(years)
@@ -70,9 +70,9 @@ def _power(fields: list[dict], lake: Lake, years: list[int],
 
 
 def _soil(fields: list[dict], lake: Lake, log,
-          client: SoilGridClient | None = None) -> None:
+          client: SoilGrids | None = None) -> None:
     """SoilGrid flat dict (median + Q05/Q95 bounds) → `soil` attr."""
-    client = client or SoilGridClient()
+    client = client or SoilGrids()
     for f in fields:
         lake.attrs(f["id"], soil=client.sample(f["lat"], f["lon"]))
         log(f"soil {f['id']} ok")
@@ -194,8 +194,8 @@ def _granules(specification, fields: list[dict], lake: Lake,
 def crawl(fields: Iterable[dict], root: Path | str, years: list[int],
           sources: tuple[str, ...] = ("power", "soil"), workers: int = 8,
           log: Callable[[str], None] = print,
-          power: PowerClient | None = None,
-          soil: SoilGridClient | None = None) -> None:
+          power: Power | None = None,
+          soil: SoilGrids | None = None) -> None:
     """Fetch everything `sources` covers for `fields` into `lake.db`."""
     root, fields = Path(root), [dict(f) for f in fields]
     temporal = Temporal(f"{years[0]}-01-01", f"{years[-1]}-12-31")

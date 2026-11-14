@@ -3,13 +3,13 @@
 import pytest
 import torch
 
-from nasa_farm.forcing import fit_gen, sample, synthetic_year
+from nasa_farm.forcing import fit, sample, synthetic_year
 
 
 @pytest.fixture(scope="module")
 def trained():
     years = [synthetic_year(42.0, seed=s) for s in range(6)]
-    return years, fit_gen(years, epochs=150, hidden=64, seed=0)
+    return years, fit(years, epochs=150, hidden=64, seed=0)
 
 
 class TestFlowGen:

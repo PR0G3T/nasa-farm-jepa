@@ -7,7 +7,7 @@ import pytest
 import torch
 
 from nasa_farm.acquire.openmeteo import (
-    ENS_URL, OpenMeteoClient, members_to_forcing,
+    ENS_URL, OpenMeteo, members_to_forcing,
 )
 from nasa_farm.constants import DTYPE
 from nasa_farm.forcing import ensemble, synthetic_year
@@ -38,7 +38,7 @@ class TestClient:
             assert request.url.parameters["wind_speed_unit"] == "ms"
             return httpx.Response(200, json=_payload())
 
-        c = OpenMeteoClient(httpx.Client(transport=httpx.MockTransport(handler)))
+        c = OpenMeteo(httpx.Client(transport=httpx.MockTransport(handler)))
         f = c.ensemble(42.0, -93.0, members=51)
         assert f.tmin.shape == (4, 20)
         # member 2 is warmer than member 1 by construction
@@ -50,7 +50,7 @@ class TestClient:
         # leap year: Mar 1 is yday 61 → doy 60 after Feb-29 removal
         p = _payload(start=dt.date(2028, 2, 28), ndays=3)
         def handler(request): return httpx.Response(200, json=p)
-        c = OpenMeteoClient(httpx.Client(transport=httpx.MockTransport(handler)))
+        c = OpenMeteo(httpx.Client(transport=httpx.MockTransport(handler)))
         f = c.ensemble(0.0, 0.0, members=1)
         # Feb 29 dropped: 2 days survive, Mar 1 lands on doy 60
         assert f.days == 2
@@ -59,7 +59,7 @@ class TestClient:
     def test_missing_member_key_raises(self):
         def handler(request):
             return httpx.Response(200, json={"daily": {"time": ["2026-01-01"]}})
-        c = OpenMeteoClient(httpx.Client(transport=httpx.MockTransport(handler)))
+        c = OpenMeteo(httpx.Client(transport=httpx.MockTransport(handler)))
         with pytest.raises(RuntimeError):
             c.ensemble(0.0, 0.0)
 
@@ -131,18 +131,18 @@ class TestProviders:
     def test_ens_dispatch(self):
         history = [synthetic_year(40.0, seed=s) for s in range(4)]
         output = ensemble("ens", 40.0, -93.0, (), 2, 51, 0,
-                       client=OpenMeteoClient(self._client()), history=history)
+                       client=OpenMeteo(self._client()), history=history)
         assert output.tmin.shape == (4, 730)
         assert int(output.doy[0, 0]) == 60
 
     def test_seas5_dispatch(self):
         history = [synthetic_year(40.0, seed=s) for s in range(3)]
         output = ensemble("seas5", 40.0, -93.0, (), 1, 51, 0,
-                       client=OpenMeteoClient(self._client()), history=history)
+                       client=OpenMeteo(self._client()), history=history)
         assert output.tmin.shape == (4, 365)
 
     def test_members_cap(self):
-        c = OpenMeteoClient(self._client())
+        c = OpenMeteo(self._client())
         assert c.ensemble(0.0, 0.0, members=2).batch == 2
 
     def test_unknown_source(self):

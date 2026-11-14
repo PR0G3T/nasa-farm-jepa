@@ -4,7 +4,7 @@ import pytest
 import torch
 
 from nasa_farm.constants import DTYPE
-from nasa_farm.forcing import ecc, ranks, shuffle_forcing, synthetic_year
+from nasa_farm.forcing import coupling, ranks, shuffle_forcing, synthetic_year
 
 
 class TestRanks:
@@ -28,7 +28,7 @@ class TestEcc:
         g = torch.Generator().manual_seed(0)
         fc = torch.rand(8, 60, generator=g, dtype=DTYPE)
         template = torch.rand(8, 60, generator=g, dtype=DTYPE)
-        output = ecc(fc, template)
+        output = coupling(fc, template)
         for t in range(60):
             assert sorted(output[:, t].tolist()) == pytest.approx(
                 sorted(fc[:, t].tolist()))
@@ -40,7 +40,7 @@ class TestEcc:
         fc = torch.rand(8, 50, generator=g, dtype=DTYPE)
         template = torch.rand(8, 50, generator=g, dtype=DTYPE)
         template[0] = -1.0                             # member 0: rank 0 everywhere
-        output = ecc(fc, template)
+        output = coupling(fc, template)
         assert (output[0] == fc.min(0).values).all()
 
     def test_lag1_correlation_follows_template(self):
@@ -53,7 +53,7 @@ class TestEcc:
         for t in range(1, 300):
             template[:, t] = 0.98 * template[:, t - 1] + eps[:, t]
         fc = torch.rand(8, 300, generator=g, dtype=DTYPE)
-        output = ecc(fc, template)
+        output = coupling(fc, template)
 
         def lag1(x):
             a, b = x[:, 1:], x[:, :-1]
@@ -66,7 +66,7 @@ class TestEcc:
 
     def test_unequal_sizes(self):
         g = torch.Generator().manual_seed(3)
-        output = ecc(torch.rand(6, 30, generator=g, dtype=DTYPE),
+        output = coupling(torch.rand(6, 30, generator=g, dtype=DTYPE),
                   torch.rand(10, 30, generator=g, dtype=DTYPE))
         assert output.shape == (6, 30)
 
@@ -74,7 +74,7 @@ class TestEcc:
         g = torch.Generator().manual_seed(4)
         fc = torch.rand(8, 40, generator=g, dtype=DTYPE)
         template = torch.rand(8, 40, generator=g, dtype=DTYPE)
-        assert torch.equal(ecc(fc, template), ecc(fc, template))
+        assert torch.equal(coupling(fc, template), coupling(fc, template))
 
 
 class TestShuffleForcing:

@@ -48,7 +48,7 @@ def parse_daily(payload: dict, parameters: tuple[str, ...] = PARAMETERS) -> dict
     }
 
 
-class PowerClient:
+class Power:
     """Thin, testable wrapper around httpx."""
 
     name = "nasa-power-agro"

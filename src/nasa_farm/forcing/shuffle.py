@@ -25,7 +25,7 @@ def ranks(x: torch.Tensor, dim: int = 0) -> torch.Tensor:
     return x.argsort(dim).argsort(dim).to(DTYPE)
 
 
-def ecc(fcst: torch.Tensor, tmpl: torch.Tensor) -> torch.Tensor:
+def coupling(fcst: torch.Tensor, tmpl: torch.Tensor) -> torch.Tensor:
     """(S, T) forecast × (R, T) template → reordered forecast (S, T).
 
     Forecast member m pairs with template member τ(m); at every column it
@@ -47,7 +47,7 @@ def ecc(fcst: torch.Tensor, tmpl: torch.Tensor) -> torch.Tensor:
 
 def shuffle_forcing(fcst: Forcing, tmpl: Forcing) -> Forcing:
     """ECC per weather variable; doy/co2 pass through unshuffled."""
-    keywords = {v: (ecc(getattr(fcst, v), getattr(tmpl, v)) if fcst.batch > 1
+    keywords = {v: (coupling(getattr(fcst, v), getattr(tmpl, v)) if fcst.batch > 1
               else getattr(fcst, v))
           for v in FORCING_VARS if v not in ("doy", "co2")}
     return Forcing(**keywords, doy=fcst.doy, co2=fcst.co2)
