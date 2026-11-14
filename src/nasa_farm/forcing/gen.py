@@ -10,7 +10,7 @@ compound stress needs. Sampling draws x0 ~ N(0, I) per member per day and
 integrates `steps` Euler steps — still autoregressive and seeded.
 
 The sampler clamps back to the physical forcing contract (precip ≥ 0,
-tmax ≥ tmin, rh ∈ [0, 100]). `energy_score` remains the ensemble
+tmax ≥ tmin, rh ∈ [0, 100]). `metrics.energy_score` remains the ensemble
 diagnostic and optional fine-tune objective.
 
 Zero external data required: `fit_gen` trains on whatever history the
@@ -25,6 +25,7 @@ import torch
 import torch.nn as nn
 
 from nasa_farm.constants import DAYS_PER_YEAR, DTYPE
+from nasa_farm.metrics import energy_score
 from nasa_farm.types import Forcing
 
 W_VARS: tuple[str, ...] = ("tmin", "tmax", "srad", "precip", "rh", "u2")
@@ -64,15 +65,6 @@ class WxGen(nn.Module):
 def _phase(doy: torch.Tensor) -> torch.Tensor:
     a = 2.0 * math.pi * (doy.to(DTYPE) - 1.0) / DAYS_PER_YEAR
     return torch.stack([a.sin(), a.cos()], dim=-1)
-
-
-def energy_score(pred: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
-    """Fair energy score. pred (K, B, V) members, y (B, V) target."""
-    k = pred.shape[0]
-    term1 = (pred - y.unsqueeze(0)).norm(dim=-1).mean(0)
-    d = (pred.unsqueeze(0) - pred.unsqueeze(1)).norm(dim=-1)  # (K,K,B,V)
-    term2 = 0.5 * d.mean(dim=(0, 1)) * (k / max(1, k - 1))
-    return (term1 - term2).mean()
 
 
 def fit_gen(series: list[Forcing], epochs: int = 400, lr: float = 2e-3,

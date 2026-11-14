@@ -22,6 +22,7 @@ import torch.nn as nn
 
 from nasa_farm.assim.kalman import STATE_VARS, _get_var, _put_vars
 from nasa_farm.constants import DTYPE
+from nasa_farm.metrics import energy_score
 from nasa_farm.state.field import Field, FieldState
 
 
@@ -98,15 +99,6 @@ class FilterNet(nn.Module):
         return x + self.psi(torch.cat([z, ctx], dim=-1))
 
 
-def _energy(pred: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
-    """Energy score, members-first pred (K, B, V) vs target (B, V)."""
-    k = pred.shape[0]
-    t1 = (pred - y.unsqueeze(0)).norm(dim=-1).mean(0)
-    d = (pred.unsqueeze(0) - pred.unsqueeze(1)).norm(dim=-1)
-    t2 = 0.5 * d.mean(dim=(0, 1)) * (k / max(1, k - 1))
-    return (t1 - t2).mean()
-
-
 def fit_filter(model, field: Field, forcing, actions,
                channels: tuple[str, ...], every: int = 10,
                members: int = 16, epochs: int = 60, lr: float = 1e-3,
@@ -163,7 +155,7 @@ def fit_filter(model, field: Field, forcing, actions,
             std = (noise * o.abs()).clamp(min=1e-3)
             obs = o + torch.randn(o.shape, generator=gen, dtype=DTYPE) * std
             xa = net(x, ypred, obs, std ** 2)
-            total = total + _energy(xa.unsqueeze(1), truth.unsqueeze(0))
+            total = total + energy_score(xa.unsqueeze(1), truth.unsqueeze(0))
         opt.zero_grad(set_to_none=True)
         (total / len(snap)).backward()
         torch.nn.utils.clip_grad_norm_(net.parameters(), 1.0)

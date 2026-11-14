@@ -243,6 +243,17 @@ def pinball(pred_q: torch.Tensor, obs: torch.Tensor,
                          (tau - 1.0) * d).mean()
 
 
+def energy_score(pred: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
+    """Fair energy score (Gneiting & Raftery 2007) — the proper multivariate
+    scoring rule. pred (K, B, V) members, y (B, V) target; the k/(k−1)
+    correction keeps it unbiased at small ensemble size."""
+    k = pred.shape[0]
+    t1 = (pred - y.unsqueeze(0)).norm(dim=-1).mean(0)
+    d = (pred.unsqueeze(0) - pred.unsqueeze(1)).norm(dim=-1)
+    t2 = 0.5 * d.mean(dim=(0, 1)) * (k / max(1, k - 1))
+    return (t1 - t2).mean()
+
+
 def spread(ens: torch.Tensor) -> torch.Tensor:
     """Mean ensemble spread (member std)."""
     e = ens.to(DTYPE)

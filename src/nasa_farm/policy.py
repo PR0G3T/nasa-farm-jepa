@@ -211,3 +211,94 @@ def flow_act(policy: FlowPolicy, model, field: Field,
     f = _day_feats(model, field.state, forcing.day(0), base.day(0))
     a = flow_sample(policy, f, n=1, seed=seed)[0]
     return a.reshape(2, policy.horizon)
+
+
+class InverseDyn(nn.Module):
+    """Goal-conditioned inverse dynamics: a_t = π(feats_t, g, τ).
+
+    One forward pass replaces the MPPI inner search: given today's
+    features, a goal vector g and the remaining-horizon fraction τ, the
+    net emits the nonneg daily (irrigation, n_fert) rates that hindsight
+    relabeling says moved rollouts toward g — the GC-IDM recipe."""
+
+    def __init__(self, goal_dim: int, hidden: int = 64,
+                 depth: int = 2) -> None:
+        super().__init__()
+        self.goal_dim = goal_dim
+        d = N_FEATURES + goal_dim + 1
+        layers: list[nn.Module] = [nn.Linear(d, hidden), nn.SiLU()]
+        for _ in range(depth - 1):
+            layers += [nn.Linear(hidden, hidden), nn.SiLU()]
+        layers += [nn.Linear(hidden, 2), nn.Softplus()]
+        self.net = nn.Sequential(*layers)
+        self.to(torch.float64)
+
+    def forward(self, feats: torch.Tensor, goal: torch.Tensor,
+                rem: torch.Tensor) -> torch.Tensor:
+        g = goal.unsqueeze(0) if goal.dim() == 1 else goal
+        return self.net(torch.cat(
+            [feats, g.expand(feats.shape[0], -1), rem], dim=-1))
+
+
+def fit_idm(model, demos: list[tuple[Field, Forcing, Actions]],
+            goal_fn=None, epochs: int = 300, lr: float = 1e-2,
+            hidden: int = 64, seed: int = 0) -> InverseDyn:
+    """Hindsight-relabeled inverse dynamics.
+
+    Each demo (field, forcing, actions) rolls once; the *realized*
+    terminal goal g — state z when a latent is present, else the closing
+    feature vector — supervises every step's action: (feats_t, g, τ_t)
+    → a_t. Conditioning on the outcome rather than the trajectory index
+    is what turns imitation into inverse dynamics."""
+    rows_x, rows_y = [], []
+    for field, forcing, actions in demos:
+        fld, rows, days = field, [], forcing.days
+        for t in range(days):
+            fd, ad = forcing.day(t), actions.day(t)
+            rows.append((_day_feats(model, fld.state, fd, ad).detach(),
+                         torch.stack([ad["irrigation"], ad["n_fert"]], -1)
+                         .to(DTYPE)))
+            fld, _ = model.step(fld, ad, fd, t)
+        g = (goal_fn(fld.state) if goal_fn
+             else fld.state.z if fld.state.z is not None else rows[-1][0])
+        for t, (f, u) in enumerate(rows):
+            rem = torch.full((f.shape[0], 1), 1.0 - t / days, dtype=DTYPE)
+            rows_x.append(torch.cat([f, g.to(DTYPE), rem], -1))
+            rows_y.append(u)
+    x, y = torch.cat(rows_x), torch.cat(rows_y)
+    torch.manual_seed(seed)
+    idm = InverseDyn(g.shape[-1], hidden=hidden)
+    opt = torch.optim.Adam(idm.parameters(), lr=lr)
+    for _ in range(epochs):
+        opt.zero_grad(set_to_none=True)
+        loss = (idm.net(x) - y).pow(2).mean()
+        loss.backward()
+        opt.step()
+    return idm
+
+
+def idm_plan(idm: InverseDyn, model, field: Field, forcing: Forcing,
+             base: Actions, goal: torch.Tensor) -> torch.Tensor:
+    """Closed-loop goal-conditioned rollout → (B, T, 2) rates. The goal
+    stays fixed while the state evolves — one pass yields either the
+    executed policy or mppi's warm-start `base_mu` (transposed)."""
+    b, days = field.batch, forcing.days
+    mu = torch.zeros(b, days, 2, dtype=DTYPE)
+    fld = field
+    with torch.inference_mode():
+        for t in range(days):
+            ad = base.day(t)
+            f = _day_feats(model, fld.state, forcing.day(t), ad)
+            rem = torch.full((b, 1), 1.0 - t / days, dtype=DTYPE)
+            u = idm(f, goal, rem)
+            mu[:, t] = u
+            ad = {**ad, "irrigation": u[:, 0], "n_fert": u[:, 1]}
+            fld, _ = model.step(fld, ad, forcing.day(t), t)
+    return mu
+
+
+def idm_actions(idm: InverseDyn, model, field: Field, forcing: Forcing,
+                base: Actions, goal: torch.Tensor) -> Actions:
+    """Goal-conditioned closed-loop control — the IDM `policy_actions`."""
+    mu = idm_plan(idm, model, field, forcing, base, goal)
+    return Actions(sow=base.sow, irrigation=mu[..., 0], n_fert=mu[..., 1])

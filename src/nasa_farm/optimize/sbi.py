@@ -205,3 +205,15 @@ def fit_posterior(theta: torch.Tensor, x: torch.Tensor, k: int = 4,
     """(N, Dθ) params × (N, Dx) summaries → amortized posterior sampler."""
     return Posterior(fit_joint(theta, x, epochs=epochs, lr=lr,
                                hidden=hidden, seed=seed))
+
+
+def sbc_ranks(post: Posterior, theta: torch.Tensor, x: torch.Tensor,
+              n: int = 64, steps: int = 4, seed: int = 0) -> torch.Tensor:
+    """Rank of each true parameter among n posterior draws — (N, Dθ) in
+    {0,…,n}; uniform iff the posterior is calibrated (Talts et al. 2018)."""
+    g = torch.Generator().manual_seed(seed)
+    draws = torch.stack([
+        post.sample(x[i], n, steps=steps,
+                    seed=int(torch.randint(2 ** 31, (1,), generator=g)))
+        for i in range(x.shape[0])])
+    return (draws < theta.unsqueeze(1)).sum(1)
