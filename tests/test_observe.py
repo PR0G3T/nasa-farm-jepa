@@ -104,8 +104,8 @@ class TestTrace:
                              Actions.idle(1, forcing.days), observer=traits)
         r = traits.result()
         r.sum().backward()
-        grads = [p.gradient for p in hybrid_model.residual.parameters()
-                 if p.gradient is not None]
+        grads = [p.grad for p in hybrid_model.residual.parameters()
+                 if p.grad is not None]
         assert grads and all(torch.isfinite(g).all() for g in grads)
 
 

@@ -26,7 +26,7 @@ class TestRStat:
             statistic.update(d_bg[:, i], d_an[:, i])
         est = statistic.estimate
         assert float(est.diagonal().mean()) == pytest.approx(r_true,
-                                                           relative=0.05)
+                                                           rel=0.05)
         assert est.shape == (2, 2)
 
     def test_decay_forgets_old(self):

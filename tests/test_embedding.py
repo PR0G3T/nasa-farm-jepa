@@ -61,7 +61,7 @@ class TestPatchEncoder:
         z = encoder(x)
         assert z.shape == (4, 8)
         z.sum().backward()
-        assert x.gradient is not None
+        assert x.grad is not None
 
     def test_size_independent(self):
         encoder = PatchEncoder(bands=3, z_dim=5, width=8)
@@ -75,7 +75,7 @@ class TestJEPALossReg:
         z_reg = torch.randn(64, 8, dtype=DTYPE, generator=g)
         # pred term zeroed ⇒ loss isolates the regularizer's argument
         l = embedding_loss(z_observed, z_observed.clone(), sig_weight=1.0, z_reg=z_reg)
-        assert float(l) == pytest.approx(float(regularization(z_reg)), relative=1e-9)
+        assert float(l) == pytest.approx(float(regularization(z_reg)), rel=1e-9)
 
 
 class TestResidualCtx:

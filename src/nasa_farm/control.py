@@ -121,10 +121,10 @@ def _quasi_newton(loss_fn, parameters: list[torch.Tensor], iters: int,
 
     def flat() -> tuple[torch.Tensor, torch.Tensor]:
         for p in parameters:
-            p.gradient = None
+            p.grad = None
         v = loss_fn()
         v.backward()
-        return v, torch.cat([p.gradient.reshape(-1) for p in parameters])
+        return v, torch.cat([p.grad.reshape(-1) for p in parameters])
 
     v, g = flat()
     for _ in range(iters):
@@ -224,18 +224,18 @@ def path_integral(model, field: Field, forcing: Forcing, base: Actions,
             sow=sows.repeat_interleave(E, dim=0),
             irrigation=candidate[0].repeat_interleave(E, dim=0),
             n_fert=candidate[1].repeat_interleave(E, dim=0))
-        forcing = forcing.repeat(s_n)
+        repeated = forcing.repeat(s_n)
         if h < days:
-            forcing = Forcing(*(getattr(forcing, k)[:, :h] for k in FORCING_VARS))
+            repeated = Forcing(*(getattr(repeated, k)[:, :h] for k in FORCING_VARS))
             acts = Actions(*(getattr(acts, k)[:, :h] for k in ACTION_VARS))
-        accumulate = SeasonAccumulator(b, max(1, -(-h // 365)),
+        accumulator = SeasonAccumulator(b, max(1, -(-h // 365)),
                                 device=field.state.sw.device)
         with torch.inference_mode():
-            field = model.rollout(field.repeat(b), forcing, acts, observer=accumulate)
-        m = accumulate.result().view(s_n, E, -1, accumulate.result().shape[-1])
+            rolled = model.rollout(field.repeat(b), repeated, acts, observer=accumulator)
+        m = accumulator.result().view(s_n, E, -1, accumulator.result().shape[-1])
         r = (reward(m) if reward is not None
              else metric_reward(m, weights, risk, alpha, margin))
-        return r.view(s_n, -1).mean(1) + bonus(field, forcing, acts) \
+        return r.view(s_n, -1).mean(1) + bonus(rolled, repeated, acts) \
             .view(s_n, E).mean(1)
 
     r_sig = 0.0
@@ -328,7 +328,7 @@ def path_integral(model, field: Field, forcing: Forcing, base: Actions,
         if refine_alg == "lbfgs":
             _quasi_newton(polish, [irrigation, nf], refine)
         else:
-            opt = torch.optim.Adam([irrigation, nf], rate=refine_lr)
+            opt = torch.optim.Adam([irrigation, nf], lr=refine_lr)
             for _ in range(refine):
                 opt.zero_grad(set_to_none=True)
                 loss = polish()

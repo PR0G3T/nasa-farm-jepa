@@ -74,7 +74,7 @@ def ensemble_smooth(model, field: Field, forcing: Forcing, actions: Actions,
     c_x = torch.zeros(ensemble, dtype=DTYPE, requires_grad=True)
     c_p = torch.zeros(ensemble, dtype=DTYPE, requires_grad=True)
     leaves = [c_x] + ([c_p] if p_cols is not None else [])
-    opt = torch.optim.Adam(leaves, rate=rate)
+    opt = torch.optim.Adam(leaves, lr=rate)
     base_tbl = model.crop_table.detach().clone()
     obs_t = {o.t: o for o in schedule}
 

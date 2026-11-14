@@ -159,8 +159,8 @@ class TestDifferentiability:
         loss = fx["delta_b"].sum() + f.state.biomass.sum() + f.state.sw[:, 0].sum()
         loss.backward()
         last = hybrid_model.residual.net[-1]
-        assert last.weight.gradient is not None
-        assert torch.isfinite(last.weight.gradient).all()
+        assert last.weight.grad is not None
+        assert torch.isfinite(last.weight.grad).all()
 
     def test_rollout_keeps_grad_path(self, field, warm_year, hybrid_model, crops):
         forcing = tile_to_horizon(warm_year, 1)
@@ -171,7 +171,7 @@ class TestDifferentiability:
                 sow=crops.index("maize") if t == 100 else -1), day_forcing(doy=float(t + 1)))
         total = f.state.biomass.sum() + f.state.sw[:, 0].sum()
         total.backward()
-        grads = [p.gradient for p in hybrid_model.residual.parameters() if p.gradient is not None]
+        grads = [p.grad for p in hybrid_model.residual.parameters() if p.grad is not None]
         assert grads and all(torch.isfinite(g).all() for g in grads)
 
 
@@ -232,7 +232,7 @@ class TestCheckpointedRollout:
                 Field(field.state.clone(), field.soil, field.latitude),
                 forcing, actions, observer=accumulate, checkpoint_every=ckpt)
             accumulate.result().sum().backward()
-            return tmin.gradient.clone()
+            return tmin.grad.clone()
 
         g_eager, g_ckpt = gradient(0), gradient(30)
         assert g_eager is not None and torch.isfinite(g_eager).all()

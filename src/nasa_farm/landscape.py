@@ -125,7 +125,7 @@ def fit_route(graph: RouteGraph, feats: torch.Tensor,
     """Imitation-fit the router on (features → reference matrix) pairs:
     daily flux snapshots against a routing prior or observed downstream
     arrival proportions. Returns the loss history."""
-    opt = torch.optim.Adam(graph.net.parameters(), rate=rate)
+    opt = torch.optim.Adam(graph.net.parameters(), lr=rate)
     best, history = float("inf"), []
     for _ in range(epochs):
         opt.zero_grad(set_to_none=True)

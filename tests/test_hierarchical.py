@@ -95,7 +95,7 @@ class TestVariety:
         f = Field(state=st, soil=field.soil, latitude=field.latitude)
         f2 = m.rollout(f, _year30(warm_year), Actions.idle(1, 90))
         f2.state.z.sum().backward()
-        assert m.var_emb.gradient is not None
+        assert m.var_emb.grad is not None
 
 
 class TestSAE:

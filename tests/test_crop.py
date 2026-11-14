@@ -28,7 +28,7 @@ class TestLAI:
     def test_peak_near_lai_max(self, crops):
         traits = maize(crops)
         lai = leaf_area_index(t(900.0), traits)  # past gdd_lai_max, before senescence
-        assert float(lai) == pytest.approx(5.5 * (1 - torch.exp(torch.tensor(-3.0)).item()), relative=0.05)
+        assert float(lai) == pytest.approx(5.5 * (1 - torch.exp(torch.tensor(-3.0)).item()), rel=0.05)
 
     def test_zero_at_maturity(self, crops):
         traits = maize(crops)
@@ -125,10 +125,10 @@ class TestPotentials:
 
 class TestTraits:
     def test_negative_crop_clamps_to_zero(self, crops):
-        traits = traits(crops.table, torch.tensor([-1, 0, 3]))
-        assert torch.equal(traits[0], crops.table[0])
-        assert torch.equal(traits[1], crops.table[0])
-        assert torch.equal(traits[2], crops.table[3])
+        rows = traits(crops.table, torch.tensor([-1, 0, 3]))
+        assert torch.equal(rows[0], crops.table[0])
+        assert torch.equal(rows[1], crops.table[0])
+        assert torch.equal(rows[2], crops.table[3])
 
 
 class TestPhotoperiod:

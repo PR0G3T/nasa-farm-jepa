@@ -60,7 +60,7 @@ class Power:
     def fetch(self, area: None, temporal: Temporal, *,
               latitude: float, longitude: float,
               parameters: tuple[str, ...] = PARAMETERS) -> dict[str, dict[str, float]]:
-        response = self._client.get(BASE_URL, parameters=request_params(latitude, longitude, temporal, parameters))
+        response = self._client.get(BASE_URL, params=request_params(latitude, longitude, temporal, parameters))
         response.raise_for_status()
         return parse_daily(response.json(), parameters)
 

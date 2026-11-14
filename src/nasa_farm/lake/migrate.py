@@ -86,7 +86,7 @@ def migrate_into(lake) -> dict:
 def migrate(root: Path | str, clean: bool = False) -> dict:
     """Import the legacy layout under `root`; `clean` removes it after."""
     root = Path(root)
-    from nasa_farm.lake.db import Lake
+    from nasa_farm.lake.database import Lake
     with Lake(root) as lake:
         stats = lake.migrated or migrate_into(lake)
     if clean:

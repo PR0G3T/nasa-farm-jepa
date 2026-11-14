@@ -55,7 +55,7 @@ class TestHelpers:
 class TestCrawl:
     def test_power_to_lake(self, tmp_path):
         def handler(request):
-            year = int(request.url.parameters["start"][:4])
+            year = int(request.url.params["start"][:4])
             return httpx.Response(200, json=_payload(year))
         client = Power(httpx.Client(transport=httpx.MockTransport(handler)))
         f = {"id": "F1", "lat": 48.0, "lon": 1.5}

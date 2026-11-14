@@ -54,12 +54,28 @@ def kernel(d: numpy.ndarray, radius_km: float) -> numpy.ndarray:
 
 
 def prep(ds: xarray.Dataset, var: str,
-         confidence: numpy.ndarray | None = None) -> tuple:
+         confidence: numpy.ndarray | None = None,
+         bbox: tuple[float, float, float, float] | None = None) -> tuple:
     """Pre-materialized (values, glat, glon, conf) grid — one dataset read
-    for any number of point queries via `at`."""
+    for any number of point queries via `at`. `bbox` (w, s, e, n) crops the
+    read to the rectangular index window covering the box — remote grids
+    then cost only the local slice instead of the whole domain."""
     glat, glon = _coords(ds, var)
-    return (numpy.asarray(ds[var].values, numpy.float64), glat, glon,
-            None if confidence is None else numpy.asarray(confidence, numpy.float64))
+    values = numpy.asarray(ds[var].values, numpy.float64)
+    c = None if confidence is None else numpy.asarray(confidence, numpy.float64)
+    if bbox is not None and glat.ndim == 2:
+        west, south, east, north = bbox
+        m = (glat >= south) & (glat <= north) \
+            & (glon >= west) & (glon <= east)
+        if m.any():
+            rows = numpy.where(m.any(axis=1))[0]
+            cols = numpy.where(m.any(axis=0))[0]
+            rs = slice(rows[0], rows[-1] + 1)
+            cs = slice(cols[0], cols[-1] + 1)
+            values, glat, glon = values[..., rs, cs], \
+                glat[rs, cs], glon[rs, cs]
+            c = None if c is None else c[..., rs, cs]
+    return values, glat, glon, c
 
 
 def at(grid: tuple, latitude: float, longitude: float,
@@ -95,7 +111,7 @@ def _nearest(ds: xarray.Dataset, var: str, latitude: float, longitude: float) ->
     """Nearest-point sample — regular (lat/lon dims) or 2-D grids."""
     data = ds[var]
     if "lat" in data.dims and "lon" in data.dims:
-        return float(data.sel(latitude=latitude, longitude=longitude, method="nearest").values.ravel()[0])
+        return float(data.sel(lat=latitude, lon=longitude, method="nearest").values.ravel()[0])
     glat, glon = _coords(ds, var)
     flat = numpy.nanargmin((glat - latitude) ** 2 + (glon - longitude) ** 2)
     return float(data.values.flat[flat])

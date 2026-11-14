@@ -52,7 +52,7 @@ def fit_allocation(model, field: Field, forcing: Forcing, base: Actions,
         raise ValueError(f"{len(policies)} policies for {b} agents")
     torch.manual_seed(seed)
     parameters = [p for policy in policies for p in policy.parameters()]
-    opt = torch.optim.Adam(parameters, rate=rate)
+    opt = torch.optim.Adam(parameters, lr=rate)
     years = max(1, days // 365)
     weights = weights or DEFAULT_WEIGHTS
     history: list[float] = []

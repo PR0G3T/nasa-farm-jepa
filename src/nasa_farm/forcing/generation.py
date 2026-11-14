@@ -78,7 +78,7 @@ def fit(series: list[Forcing], epochs: int = 400, rate: float = 2e-3,
     m = model or Generator(hidden)
     if seed is not None:
         torch.manual_seed(seed)
-    opt = torch.optim.Adam(m.parameters(), rate=rate)
+    opt = torch.optim.Adam(m.parameters(), lr=rate)
     generation = torch.Generator().manual_seed(seed)
     previous = v[:, :-1].reshape(-1, NV)                          # (N·(T−1), 6)
     x1 = v[:, 1:].reshape(-1, NV)

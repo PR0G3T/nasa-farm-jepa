@@ -31,9 +31,9 @@ class TestCal:
     def test_monotone(self):
         sequence = [19991231, 20000101, 20231231, 20240101,
                20240228, 20240229, 20240301]
-        assert numpy.all(numpy.difference(to_ordinal(numpy.array(sequence))) > 0)
+        assert numpy.all(numpy.diff(to_ordinal(numpy.array(sequence))) > 0)
         run = [20240227, 20240228, 20240229, 20240301, 20240302]
-        assert numpy.all(numpy.difference(to_ordinal(numpy.array(run))) == 1)
+        assert numpy.all(numpy.diff(to_ordinal(numpy.array(run))) == 1)
 
 
 class TestSeries:
@@ -69,7 +69,7 @@ class TestSeries:
         model = dict(zip(data.tolist(), va.tolist()))
         model.update(zip(database.tolist(), vb.tolist()))   # newest wins
         d, v = merge((data, va), database, vb)
-        assert numpy.all(numpy.difference(d) > 0)               # strictly sorted unique
+        assert numpy.all(numpy.diff(d) > 0)               # strictly sorted unique
         assert d.tolist() == sorted(model)
         assert numpy.array_equal(v, numpy.array(
             [model[k] for k in sorted(model)], numpy.float32))

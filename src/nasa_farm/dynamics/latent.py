@@ -147,8 +147,8 @@ def embedding_loss(z_observed: torch.Tensor, z_pred: torch.Tensor,
     predicted = (z_pred - z_observed.detach()).pow(2).mean()
     kl_term = kl if isinstance(kl, torch.Tensor) else torch.tensor(
         float(kl), dtype=z_pred.dtype, device=z_pred.device)
-    regularization = z_observed if z_reg is None else z_reg
-    return predicted + sig_weight * regularization(regularization.reshape(-1, regularization.shape[-1]),
+    regularized = z_observed if z_reg is None else z_reg
+    return predicted + sig_weight * regularization(regularized.reshape(-1, regularized.shape[-1]),
                                       seed=sig_seed) + kl_weight * kl_term
 
 
@@ -242,7 +242,7 @@ def fit_autoencoder(autoencoder: Autoencoder, z_stream: torch.Tensor, epochs: in
     final reconstruction error and per-unit firing rates — dead features
     are visible directly in `rate`."""
     zs = z_stream.reshape(-1, z_stream.shape[-1])
-    opt = torch.optim.Adam(autoencoder.parameters(), rate=rate)
+    opt = torch.optim.Adam(autoencoder.parameters(), lr=rate)
     best, history = float("inf"), []
     for evaporation in range(1, epochs + 1):
         opt.zero_grad(set_to_none=True)

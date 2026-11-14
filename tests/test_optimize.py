@@ -63,8 +63,8 @@ class TestTargets:
         a = Actions.idle(1, forcing.days)
         m = season_metrics(hybrid_model, field, forcing, a)
         m.sum().backward()
-        grads = [p.gradient for p in hybrid_model.residual.parameters()
-                 if p.gradient is not None]
+        grads = [p.grad for p in hybrid_model.residual.parameters()
+                 if p.grad is not None]
         assert grads and all(torch.isfinite(g).all() for g in grads)
 
     def test_trajectory_loss_masking(self, field, hybrid_model, crops):
@@ -118,8 +118,8 @@ class TestObservedSeries:
         predicted = series(hybrid_model, field, forcing,
                           Actions.idle(1, forcing.days), ("sm1",), every=15)
         predicted.sum().backward()
-        grads = [p.gradient for p in hybrid_model.residual.parameters()
-                 if p.gradient is not None]
+        grads = [p.grad for p in hybrid_model.residual.parameters()
+                 if p.grad is not None]
         assert grads and all(torch.isfinite(g).all() for g in grads)
 
 
@@ -163,7 +163,7 @@ class TestGradientHPO:
                 season_metrics(physics_model, field, forcing, act), observed)
 
         result = gradient(loss, {"p": p}, epochs=150, rate=0.05)
-        assert float(p) == pytest.approx(float(table[i_c, i_p]), relative=0.05)
+        assert float(p) == pytest.approx(float(table[i_c, i_p]), rel=0.05)
         assert result.best_loss == pytest.approx(0.0, abs=1e-3)
 
     def test_trait_leaf_binds_live(self, hybrid_model):

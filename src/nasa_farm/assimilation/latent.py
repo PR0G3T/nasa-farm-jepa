@@ -127,7 +127,7 @@ def fit_filter(model, field: Field, forcing, actions,
                 snapshot.append((f.state.clone(), truth, o))
 
     net = Filter(len(names), len(channels))
-    opt = torch.optim.Adam(net.parameters(), rate=rate)
+    opt = torch.optim.Adam(net.parameters(), lr=rate)
     scale = torch.tensor([1.0] * len(names), dtype=DTYPE)
     history = []
     for _ in range(epochs):

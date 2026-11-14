@@ -85,8 +85,8 @@ def grad_norm_score(net: nn.Module, input_dim: int = N_FEATURES,
         p.requires_grad_(True)
     loss = net.to(torch.float64)(x).square().mean()
     loss.backward()
-    gn = torch.sqrt(sum((p.gradient ** 2).sum() for p in net.parameters()
-                        if p.gradient is not None))
+    gn = torch.sqrt(sum((p.grad ** 2).sum() for p in net.parameters()
+                        if p.grad is not None))
     return float(gn)
 
 

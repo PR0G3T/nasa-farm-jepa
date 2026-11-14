@@ -84,7 +84,7 @@ def embedding_fit(model, encoder, field: Field, forcing: Forcing,
             [(f"lat.{n}", p) for n, p in model.latent.named_parameters()]
     rgen = torch.Generator().manual_seed(0)
     leaves = [p for _, p in named]
-    opt = torch.optim.Adam(leaves, rate=rate)
+    opt = torch.optim.Adam(leaves, lr=rate)
     best, stall, history = float("inf"), 0, []
     best_params = {n: p.detach().clone() for n, p in named}
 
@@ -118,10 +118,10 @@ def embedding_fit(model, encoder, field: Field, forcing: Forcing,
                 predicted = predicted + (z_pred[:, :-hh]
                                - z_t[:, hh:]).pow(2).mean() / hh
         kl = model.latent.kl if kl_weight else torch.zeros((), dtype=DTYPE)
-        encoder = encoder(source)
-        regularization = (dissimilarity(encoder.reshape(-1, encoder.shape[-1]), rgen)
-               if sparse else regularization(encoder.reshape(-1, encoder.shape[-1])))
-        return predicted + sig_weight * regularization + kl_weight * kl
+        encoded = encoder(source)
+        penalty = (dissimilarity(encoded.reshape(-1, encoded.shape[-1]), rgen)
+               if sparse else regularization(encoded.reshape(-1, encoded.shape[-1])))
+        return predicted + sig_weight * penalty + kl_weight * kl
 
     for evaporation in range(1, epochs + 1):
         opt.zero_grad(set_to_none=True)
@@ -150,8 +150,8 @@ def embedding_fit(model, encoder, field: Field, forcing: Forcing,
         z_pred, targets, source = unroll()
         z_tgt = target(targets)
         z_std = float(encoder(source).std())
-        encoder = encoder(source)
-        signal = float(regularization(encoder.reshape(-1, encoder.shape[-1])))
+        encoded = encoder(source)
+        signal = float(regularization(encoded.reshape(-1, encoded.shape[-1])))
     return {"best_loss": round(best, 8), "history": history,
             "epochs_run": len(history), "tgt": target,
             "z_pred": z_pred.detach(), "z_tgt": z_tgt.detach(),

@@ -50,7 +50,7 @@ def langevin_posterior(model, field: Field, forcing, actions,
         predicted = series(model, f, forcing, actions, channels, every)
         logp = -series_loss(predicted, observed) \
             - 0.5 * ((logx - logx0) / prior_sd).pow(2).sum()
-        g = torch.autograd.gradient(logp, logx)[0]
+        g = torch.autograd.grad(logp, logx)[0]
         with torch.no_grad():
             logx.add_(rate * g + (2.0 * rate * temperature) ** 0.5
                       * torch.randn(logx.shape, generator=generation, dtype=DTYPE))

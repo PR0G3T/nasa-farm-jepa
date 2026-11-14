@@ -41,7 +41,7 @@ class Trial:
 
 
 @dataclass(slots=True)
-class HPOResult:
+class Result:
     best_config: dict[str, Any]
     best_value: float
     trials: list[Trial] = _f(default_factory=list)
@@ -71,7 +71,7 @@ def blackbox(
         n_trials: int = 32,
         rungs: tuple[int, ...] | None = (10, 30, 90),
         eta: int = 3,
-        seed: int = 0) -> HPOResult:
+        seed: int = 0) -> Result:
     """Sobol-sampled configs → optional successive halving → best config.
 
     objective(cfg, budget) → scalar (lower better). When `rungs` is None,
@@ -83,7 +83,7 @@ def blackbox(
     else:
         trials = successive_halving(objective, configs, rungs, eta)
     best = min(trials, key=lambda t: t.value)
-    return HPOResult(best_config=best.config, best_value=best.value,
+    return Result(best_config=best.config, best_value=best.value,
                      trials=trials)
 
 
@@ -102,7 +102,7 @@ def _optuna_objective(objective, trial, space: Space):
 
 def optuna(objective: Callable[[dict, int], float],
                space: Space, n_trials: int = 50, seed: int = 0,
-               directions: list[str] | None = None) -> HPOResult:
+               directions: list[str] | None = None) -> Result:
     """Optuna path — multivariate TPE (single-objective) or NSGA-II
     (directions=['minimize','maximize',...] returns the Pareto-optimal trial
     on the first objective). Requires the `hpo` extra."""
@@ -121,6 +121,6 @@ def optuna(objective: Callable[[dict, int], float],
                     (t.values[0] if multi else t.value)
                     if (t.values or t.value is not None) else float("inf"))
               for t in study.trials]
-    return HPOResult(best_config=bt.parameters,
+    return Result(best_config=bt.parameters,
                      best_value=bt.values[0] if multi else bt.value,
                      trials=trials)

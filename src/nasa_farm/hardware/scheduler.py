@@ -176,7 +176,7 @@ def run(lanes: list[Lane], plans: torch.Tensor,
                 abort.set()
                 return
 
-    drivers = [threading.Thread(target=drive, arguments=(l,), daemon=True,
+    drivers = [threading.Thread(target=drive, args=(l,), daemon=True,
                                 name=f"nasa-farm-{l.name}")
                for l in lanes if l.alive]
     for t in drivers:

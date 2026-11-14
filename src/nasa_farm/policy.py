@@ -74,7 +74,7 @@ def distill(model, field: Field, forcing: Forcing, base: Actions,
     teacher = result.actions
     b, days = field.batch, forcing.days
     policy = Policy()
-    opt = torch.optim.Adam(policy.parameters(), rate=rate)
+    opt = torch.optim.Adam(policy.parameters(), lr=rate)
     field = field
     for _ in range(epochs):
         opt.zero_grad(set_to_none=True)
@@ -115,7 +115,7 @@ def policy_gradient(model, field: Field, forcing: Forcing, base: Actions,
 
     policy = policy or Policy()
     torch.manual_seed(seed)
-    opt = torch.optim.Adam(policy.parameters(), rate=rate)
+    opt = torch.optim.Adam(policy.parameters(), lr=rate)
     years = max(1, forcing.days // 365)
     b, days = field.batch, forcing.days
     for _ in range(epochs):
@@ -175,7 +175,7 @@ def fit_flow(policy: FlowPolicy, chunks: torch.Tensor,
     chunks: (N, 2H) flattened schedules; feats: (N, N_FEATURES) state
     features at chunk start. Target velocity v = a − ε."""
     generation = torch.Generator().manual_seed(seed)
-    opt = torch.optim.Adam(policy.parameters(), rate=rate)
+    opt = torch.optim.Adam(policy.parameters(), lr=rate)
     a1, f = chunks.to(DTYPE), feats.to(DTYPE)
     n, history = a1.shape[0], []
     for _ in range(epochs):
@@ -272,7 +272,7 @@ def fit_inverse(model, demos: list[tuple[Field, Forcing, Actions]],
     inverse = Inverse(g.shape[-1], hidden=hidden)
     inverse.x_mu.copy_(x.mean(0))
     inverse.x_sd.copy_(x.std(0).clamp(min=1e-6))
-    opt = torch.optim.Adam(inverse.parameters(), rate=rate)
+    opt = torch.optim.Adam(inverse.parameters(), lr=rate)
     xn = (x - inverse.x_mu) / inverse.x_sd
     for _ in range(epochs):
         opt.zero_grad(set_to_none=True)

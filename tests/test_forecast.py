@@ -34,8 +34,8 @@ class TestClient:
     def test_ens_roundtrip(self):
         def handler(request: httpx.Request) -> httpx.Response:
             assert "ensemble-api.open-meteo.com" in str(request.url)
-            assert request.url.parameters["models"] == "ecmwf_ifs025"
-            assert request.url.parameters["wind_speed_unit"] == "ms"
+            assert request.url.params["models"] == "ecmwf_ifs025"
+            assert request.url.params["wind_speed_unit"] == "ms"
             return httpx.Response(200, json=_payload())
 
         c = OpenMeteo(httpx.Client(transport=httpx.MockTransport(handler)))

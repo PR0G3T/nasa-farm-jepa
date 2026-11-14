@@ -74,7 +74,7 @@ class SoilGrids:
              depth: str = "0-30cm") -> dict[str, dict[str, float]]:
         """Full prediction distribution in one request."""
         response = self._client.get(
-            BASE_URL, parameters=request_params(latitude, longitude, depth, STATS))
+            BASE_URL, params=request_params(latitude, longitude, depth, STATS))
         response.raise_for_status()
         return parse(response.json())
 

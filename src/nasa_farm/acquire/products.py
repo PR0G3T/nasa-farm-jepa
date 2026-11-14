@@ -59,11 +59,15 @@ class Specification:
     def _conf(self, ds: xarray.Dataset):
         return self.quality.mask(ds) if self.quality else None
 
-    def prep(self, ds: xarray.Dataset) -> tuple | None:
-        """Materialized grid for this product — one read, many points."""
+    def prep(self, ds: xarray.Dataset,
+             bbox: tuple[float, float, float, float] | None = None
+             ) -> tuple | None:
+        """Materialized grid for this product — one read, many points.
+        `bbox` crops the read to the local window (footprint margin must
+        already be folded in by the caller)."""
         if (v := self.var(ds)) is None:
             return None
-        return _prep(ds, v, self._conf(ds))
+        return _prep(ds, v, self._conf(ds), bbox)
 
     def at(self, grid: tuple, latitude: float, longitude: float
            ) -> tuple[float, float]:

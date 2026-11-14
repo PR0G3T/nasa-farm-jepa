@@ -88,7 +88,7 @@ class TestPenmanMonteith:
 
     def test_iowa_summer_magnitude(self):
         """Hand-checked ≈5.6 mm/d for humid midsummer conditions."""
-        assert float(self.pm()) == pytest.approx(5.6, relative=0.15)
+        assert float(self.pm()) == pytest.approx(5.6, rel=0.15)
 
     def test_increases_with_wind(self):
         assert float(self.pm(u2=t(0.5))) < float(self.pm(u2=t(4.0)))

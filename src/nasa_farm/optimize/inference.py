@@ -88,7 +88,7 @@ def fit_groups(groups: tuple[torch.Tensor, ...], epochs: int = 300,
     m = Flow(dims, hidden, depth)
     torch.manual_seed(seed)
     generation = torch.Generator().manual_seed(seed)
-    opt = torch.optim.Adam(m.parameters(), rate=rate)
+    opt = torch.optim.Adam(m.parameters(), lr=rate)
     n = gs[0].shape[0]
     for _ in range(epochs):
         i = torch.randint(0, n, (n,), generator=generation)

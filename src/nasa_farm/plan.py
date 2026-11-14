@@ -30,7 +30,7 @@ from nasa_farm.hardware import capabilities as capabilities
 from nasa_farm.hardware import memory as memory
 from nasa_farm.hardware import probe
 from nasa_farm.hardware import scheduler as schedule
-from nasa_farm.hardware import telemetry as telemetry
+from nasa_farm.hardware.telemetry import Monitor
 from nasa_farm.state.crops import INDEX
 from nasa_farm.state.field import Field
 from nasa_farm.state.soil import SoilProfile
@@ -190,7 +190,7 @@ def _block_ctx(lane: schedule.Lane, start: int, k: int, s: int,
         forcing = lane.ensemble.repeat(k)
         accumulate = SeasonAccumulator(k * s, h, device=lane.device)
         if len(lane.context) >= 4:
-            lane.context.population(next(iter(lane.context)))
+            lane.context.pop(next(iter(lane.context)))
         lane.context[key] = ent = (field, forcing, accumulate)
     return ent
 
@@ -355,7 +355,7 @@ def _save_compile_cache() -> None:
         pass
 
 
-def _telemetry(lanes: list[schedule.Lane], mons: dict[str, telemetry.Monitor],
+def _telemetry(lanes: list[schedule.Lane], mons: dict[str, Monitor],
                r: int, s: int, days: int) -> dict:
     fd = r * s * days
     j = sum(m.joules() for m in mons.values())
@@ -442,7 +442,7 @@ def evaluate(model: WorldModel, field0: Field, plans: torch.Tensor,
     output = torch.empty(
         (r * s, h, len(METRICS)), dtype=DTYPE,
         pin_memory=accelerator and torch.cuda.is_available())
-    mons = {l.name: telemetry.Monitor(l.device) for l in lanes if l.accelerator}
+    mons = {l.name: Monitor(l.device) for l in lanes if l.accelerator}
     try:
         with ExitStack() as stack:
             for l in lanes:

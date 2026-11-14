@@ -111,7 +111,7 @@ def test_crps_matches_quadratic_form():
     pair = (e.unsqueeze(-1) - e.unsqueeze(-2)).abs()
     # textbook fair CRPS: mean|x−y| − Σ_{i≠j}|xᵢ−xⱼ| / (2·m·(m−1))
     brute = (ae - pair.sum((-1, -2)) / (2 * m * (m - 1))).mean()
-    assert mx.crps(e, o) == pytest.approx(float(brute), relative=1e-10)
+    assert mx.crps(e, o) == pytest.approx(float(brute), rel=1e-10)
 
 
 @given(st.integers(min_value=2, max_value=64))

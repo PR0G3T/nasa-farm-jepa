@@ -144,7 +144,12 @@ def _granule(work):
     try:
         ds = fetch(specification.source, g)
         with ds:
-            if (grid := specification.prep(ds)) is None:
+            margin = specification.radius_km / 111.0 + 0.05
+            box = (min(f["lon"] for f in fields) - margin,
+                   min(f["lat"] for f in fields) - margin,
+                   max(f["lon"] for f in fields) + margin,
+                   max(f["lat"] for f in fields) + margin)
+            if (grid := specification.prep(ds, box)) is None:
                 return g.id, "skip (no var)"
             output = {}
             for f in fields:

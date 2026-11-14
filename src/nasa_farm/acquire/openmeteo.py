@@ -93,7 +93,7 @@ class OpenMeteo:
         parameters = {"latitude": latitude, "longitude": longitude, "models": model,
                   "daily": ",".join(DAILY_VARS.values()),
                   "wind_speed_unit": "ms", "timezone": "GMT", **(extra or {})}
-        r = self.client.get(url, parameters=parameters)
+        r = self.client.get(url, params=parameters)
         r.raise_for_status()
         daily = r.json()["daily"]
         cols: dict[int, dict[str, list[float]]] = {}

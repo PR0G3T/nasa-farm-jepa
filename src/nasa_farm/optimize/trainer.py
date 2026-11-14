@@ -45,7 +45,7 @@ def fit(loss_fn: Callable[[], torch.Tensor],
         patience: int = 30, verbose: bool = False) -> FitResult:
     """Adam + grad clip + early stopping. Deterministic given the closure."""
     leaves = list(parameters.values())
-    opt = torch.optim.Adam(leaves, rate=rate)
+    opt = torch.optim.Adam(leaves, lr=rate)
     best, history = float("inf"), []
     best_params = {k: v.detach().clone() for k, v in parameters.items()}
     stall = 0

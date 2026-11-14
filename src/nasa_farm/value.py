@@ -89,7 +89,7 @@ def fit_value(model, field: Field, forcing: Forcing, actions: Actions,
     x = torch.cat(xs)
     y = torch.cat(ys)
     deviation = y.std().clamp(min=1.0)
-    opt = torch.optim.Adam(net.parameters(), rate=rate)
+    opt = torch.optim.Adam(net.parameters(), lr=rate)
     for _ in range(epochs):
         opt.zero_grad(set_to_none=True)
         loss = ((net(x) - y) / deviation).pow(2).mean()

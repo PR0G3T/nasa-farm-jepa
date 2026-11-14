@@ -40,7 +40,7 @@ class TestSample:
         ds = _grid(v, lats, lons)
         latitude, longitude = 41.0, 1.0
         assert sample(ds, "v", latitude, longitude, radius_km=60.0) == \
-            pytest.approx(2.0 * latitude + 3.0 * longitude - 80.0, relative=1e-9)
+            pytest.approx(2.0 * latitude + 3.0 * longitude - 80.0, rel=1e-9)
 
     def test_within_footprint_extremes(self):
         v = numpy.arange(9.0).reshape(3, 3)

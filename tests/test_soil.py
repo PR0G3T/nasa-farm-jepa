@@ -31,7 +31,7 @@ class TestProfile:
         p = SoilProfile.preset("loam")
         # layer2 is 1.50 m vs layer1 0.30 m → 5× the storage
         assert float(p.layer(1).theta_fc) > float(p.layer(0).theta_fc)
-        assert float(p.layer(1).theta_sat / p.layer(0).theta_sat) == pytest.approx(1.5 / 0.3, relative=0.1)
+        assert float(p.layer(1).theta_sat / p.layer(0).theta_sat) == pytest.approx(1.5 / 0.3, rel=0.1)
 
     def test_bounds_hold_as_storages(self):
         for name in ("sand", "loamy_sand", "sandy_loam", "loam", "silt_loam",

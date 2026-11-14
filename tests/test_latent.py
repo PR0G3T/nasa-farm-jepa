@@ -58,7 +58,7 @@ class TestJEPALoss:
         z = torch.randn(64, 8, dtype=DTYPE,
                         generator=torch.Generator().manual_seed(0))
         l = embedding_loss(z, z.clone(), sig_weight=1.0)
-        assert float(l) == pytest.approx(float(regularization(z)), relative=1e-9)
+        assert float(l) == pytest.approx(float(regularization(z)), rel=1e-9)
 
     def test_prediction_error_dominates(self):
         g = torch.Generator().manual_seed(0)
@@ -72,4 +72,4 @@ class TestJEPALoss:
         z_pred = torch.randn(32, 8, dtype=DTYPE, generator=g,
                              ).requires_grad_(True)
         embedding_loss(z_observed, z_pred).backward()
-        assert z_pred.gradient is not None and torch.isfinite(z_pred.gradient).all()
+        assert z_pred.grad is not None and torch.isfinite(z_pred.grad).all()

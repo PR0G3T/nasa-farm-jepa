@@ -196,7 +196,7 @@ def fit_response(model, response: Response, field: Field, forcing: Forcing,
 
     parameters = {f"p{i}": p for i, p in enumerate(response.parameters())}
     leaves = list(parameters.values())
-    opt = torch.optim.Adam(leaves, rate=rate)
+    opt = torch.optim.Adam(leaves, lr=rate)
     e = len(EDIT_VARS)
     history = []
     for _ in range(epochs):

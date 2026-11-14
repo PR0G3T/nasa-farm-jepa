@@ -28,7 +28,7 @@ class Replay:
         self.buf: deque[tuple] = deque(maxlen=cap)
         self.batch = batch
         self.sig_weight = sig_weight
-        self.opt = torch.optim.SGD(model.latent.parameters(), rate=rate)
+        self.opt = torch.optim.SGD(model.latent.parameters(), lr=rate)
         self.generation = torch.Generator().manual_seed(seed)
         self.history: list[float] = []
 
