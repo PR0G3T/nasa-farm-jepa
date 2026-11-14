@@ -47,9 +47,23 @@ class Scene:
     prior: WorldModel     # literature traits — the uncalibrated baseline
 
     def realization(self, i: int = 0) -> Forcing:
-        """Row i of the held-out realizations — the calibration season."""
+        """Row i of the forcing realizations (row 0 = the calibration season)."""
         from nasa_farm.types import FORCING_VARS
+        i %= self.forcing_time.batch
         return Forcing(*(getattr(self.forcing_time, k)[i:i + 1]
+                         for k in FORCING_VARS))
+
+    def held_indices(self) -> range:
+        """Indices calibration never observes: rows 1..R-1, or {0} when
+        a single realization exists (single-sequence smoke protocol)."""
+        return (range(1, self.forcing_time.batch)
+                if self.forcing_time.batch > 1 else range(1))
+
+    def held_out(self) -> Forcing:
+        """The held-out realizations as one batch — rows 1..R-1."""
+        from nasa_farm.types import FORCING_VARS
+        i = 1 if self.forcing_time.batch > 1 else 0
+        return Forcing(*(getattr(self.forcing_time, k)[i:]
                          for k in FORCING_VARS))
 
 

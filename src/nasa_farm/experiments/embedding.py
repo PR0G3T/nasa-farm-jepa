@@ -74,7 +74,7 @@ def _eval(model, sc, specification: Specification, encoder=None,
     output: dict[str, list[float]] = {}
     k = model.latent.dim if model.latent else 0
     with torch.inference_mode():
-        for i in range(sc.forcing_time.batch):
+        for i in sc.held_indices():
             f_t = sc.realization(i)
             obs_true, _ = _trace(sc.truth, sc.field, f_t, sc.actions, specification)
             field_ = field if field is not None else sc.field

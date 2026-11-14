@@ -26,14 +26,19 @@ METRICS: tuple[str, ...] = (
     "tws_end",       # mm aquifer storage anomaly at year end
     "heat_dd",       # °C·d reproductive heat load in year h
     "frost_days",    # d with a lethal-frost event in year h
+    "biomass_max",   # kg/ha peak standing biomass in year h
 )
 
 _END: tuple[str, ...] = ("biomass_end", "n_min_end", "soc_end", "soc_f_end",
                          "tws_end")
 """Absolute-write metrics (last-day value), all others accumulate."""
 
-SUM_I = [i for i, n in enumerate(METRICS) if n not in _END]
+_MAX: tuple[str, ...] = ("biomass_max",)
+"""Running-maximum metrics (peak value within year h)."""
+
+SUM_I = [i for i, n in enumerate(METRICS) if n not in _END and n not in _MAX]
 END_I = [i for i, n in enumerate(METRICS) if n in _END]
+MAX_I = [i for i, n in enumerate(METRICS) if n in _MAX]
 
 
 def day_update(state: FieldState, fluxes: dict) -> torch.Tensor:
@@ -56,6 +61,7 @@ def day_update(state: FieldState, fluxes: dict) -> torch.Tensor:
         "tws_end": state.tws,
         "heat_dd": fluxes["heat_dd"],
         "frost_days": fluxes["frost"].to(DTYPE),
+        "biomass_max": state.biomass,
     }
     return torch.stack([cols[n] for n in METRICS], dim=-1)
 
@@ -68,12 +74,17 @@ def fold(accumulate: torch.Tensor, t: int, update: torch.Tensor) -> torch.Tensor
     sel = (torch.arange(accumulate.shape[1], device=accumulate.device) == h).to(accumulate.dtype)
     end_mask = torch.zeros(m, dtype=torch.bool, device=accumulate.device)
     end_mask[END_I] = True
-    sum_mask = ~end_mask
+    max_mask = torch.zeros(m, dtype=torch.bool, device=accumulate.device)
+    max_mask[MAX_I] = True
+    sum_mask = ~(end_mask | max_mask)
     u = update.unsqueeze(1)
     accumulate = accumulate + sel.view(1, -1, 1) * u * sum_mask.to(u.dtype)
+    picked = u.expand(-1, accumulate.shape[1], -1)
     accumulate = torch.where(
-        sel.view(1, -1, 1).bool() & end_mask.view(1, 1, -1),
-        u.expand(-1, accumulate.shape[1], -1), accumulate)
+        sel.view(1, -1, 1).bool() & end_mask.view(1, 1, -1), picked, accumulate)
+    accumulate = torch.where(
+        sel.view(1, -1, 1).bool() & max_mask.view(1, 1, -1),
+        torch.maximum(accumulate, picked), accumulate)
     return accumulate
 
 
@@ -92,6 +103,7 @@ class SeasonAccumulator:
         accumulate = self.accumulate[:, h]
         accumulate[:, SUM_I] += u[:, SUM_I]
         accumulate[:, END_I] = u[:, END_I]
+        accumulate[:, MAX_I] = torch.maximum(accumulate[:, MAX_I], u[:, MAX_I])
 
     def result(self) -> torch.Tensor:
         """(B, H, M)."""

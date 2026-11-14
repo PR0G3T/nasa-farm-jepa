@@ -67,119 +67,119 @@ def _plan_flags(parser: argparse.ArgumentParser) -> None:
 
 
 def _build_parser() -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser(prog="nasa-farm")
-    sub = p.add_subparsers(dest="command", required=True)
+    parser = argparse.ArgumentParser(prog="nasa-farm")
+    subparsers = parser.add_subparsers(dest="command", required=True)
 
-    parser = sub.add_parser("plan", help="rank rotations for a field")
-    _plan_flags(parser)
-    parser.add_argument("--latitude", type=float, required=True)
-    parser.add_argument("--longitude", type=float, required=True)
+    plan = subparsers.add_parser("plan", help="rank rotations for a field")
+    _plan_flags(plan)
+    plan.add_argument("--latitude", type=float, required=True)
+    plan.add_argument("--longitude", type=float, required=True)
 
-    ex2 = sub.add_parser("export", help="batch plan → static JSON for the app")
-    _plan_flags(ex2)
-    ex2.add_argument("--fields", required=True,
+    export = subparsers.add_parser("export", help="batch plan → static JSON for the app")
+    _plan_flags(export)
+    export.add_argument("--fields", required=True,
                      help="fields JSON path, or '-' for stdin")
-    ex2.add_argument("--output", required=True, help="output JSON path")
-    ex2.add_argument("--scenario", action="append", default=None,
+    export.add_argument("--output", required=True, help="output JSON path")
+    export.add_argument("--scenario", action="append", default=None,
                      help="name[:k=v,...] — repeatable; k ∈ "
                           + ",".join(sorted(SCENARIO_KEYS)))
 
-    cr = sub.add_parser("crawl", help="batch acquisition → data lake")
-    cr.add_argument("--fields", required=True,
+    crawl = subparsers.add_parser("crawl", help="batch acquisition → data lake")
+    crawl.add_argument("--fields", required=True,
                     help="fields JSON path, or '-' for stdin")
-    cr.add_argument("--output", default="lake", help="lake root dir")
-    cr.add_argument("--years", type=int, default=5)
-    cr.add_argument("--sources", default="power,soil",
+    crawl.add_argument("--output", default="lake", help="lake root dir")
+    crawl.add_argument("--years", type=int, default=5)
+    crawl.add_argument("--sources", default="power,soil",
                     help="power,soil,smap,ecostress-seb,ecostress-met")
-    cr.add_argument("--workers", type=int, default=8)
+    crawl.add_argument("--workers", type=int, default=8)
 
-    sv = sub.add_parser("serve", help="HTTP API (granian + fastapi)")
-    sv.add_argument("--host", default="127.0.0.1")
-    sv.add_argument("--port", type=int, default=8000)
-    sv.add_argument("--workers", type=int, default=1,
+    serve = subparsers.add_parser("serve", help="HTTP API (granian + fastapi)")
+    serve.add_argument("--host", default="127.0.0.1")
+    serve.add_argument("--port", type=int, default=8000)
+    serve.add_argument("--workers", type=int, default=1,
                     help="granian worker processes")
-    sv.add_argument("--tunnel", action="store_true",
+    serve.add_argument("--tunnel", action="store_true",
                     help="cloudflared quick tunnel → public URL")
 
-    cal = sub.add_parser("calibrate", help="gradient HPO on a trait cell")
-    cal.add_argument("--latitude", type=float, required=True)
-    cal.add_argument("--longitude", type=float, required=True)
-    cal.add_argument("--crop", default="maize")
-    cal.add_argument("--parameter", default="rue", help="trait name to perturb+recover")
-    cal.add_argument("--scale", type=float, default=0.8,
+    calibrate = subparsers.add_parser("calibrate", help="gradient HPO on a trait cell")
+    calibrate.add_argument("--latitude", type=float, required=True)
+    calibrate.add_argument("--longitude", type=float, required=True)
+    calibrate.add_argument("--crop", default="maize")
+    calibrate.add_argument("--parameter", default="rue", help="trait name to perturb+recover")
+    calibrate.add_argument("--scale", type=float, default=0.8,
                    help="synthetic truth = trait × scale")
-    cal.add_argument("--channel", default="yield_kg", help="METRICS channel")
-    cal.add_argument("--epochs", type=int, default=120)
-    cal.add_argument("--rate", type=float, default=0.05)
+    calibrate.add_argument("--channel", default="yield_kg", help="METRICS channel")
+    calibrate.add_argument("--epochs", type=int, default=120)
+    calibrate.add_argument("--rate", type=float, default=0.05)
 
-    nas = sub.add_parser("nas", help="residual architecture search")
-    nas.add_argument("--latitude", type=float, default=42.0)
-    nas.add_argument("--longitude", type=float, default=-93.6)
-    nas.add_argument("--candidates", type=int, default=24)
-    nas.add_argument("--top-k", type=int, default=8)
-    nas.add_argument("--rungs", default="10,30,90", help="fit budgets, comma-sep")
-    nas.add_argument("--seed", type=int, default=0)
+    search = subparsers.add_parser("nas", help="residual architecture search")
+    search.add_argument("--latitude", type=float, default=42.0)
+    search.add_argument("--longitude", type=float, default=-93.6)
+    search.add_argument("--candidates", type=int, default=24)
+    search.add_argument("--top-k", type=int, default=8)
+    search.add_argument("--rungs", default="10,30,90", help="fit budgets, comma-sep")
+    search.add_argument("--seed", type=int, default=0)
 
-    ct = sub.add_parser("control", help="MPPI irrigation/N scheduling")
-    ct.add_argument("--latitude", type=float, default=42.0)
-    ct.add_argument("--crop", default="maize")
-    ct.add_argument("--scenarios", type=int, default=8,
+    control = subparsers.add_parser("control", help="MPPI irrigation/N scheduling")
+    control.add_argument("--latitude", type=float, default=42.0)
+    control.add_argument("--crop", default="maize")
+    control.add_argument("--scenarios", type=int, default=8,
                     help="forcing ensemble size")
-    ct.add_argument("--samples", type=int, default=64)
-    ct.add_argument("--iterations", type=int, default=6)
-    ct.add_argument("--weights", default=None,
+    control.add_argument("--samples", type=int, default=64)
+    control.add_argument("--iterations", type=int, default=6)
+    control.add_argument("--weights", default=None,
                     help="reward mix, e.g. yield_kg=1.0,n_leached=-0.5")
-    ct.add_argument("--risk", default="mean",
+    control.add_argument("--risk", default="mean",
                     choices=("mean", "cvar", "conf"),
                     help="scenario risk aggregation")
-    ct.add_argument("--alpha", type=float, default=0.2,
+    control.add_argument("--alpha", type=float, default=0.2,
                     help="CVaR tail level / conformal miscoverage")
-    ct.add_argument("--sow-shifts", default="0",
+    control.add_argument("--sow-shifts", default="0",
                     help="sow-day shifts searched, comma-sep (e.g. -14,0,14)")
-    ct.add_argument("--seed", type=int, default=0)
+    control.add_argument("--seed", type=int, default=0)
 
-    ex = sub.add_parser("exp", help="run a research experiment")
-    ex.add_argument("name", choices=experiments())
-    ex.add_argument("--latitude", type=float, default=42.0)
-    ex.add_argument("--longitude", type=float, default=-93.6)
-    ex.add_argument("--soil", default="silt_loam")
-    ex.add_argument("--crop", default="maize")
-    ex.add_argument("--horizon", type=int, default=1)
-    ex.add_argument("--years", default="",
+    experiment = subparsers.add_parser("exp", help="run a research experiment")
+    experiment.add_argument("name", choices=experiments())
+    experiment.add_argument("--latitude", type=float, default=42.0)
+    experiment.add_argument("--longitude", type=float, default=-93.6)
+    experiment.add_argument("--soil", default="silt_loam")
+    experiment.add_argument("--crop", default="maize")
+    experiment.add_argument("--horizon", type=int, default=1)
+    experiment.add_argument("--years", default="",
                     help="POWER years, comma-sep; empty = synthetic forcing")
-    ex.add_argument("--realizations", type=int, default=1,
+    experiment.add_argument("--realizations", type=int, default=1,
                     help="held-out truth realizations scored")
-    ex.add_argument("--members", type=int, default=16,
+    experiment.add_argument("--members", type=int, default=16,
                     help="forcing-ensemble / DA ensemble size")
-    ex.add_argument("--cadence", type=int, default=10,
+    experiment.add_argument("--cadence", type=int, default=10,
                     help="days between assimilated observations")
-    ex.add_argument("--noise", type=float, default=0.05,
+    experiment.add_argument("--noise", type=float, default=0.05,
                     help="relative observation noise")
-    ex.add_argument("--perturb", default="",
+    experiment.add_argument("--perturb", default="",
                     help="truth trait shifts, e.g. rue:0.8,gdd_mat:0.95")
-    ex.add_argument("--channels", default="yield_kg",
+    experiment.add_argument("--channels", default="yield_kg",
                     help="seasonal METRICS channels, comma-sep")
-    ex.add_argument("--obs-channels", dest="observed_channels", default="ndvi,sm1",
+    experiment.add_argument("--obs-channels", dest="observed_channels", default="ndvi,sm1",
                     help="satellite channels assimilated, comma-sep")
-    ex.add_argument("--alphas", default="0.1",
+    experiment.add_argument("--alphas", default="0.1",
                     help="interval levels for PICP/interval score")
-    ex.add_argument("--latent-dimension", type=int, default=8,
+    experiment.add_argument("--latent-dimension", type=int, default=8,
                     help="JEPA latent size")
-    ex.add_argument("--hierarchy", default="",
+    experiment.add_argument("--hierarchy", default="",
                     help="latent strides, comma-sep; empty = flat JEPA")
-    ex.add_argument("--ema", type=float, default=0.996,
+    experiment.add_argument("--ema", type=float, default=0.996,
                     help="JEPA target-encoder momentum")
-    ex.add_argument("--sig-weight", type=float, default=1.0,
+    experiment.add_argument("--sig-weight", type=float, default=1.0,
                     help="SIGReg regularization strength")
-    ex.add_argument("--epochs", type=int, default=120)
-    ex.add_argument("--rate", type=float, default=0.05)
-    ex.add_argument("--seed", type=int, default=0)
-    ex.add_argument("--output", default=None, help="save report JSON here")
-    ex.add_argument("--latex", action="store_true",
+    experiment.add_argument("--epochs", type=int, default=120)
+    experiment.add_argument("--rate", type=float, default=0.05)
+    experiment.add_argument("--seed", type=int, default=0)
+    experiment.add_argument("--output", default=None, help="save report JSON here")
+    experiment.add_argument("--latex", action="store_true",
                     help="also print booktabs rows of scalar results")
-    ex.add_argument("--config", default=None,
+    experiment.add_argument("--config", default=None,
                     help="TOML file; CLI flags override config values")
-    return p
+    return parser
 
 
 def _arguments_with_config(argv: list[str]) -> list[str]:
@@ -195,12 +195,12 @@ def _arguments_with_config(argv: list[str]) -> list[str]:
         config = tomllib.load(fh)
     argv = argv[:i] + argv[i + 2:]
     flags = []
-    for k, v in config.get(argv[0], config).items():
+    for k, value in config.get(argv[0], config).items():
         key = "--" + k.replace("_", "-")
-        match v:
-            case bool() if v:  flags.append(key)
+        match value:
+            case bool() if value:  flags.append(key)
             case bool():       pass
-            case _:            flags += [key, str(v)]
+            case _:            flags += [key, str(value)]
     return [argv[0], *flags, *argv[1:]]
 
 
@@ -238,8 +238,8 @@ def _scenarios(specs: list[str] | None) -> dict[str, dict[str, float]]:
     output: dict[str, dict[str, float]] = {"baseline": {}}
     for specification in specs or ():
         name, _, rest = specification.partition(":")
-        kv = dict((k, float(v)) for k, _, v in
-                  (p.partition("=") for p in rest.split(",") if p))
+        kv = dict((k, float(value)) for k, _, value in
+                  (part.partition("=") for part in rest.split(",") if part))
         bad = set(kv) - SCENARIO_KEYS
         if bad:
             raise SystemExit(f"scenario {name!r}: keys {sorted(bad)} "
@@ -343,11 +343,11 @@ def cmd_calibrate(arguments) -> int:
     """Identifiability demo of the exact pipeline real observations will use:
     truth = trait×scale → obs → gradient-fit the cell → recovery %."""
     crops = CropLibrary.default()
-    i_c, i_p = crops.index(arguments.crop), INDEX[arguments.parameter]
+    crop_index, parameter_index = crops.index(arguments.crop), INDEX[arguments.parameter]
 
     truth = WorldModel(crops, residual=False)
     tbl_t = truth.crop_table.detach().clone()
-    tbl_t[i_c, i_p] *= arguments.scale
+    tbl_t[crop_index, parameter_index] *= arguments.scale
     truth.crop_table = tbl_t
 
     soil = SoilProfile.preset("silt_loam")
@@ -359,18 +359,18 @@ def cmd_calibrate(arguments) -> int:
 
     candidate = WorldModel(crops, residual=False)
     base = candidate.crop_table.detach().clone()
-    p = leaf(base[i_c, i_p])
+    parameter = leaf(base[crop_index, parameter_index])
 
     def loss():
         table = base.clone()
-        table[i_c, i_p] = p
+        table[crop_index, parameter_index] = parameter
         candidate.crop_table = table
         return trajectory_loss(
             season_metrics(candidate, field, forcing, actions), observed)
 
-    result = gradient(loss, {"v": p}, epochs=arguments.epochs, rate=arguments.rate)
-    truth_v, start_v, fit_v = (float(tbl_t[i_c, i_p]),
-                               float(base[i_c, i_p]), float(p.detach()))
+    result = gradient(loss, {"v": parameter}, epochs=arguments.epochs, rate=arguments.rate)
+    truth_v, start_v, fit_v = (float(tbl_t[crop_index, parameter_index]),
+                               float(base[crop_index, parameter_index]), float(parameter.detach()))
     span = truth_v - start_v
     output = {
         "param": arguments.parameter, "crop": arguments.crop, "channel": arguments.channel,
@@ -404,7 +404,7 @@ def cmd_nas(arguments) -> int:
     def objective(net, budget):
         m = WorldModel(crops, residual=True)
         m.residual = net
-        parameters = {f"p{i}": p for i, p in enumerate(net.parameters())}
+        parameters = {f"p{i}": parameter for i, parameter in enumerate(net.parameters())}
         r = fit(lambda: trajectory_loss(
             season_metrics(m, field, forcing, actions), observed),
             parameters, epochs=int(budget), rate=0.02, patience=int(budget))
@@ -440,7 +440,7 @@ def cmd_control(arguments) -> int:
     base = _demo_actions(crops, ensemble.days, arguments.crop)
     model = WorldModel(crops)
     weights = (None if arguments.weights is None else
-               {k: float(v) for k, v in
+               {k: float(value) for k, value in
                 (w.split("=") for w in arguments.weights.split(","))})
     result = path_integral(model, field, ensemble, base, iterations=arguments.iterations,
                samples=arguments.samples, weights=weights, risk=arguments.risk,
@@ -474,8 +474,8 @@ def cmd_control(arguments) -> int:
 
 
 def cmd_exp(arguments) -> int:
-    perturb = {k: float(v) for k, v in
-               (p.split(":") for p in arguments.perturb.split(",") if p)}
+    perturb = {k: float(value) for k, value in
+               (parser.split(":") for parser in arguments.perturb.split(",") if parser)}
     specification = Specification(
         latitude=arguments.latitude, longitude=arguments.longitude, soil=arguments.soil, crop=arguments.crop,
         horizon=arguments.horizon,

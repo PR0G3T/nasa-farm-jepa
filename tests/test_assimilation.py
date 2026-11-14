@@ -140,3 +140,57 @@ class TestAssimilate:
     def test_unknown_channel_raises(self):
         with pytest.raises(KeyError):
             Observation(10, ("bogus",), torch.tensor([0.0]), 0.1)
+
+
+class TestScore:
+    """EnSF analysis — backward-SDE posterior sampler vs analytic Kalman."""
+
+    def test_posterior_matches_linear_gaussian(self, soil):
+        """Observing sw0 exactly: the analysis ensemble must reproduce the
+        Kalman posterior mean and contractive variance (linear-Gaussian
+        closed form is the ground truth EnSF approximates)."""
+        from nasa_farm.assimilation import score_update
+        generation = torch.Generator().manual_seed(0)
+        x0 = 70.0 + 12.0 * torch.randn(512, generator=generation, dtype=DTYPE)
+        s = initial_state(512, soil)
+        sw = s.sw.clone()
+        sw[:, 0] = x0
+        s = s.replace(sw=sw)
+        observed = torch.tensor([80.0], dtype=DTYPE)
+        prior_var = float(x0.var(unbiased=True))
+        r = 4.0
+        post = (prior_var * r + r * (observed - x0.mean()).pow(2)) \
+            / (prior_var + r)
+        kalman_var = prior_var * r / (prior_var + r)
+        kalman_mean = float(x0.mean()
+                            + prior_var / (prior_var + r)
+                            * (80.0 - float(x0.mean())))
+        s2 = score_update(s, s.sw[:, 0].unsqueeze(-1), observed, r,
+                          names=("sw0",), steps=60,
+                          generation=torch.Generator().manual_seed(1))
+        analysis = s2.sw[:, 0]
+        assert abs(float(analysis.mean()) - kalman_mean) < 2.5
+        assert abs(float(analysis.var(unbiased=True)) - float(kalman_var)) \
+            < 2.5
+        assert float(analysis.var(unbiased=True)) < prior_var
+        assert (analysis >= 0).all()
+
+    def test_deterministic_given_seed(self, soil):
+        from nasa_farm.assimilation import score_update
+        s = initial_state(32, soil)
+        predicted = s.sw[:, 0].unsqueeze(-1)
+        observed = torch.tensor([80.0], dtype=DTYPE)
+        a = score_update(s, predicted, observed, 1.0, names=("sw0",),
+                         steps=20, generation=torch.Generator().manual_seed(3))
+        b = score_update(s, predicted, observed, 1.0, names=("sw0",),
+                         steps=20, generation=torch.Generator().manual_seed(3))
+        assert torch.equal(a.sw[:, 0], b.sw[:, 0])
+
+    def test_states_stay_nonnegative(self, soil):
+        from nasa_farm.assimilation import score_update
+        s = initial_state(32, soil)
+        s2 = score_update(s, s.sw[:, 0].unsqueeze(-1),
+                          torch.tensor([500.0], dtype=DTYPE), 0.01,
+                          names=("sw0",), steps=20,
+                          generation=torch.Generator().manual_seed(0))
+        assert (s2.sw >= 0).all() and torch.isfinite(s2.sw).all()

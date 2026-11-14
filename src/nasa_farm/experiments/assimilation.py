@@ -149,17 +149,11 @@ def _variant(sc, specification: Specification, forcing_time, tr_obs: dict, tr_st
                         elevation=field.elevation, context=field.context)
 
     m = accumulate.result()                                    # (E, H, M)
-    index = {n: i for i, n in enumerate(METRICS)}
-    ch_scores = {}
-    for ch in specification.channels:
-        i = index[ch]
-        ch_scores[ch] = score_ens(m[:, :, i].t(), tr_season[:, i],
-                                  specification.alphas)
     mean = lambda v: round(sum(v) / len(v), 6) if v else 0.0
     return {"obs_rmse": mean(errs), "obs_crps": mean(crs),
             "spread": mean(spr),
             "state_rmse": {v: mean(s) for v, s in serrs.items()},
-            "channels": ch_scores}
+            "ensemble": m, "truth": tr_season}
 
 
 def _delta(base: dict, new: dict) -> dict:
@@ -177,16 +171,49 @@ def _delta(base: dict, new: dict) -> dict:
 @register("assim")
 def run(specification: Specification) -> dict:
     sc = scene(specification)
-    forcing_time = sc.realization(0)
-    obs_days = set(range(specification.cadence, forcing_time.days, specification.cadence))
-    generation = torch.Generator().manual_seed(specification.seed + 55)
-    tr_obs, tr_state, tr_season = _truth(sc, specification, forcing_time, obs_days, generation)
+    held = list(sc.held_indices())
+    pooled: dict[str, dict] = {}
+    for i in held:
+        forcing_time = sc.realization(i)
+        obs_days = set(range(specification.cadence, forcing_time.days,
+                             specification.cadence))
+        generation = torch.Generator().manual_seed(specification.seed + 55)
+        tr_obs, tr_state, tr_season = _truth(
+            sc, specification, forcing_time, obs_days, generation)
+        for name, update in (("open", None), ("enkf", kalman_update),
+                             ("ensf", score_update)):
+            v = _variant(sc, specification, forcing_time, tr_obs, tr_state,
+                         tr_season, update)
+            acc = pooled.setdefault(name, {"scalars": [], "m": [], "t": []})
+            acc["scalars"].append({k: v[k] for k in
+                                   ("obs_rmse", "obs_crps", "spread",
+                                    "state_rmse")})
+            acc["m"].append(v["ensemble"])
+            acc["t"].append(v["truth"])
 
-    output = {name: _variant(sc, specification, forcing_time, tr_obs, tr_state,
-                          tr_season, update)
-           for name, update in (("open", None), ("enkf", kalman_update),
-                             ("ensf", score_update))}
+    index = {n: i for i, n in enumerate(METRICS)}
+    generation = torch.Generator().manual_seed(specification.seed + 97)
+    output = {}
+    for name, acc in pooled.items():
+        mean = lambda vals: round(sum(vals) / len(vals), 6)
+        scalars = {
+            "obs_rmse": mean([s["obs_rmse"] for s in acc["scalars"]]),
+            "obs_crps": mean([s["obs_crps"] for s in acc["scalars"]]),
+            "spread": mean([s["spread"] for s in acc["scalars"]]),
+            "state_rmse": {
+                v: mean([s["state_rmse"][v] for s in acc["scalars"]])
+                for v in STATE_VARS},
+        }
+        ch_scores = {}
+        for ch in specification.channels:
+            i = index[ch]
+            ensemble = torch.cat([m[:, :, i].t() for m in acc["m"]])
+            truth = torch.cat([t[:, i] for t in acc["t"]])
+            ch_scores[ch] = score_ens(ensemble, truth, specification.alphas,
+                                     generation=generation)
+        output[name] = {**scalars, "channels": ch_scores}
     output["reduction_pct"] = {
         "enkf": _delta(output["open"], output["enkf"]),
         "ensf": _delta(output["open"], output["ensf"])}
+    output["held_realizations"] = len(held)
     return output

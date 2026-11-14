@@ -115,6 +115,26 @@ class TestCli:
     def test_cli_exp_out(self, tmp_path, capsys):
         f = tmp_path / "rep.json"
         code = main(["exp", "twin", "--epochs", "5", "--perturb", "rue:0.9",
-                   "--out", str(f)])
+                   "--output", str(f)])
         assert code == 0 and f.exists()
         assert Report.load(f).name == "twin"
+
+
+class TestHeldOut:
+    """OSSE protocol: verification realizations never overlap calibration."""
+
+    def test_scene_partitions_rows(self):
+        from nasa_farm.experiments.scene import scene
+        sc = scene(specification(realizations=3))
+        assert list(sc.held_indices()) == [1, 2]
+        assert sc.held_out().batch == 2
+        solo = scene(specification(realizations=1))
+        assert list(solo.held_indices()) == [0]
+        assert solo.held_out().batch == 1
+
+    def test_twin_scores_only_held_rows(self):
+        r = run("twin", specification(epochs=5, realizations=3))
+        ch = r.results["channels"]["yield_kg"]
+        # 2 held-out rows × 1 year — calibration row contributes nothing
+        assert ch["cal"]["n"] == 2
+        assert ch["rmse_reduction_pct"] > 0

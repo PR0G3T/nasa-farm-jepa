@@ -65,7 +65,7 @@ def run(specification: Specification) -> dict:
     sc = scene(specification)
     observed = observe(specification, sc)
     cal, rep = calibrate(specification, sc, observed)
-    f_t = sc.realization(0)
+    held = list(sc.held_indices())
     index = {n: i for i, n in enumerate(METRICS)}
 
     # --- action-perturbation fidelity -------------------------------------
@@ -75,22 +75,23 @@ def run(specification: Specification) -> dict:
         ("sow-14d", "sow", 0, 0, -14),
         ("sow+14d", "sow", 0, 0, 14),
     ]
-    chans = ["yield_kg", "biomass_end", "water_used", "n_leached"]
+    chans = ["yield_kg", "biomass_max", "water_used", "n_leached"]
     chans = [c for c in chans if c in index]
     pert: dict = {}
     for name, ch, day, span, d in suite:
         a2 = _perturbed(sc.actions, ch, day, span, d)
-        row = {}
+        deltas: dict[str, torch.Tensor] = {}
         for label, model in (("prior", sc.prior), ("cal", cal),
                            ("oracle", sc.truth)):
-            m0 = _metrics(model, sc, f_t, sc.actions)
-            m1 = _metrics(model, sc, f_t, a2)
-            dm = (m1 - m0).mean(0)                       # (M,) over years
-            row[label] = dm
-        truth_d = row.pop("oracle")
+            per_row = [
+                (_metrics(model, sc, sc.realization(i), a2)
+                 - _metrics(model, sc, sc.realization(i), sc.actions)).mean(0)
+                for i in held]
+            deltas[label] = torch.stack(per_row).mean(0)
+        truth_d = deltas.pop("oracle")
         for label in ("prior", "cal"):
             for c in chans:
-                t, p = float(truth_d[index[c]]), float(row[label][index[c]])
+                t, p = float(truth_d[index[c]]), float(deltas[label][index[c]])
                 error = p - t
                 pert.setdefault(c, {}).setdefault(name, {})[label] = {
                     "truth_delta": round(t, 4), "model_delta": round(p, 4),
@@ -124,9 +125,9 @@ def run(specification: Specification) -> dict:
     e = len(EDIT_VARS)
     mask = torch.zeros(e, dtype=torch.bool)
     mask[EDIT_VARS.index("swr")] = True
-    day = min(150, f_t.days - 60)
 
-    def run_edit(model):
+    def run_edit(model, f_t):
+        day = min(150, f_t.days - 60)
         f = sc.field
         for t in range(day):
             f, _ = model.step(f, sc.actions.day(t), f_t.day(t), t)
@@ -135,20 +136,27 @@ def run(specification: Specification) -> dict:
                           torch.full((1, e), 400.0, dtype=DTYPE), f.soil)
         fe = Field(state=st_e, soil=f.soil, latitude=f.latitude, elevation=f.elevation,
                    context=f.context)
-        fa, edited = f, fe
+        edited = fe
         for t in range(day, f_t.days):
-            fa, _ = model.step(fa, sc.actions.day(t), f_t.day(t), t)
             edited, _ = model.step(edited, sc.actions.day(t), f_t.day(t), t)
         return edited.state.biomass, edited.state.sw.sum(-1), edited.state.n_min
 
-    response = {}
-    b_t, w_t, n_t = run_edit(sc.truth)
-    for label, model in (("prior", sc.prior), ("cal", cal)):
-        b_m, w_m, n_m = run_edit(model)
-        response[label] = {
-            "biomass_err": round(float(b_m - b_t), 2),
-            "water_err": round(float(w_m - w_t), 2),
-            "nmin_err": round(float(n_m - n_t), 4)}
+    response: dict = {}
+    for i in held:
+        f_t = sc.realization(i)
+        b_t, w_t, n_t = run_edit(sc.truth, f_t)
+        for label, model in (("prior", sc.prior), ("cal", cal)):
+            b_m, w_m, n_m = run_edit(model, f_t)
+            row = {
+                "biomass_err": float(b_m - b_t),
+                "water_err": float(w_m - w_t),
+                "nmin_err": float(n_m - n_t)}
+            acc = response.setdefault(label, [])
+            acc.append(row)
+    response = {label: {
+        k: round(sum(r[k] for r in rows) / len(rows), 4)
+        for k in rows[0]} for label, rows in response.items()}
 
     return {"calibration": rep, "perturbations": pert,
-            "plan_tau": taus, "edit_response": response}
+            "plan_tau": taus, "edit_response": response,
+            "held_realizations": len(held)}

@@ -210,13 +210,13 @@ def fit_response(model, response: Response, field: Field, forcing: Forcing,
                 v = get_variables(st) * (1.0 + 0.5 * torch.randn(
                     (st.batch, e), generator=generation, dtype=DTYPE))
                 with torch.inference_mode():
-                    edited = Field(state=edit_state(st, m, v, field.soil),
+                    base_f = Field(state=st, soil=field.soil, latitude=field.latitude,
+                               elevation=field.elevation, context=field.context)
+                    edit_f = Field(state=edit_state(st, m, v, field.soil),
                                soil=field.soil, latitude=field.latitude,
                                elevation=field.elevation, context=field.context)
-                    edited = Field(state=st, soil=field.soil, latitude=field.latitude,
-                               elevation=field.elevation, context=field.context)
-                    d_t = get_variables(model.step(edited, action, fd, t)[0].state) \
-                        - get_variables(model.step(edited, action, fd, t)[0].state)
+                    d_t = get_variables(model.step(edit_f, action, fd, t)[0].state) \
+                        - get_variables(model.step(base_f, action, fd, t)[0].state)
                 edited = torch.where(m, v, get_variables(st))
                 predicted = response(features, edited, m, field.context)
                 total = total + (((predicted - d_t) * (~m).to(DTYPE)) /

@@ -25,7 +25,7 @@ from nasa_farm.types import Actions
 def run(specification: Specification) -> dict:
     torch.manual_seed(specification.seed)
     sc = scene(specification)
-    f0, ch = sc.realization(0), specification.observed_channels
+    f0, ch = sc.realization(next(iter(sc.held_indices()))), specification.observed_channels
     generation = torch.Generator().manual_seed(specification.seed + 57)
 
     # factual obs of the truth realization (noisy, sparse cadence)

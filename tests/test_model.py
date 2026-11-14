@@ -148,7 +148,7 @@ class TestCompiledParity:
                      "lai", "biomass", "cum_yield"):
             torch.testing.assert_close(
                 getattr(jit.state, name), getattr(eager.state, name),
-                rtol=1e-9, atol=1e-9, message=lambda m, n=name: f"{n}: {m}")
+                rtol=1e-9, atol=1e-9, msg=lambda m, n=name: f"{n}: {m}")
 
 
 class TestDifferentiability:

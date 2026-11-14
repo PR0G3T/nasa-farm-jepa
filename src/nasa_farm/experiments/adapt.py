@@ -46,7 +46,7 @@ def _obs_rmse(model, f_true: Field, f_pred: Field, sc, specification: Specificat
     """Mean obs RMSE across held-out realizations, truth vs predicted env."""
     errs = []
     with torch.inference_mode():
-        for i in range(sc.forcing_time.batch):
+        for i in sc.held_indices():
             f_t = sc.realization(i)
             ot, _ = _trace(model, f_true, f_t, sc.actions, specification)
             op, _ = _trace(model, f_pred, f_t, sc.actions, specification)

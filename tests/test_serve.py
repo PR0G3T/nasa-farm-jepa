@@ -60,7 +60,7 @@ def test_cli_export_writes_scenarios(tmp_path):
     source.write_text(json.dumps(
         [{"id": "P1", "name": "P1", "lat": 48.2, "lon": 1.61}]))
     output = tmp_path / "plan.json"
-    code = main(["export", "--fields", str(source), "--out", str(output),
+    code = main(["export", "--fields", str(source), "--output", str(output),
                "--horizon", "1", "--crops", "maize,fallow", "--years", "1",
                "--offline", "--top-k", "1",
                "--scenario", "baseline", "--scenario", "warm:delta_t=2"])
@@ -76,13 +76,13 @@ def test_cli_export_rejects_unknown_scenario_key(tmp_path):
     source = tmp_path / "f.json"
     source.write_text("[]")
     with pytest.raises(SystemExit):
-        main(["export", "--fields", str(source), "--out",
+        main(["export", "--fields", str(source), "--output",
               str(tmp_path / "o.json"), "--offline",
               "--scenario", "bad:notakey=1"])
 
 
 def test_cli_plan_unchanged_shape(capsys):
-    code = main(["plan", "--lat", "48.2", "--lon", "1.61", "--horizon", "2",
+    code = main(["plan", "--latitude", "48.2", "--longitude", "1.61", "--horizon", "2",
                "--crops", "maize,fallow", "--years", "2", "--offline",
                "--top-k", "2"])
     assert code == 0

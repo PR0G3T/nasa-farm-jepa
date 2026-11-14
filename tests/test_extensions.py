@@ -301,3 +301,18 @@ def test_interv_experiment_smoke():
                              observed_channels=("ndvi",)))
     assert "perturbations" in rep.results and "plan_tau" in rep.results
     assert rep.results["plan_tau"]["prior"] <= 1.0
+
+
+def test_fit_response_targets_are_real(physics_model, field, warm_year):
+    """Regression: response targets must come from edited-vs-base rollout
+    differences (the old overwrite bug made them identically zero, which a
+    fit could drive to ~0)."""
+    from nasa_farm.dynamics.intervention import Response, fit_response
+    from nasa_farm.types import FORCING_VARS, Forcing
+    f120 = Forcing(*(getattr(warm_year, k)[:, :120] for k in FORCING_VARS))
+    r = Response()
+    rep = fit_response(physics_model, r, field, f120,
+                       Actions.idle(1, 120), days=(40, 60),
+                       edits_per_day=2, epochs=3)
+    assert rep["final"] > 1e-8
+    assert rep["history"][-1] <= rep["history"][0]

@@ -57,7 +57,7 @@ def test_pareto_nonempty_and_finite(pipeline):
 
 
 def test_cli_plan_offline(capsys):
-    code = main(["plan", "--lat", "42.0", "--lon", "-93.6", "--horizon", "2",
+    code = main(["plan", "--latitude", "42.0", "--longitude", "-93.6", "--horizon", "2",
                "--crops", "maize,soybean,fallow", "--years", "2", "--offline",
                "--top-k", "3"])
     assert code == 0
@@ -74,7 +74,7 @@ def test_cli_config_toml(tmp_path, capsys):
     config.write_text(
         '[plan]\nhorizon = 2\ncrops = "maize,fallow"\nyears = 2\n'
         'offline = true\n')
-    code = main(["plan", "--lat", "42.0", "--lon", "-93.6",
+    code = main(["plan", "--latitude", "42.0", "--longitude", "-93.6",
                "--config", str(config), "--top-k", "2"])
     assert code == 0
     output = json.loads(capsys.readouterr().out)

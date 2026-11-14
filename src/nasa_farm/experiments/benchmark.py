@@ -31,10 +31,10 @@ def run(specification: Specification) -> dict:
     observed = observe(specification, sc)
     cal, rep = calibrate(specification, sc, observed)
 
-    s, r = sc.forcing_e.batch, sc.forcing_time.batch
+    s, r = sc.forcing_e.batch, sc.held_out().batch
     field, acts = sc.field.repeat(s), sc.actions.repeat(s)
     index = {n: i for i, n in enumerate(METRICS)}
-    target = season_metrics(sc.truth, sc.field.repeat(r), sc.forcing_time,
+    target = season_metrics(sc.truth, sc.field.repeat(r), sc.held_out(),
                          sc.actions.repeat(r))           # (R, H, M)
     generation = torch.Generator().manual_seed(specification.seed + 31)
 

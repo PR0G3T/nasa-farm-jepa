@@ -81,3 +81,23 @@ class TestObjectives:
         m[:, -1, i["soc_end"]] = 160.0
         object = objectives(m, r, s)
         assert float(object["soc_gain"][0]) == pytest.approx(60.0)
+
+
+class TestPeak:
+    def test_biomass_max_is_peak(self):
+        """Peak-standing-biomass semantics: running max within each year,
+        independent across years."""
+        i = {n: k for k, n in enumerate(METRICS)}
+        accumulate = SeasonAccumulator(1, 2)
+        growing = torch.tensor([True])
+        for t in range(730):
+            biomass = 100.0 + 50.0 * (t % 100) if t < 365 else \
+                300.0 + 10.0 * (t % 30)
+            accumulate(t, _state(1, growing=growing,
+                                 biomass=torch.tensor([biomass])),
+                       _fluxes(1))
+        m = accumulate.result()
+        assert float(m[0, 0, i["biomass_max"]]) == pytest.approx(100 + 50 * 99)
+        assert float(m[0, 1, i["biomass_max"]]) == pytest.approx(300 + 10 * 29)
+        assert float(m[0, 0, i["biomass_end"]]) != \
+            float(m[0, 0, i["biomass_max"]])

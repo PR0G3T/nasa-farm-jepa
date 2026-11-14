@@ -19,10 +19,12 @@ from nasa_farm.optimize.targets import season_metrics
 
 
 def _channel(model, sc, ch: str) -> torch.Tensor:
-    """(R·H,) seasonal metric across all held-out realizations."""
+    """(R·H,) seasonal metric across held-out realizations only — the
+    calibration row (row 0) is excluded from verification."""
     i = METRICS.index(ch)
-    r = sc.forcing_time.batch
-    m = season_metrics(model, sc.field.repeat(r), sc.forcing_time,
+    f_held = sc.held_out()
+    r = f_held.batch
+    m = season_metrics(model, sc.field.repeat(r), f_held,
                        sc.actions.repeat(r))
     return m[..., i].reshape(-1)
 

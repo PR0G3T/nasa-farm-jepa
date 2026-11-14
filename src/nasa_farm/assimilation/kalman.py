@@ -56,6 +56,7 @@ def _put_variables(state: FieldState, names: tuple[str, ...],
 def kalman_update(state: FieldState, observed_prediction: torch.Tensor,
                 observed: torch.Tensor, r: torch.Tensor | float,
                 names: tuple[str, ...] = STATE_VARS,
+                channels: tuple[str, ...] | None = None,
                 perturb: bool = True,
                 generation: torch.Generator | None = None) -> FieldState:
     """Stochastic EnKF analysis.
@@ -139,7 +140,7 @@ def assimilate(model, field: Field, forcing: Forcing, actions: Actions,
             r = o.std ** 2
             if adaptive:
                 r = inflate(o.values - predicted.mean(0), predicted.var(0), r)
-            keywords = {"r": r, "names": names}
+            keywords = {"r": r, "names": names, "channels": o.channels}
             try:
                 st = update(field.state, predicted, o.values, **keywords,
                             perturb=perturb, generation=generation)

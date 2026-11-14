@@ -49,6 +49,9 @@ def _kde_transport(y: torch.Tensor, observed: torch.Tensor, r: torch.Tensor,
 def score_langevin_update(state: FieldState, observed_prediction: torch.Tensor,
                    observed: torch.Tensor, r: torch.Tensor | float,
                    names: tuple[str, ...] = STATE_VARS,
+                   channels: tuple[str, ...] | None = None,
+                   perturb: bool = True,
+                   generation: torch.Generator | None = None,
                    steps: int = 30, rate: float = 0.05,
                    bandwidth: float | None = None) -> FieldState:
     """EnSF-LR analysis.

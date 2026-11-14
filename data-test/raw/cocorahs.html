@@ -1,0 +1,1550 @@
+
+
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN" "http://www.w3.org/TR/html4/loose.dtd">
+<html>
+<head>
+	<link rel="stylesheet" href="/css/global.css" type="text/css" /> 
+	
+<script language="javascript" type="text/javascript" src="/scripts/common.js"></script>
+	
+<link href="/VAM/Appearance/VAMStyleSheet.css" type="text/css" rel="stylesheet">
+	<title>CoCoRaHS - Community Collaborative Rain, Hail &amp; Snow Network</title>
+	<link rel="stylesheet" href="https://kendo.cdn.telerik.com/themes/10.0.1/default/default-main.css" />
+    <script src="https://code.jquery.com/jquery-3.7.0.min.js" type="text/javascript"></script>
+    <script src="https://kendo.cdn.telerik.com/2024.4.1112/js/kendo.all.min.js" type="text/javascript"></script>
+    <script src="/scripts/kendo-ui-license.js" type="text/javascript"></script>
+	<script src="https://cdn.jsdelivr.net/npm/luxon@3.5.0/build/global/luxon.min.js" type="text/javascript"></script>
+    <link
+        rel="stylesheet"
+        href="https://kendo.cdn.telerik.com/themes/10.0.1/default/default-ocean-blue.css"
+    />
+    <link rel="stylesheet" href="/css/date-selector.css" />
+	
+</head>
+<!-- Google tag (gtag.js) -->
+<script async src="https://www.googletagmanager.com/gtag/js?id=G-9GHG0R365P"></script>
+<script>
+	window.dataLayer = window.dataLayer || [];
+	function gtag() { dataLayer.push(arguments); }
+	gtag('js', new Date());
+
+	gtag('config', 'G-9GHG0R365P');
+</script>
+<body id="Body" bgcolor="#ffffff" leftmargin="0" topmargin="0" marginwidth="0" marginheight="0">
+	<form name="Form1" method="post" action="./ListDailyPrecipReports.aspx?State=NE&amp;County=Buffalo&amp;StartDate=07%2f15%2f2025&amp;EndDate=07%2f15%2f2025" id="Form1">
+<input type="hidden" name="__VIEWSTATE" id="__VIEWSTATE" value="Zs7EwPgpGfRBF1ChAHteTmUtdRGm8TgcZD35tSL2wOUT81c6c4luEISb34AxuPYYcmkVkLvJuVnBxygzpvbpJ6xKIc2o8oRffK5fPilf3403pdF9af65/VCqegcxoRuMd9jiULHQJz96hjpJQE7DPm4VFkgJRl9nXvbd/GsmMK16SubtD0JY2nmzuyeTIbNAKWV+aW7NHgNci/+yIufqsKQBROQubaJnnfhExHeZcAMct8MY5sqBOP/KTT+2dP3uYDFrTrT/XTI1H8Xrxwfx50DGqhcOltb2A+X2UjD67DXrMY1HgmCoh1ZgIiOQUTbiKGR806OWt6AWZ2oc+kUgLyHZGn9AkgvIB0337ilzfh7LAe7sgJYyOsd+uxi/D5Ac0bO/Bzo94VWJxmZDG5Tr+E6MzboJqKJwu6AMG2jSFx3sSVnDTCSPSB7z2vJhc0wO8pAceunbfvo5KkQ6yA3s6b4KCFtk7tBAahlVIHJms4VkWmw9WOnPmdzPWx4mRbvbVkT1QtQaGOKLBEzEsvfkL8i+zzHMyDAvcr2AvUyeppVXX7H5+fMCvHQWiaR/TLazwj9b8gKAijh7or++Rcj8h+gqbXGm0dOc6wCclZa6hddPyYluZNNn421nb3T/gvVn4sK2H/h7UaXYvCxlyPHpCst5kxbWWGYkepR+IHf62Tx3QSaBidgW4MTC9A9Ree+Ukw4Tgdx+mN97iR1EdHl+pUleoFhE+rWe4CPIUA1TzQ3kjAZzlUAcuezWZFC0fE6LshuEi0rnEP/ijUcXDUL+pRyxh0YlhR2VSnIYbbVZW6cjTQLXTBmaz3UxZPpIJ1Ekhm6v2OAxkCU+OvVeo/5AVtLEo+zOmGdYrlwelxyRS3bHZb0B2Hpu/nreBfeFMoO1FhQP9Ivz7+2OQkjouwwsvX9qX8jvuxFhTRl83bKEcAMUbLQxeR3Nu/C92ExTZ2b5DxFMgBQM4ZgQs3rO1oHZKTRO6uHgArvSLlEKoTr0P8WBqdeYUTeOCTDXwg43Lt6C7qIslojqF18fV8PdDAcsaAhxYO5ZBaZaujXmdWoJVaTEdMiiLCvp+SyzbxNMMbBOkN+g75451mwpTETbYHPLTvuLOinlbbraqKtsbmqyq5ctYkBr27r142qB9DCjWNXp26LVa8zMUCndfjAyi/TKS5fNNvYhJHTX2Fv9o86iFpxFoa8go+8Xa17ZeyJGRMDAW1/maYr3emGkFdO5JMLl/dbUkrt4d43vX4pf5qL9LPKvVOJRN7n3HAvC0RHSFOELIZxHzn4NJITdfxGoHJvR8Teb16EwL7BU3kIH7pXxQsnLbS2GKC5fmVxF61PsGJCG23lCvUjykUhOiihrsca0oW0lCRr8Z/Su3feciHSM4xasR2BsN6axbhD+nCWP1P0DysaDF1tXr44QZiTa/A8Ql5+BqtWh8V9PpvgfK5YkDTB3Lpscw4fO4VUYdxNvASAZcao67hKwhMLnx9mfSl2BVOhDK+6Q2AbzKtbTga1R3Pnz9+EcZQwAnLSFH7NzfnqM4vIpdvY3j7JvbpsS//lP/uDQtf+CjD1fY3foUC2GAI4rquM4mg4/i2iIfHB7h8iesREuidnNUGrmbrDRx/ePpXLhZ5kqb1B1tLWEULLrYqtQJWixu4VCpFc5MNgD7+j1NtEMZaDiDor4aHsvtc6Iqi5d17z4ld9A8SKLGml04cSZWC0pdaRtEebirBLCQW52ySo+REawRKY1DNniP9pzii68BOOTu+xPf/SienClFC654+owBd9n3+oFxlSRTw5qkUvgzaMXhy7Eu/CGsqR5XQYAziT3G2A/ql3NTDW+lZa4cpXqeOxP1aMiGqVczUt/x6yJZiCAI2Vp+4xhyGWXZIzWT9+0FV5DsI0158ePg3IsKWOgMcOQwGS6FMVyM3klIdmXIm0uovenZkSTRCU46UdASpirnWYD3hYTKYW/c09QRwvmViVqMKSnS5gtjv0+mrJMb8a+MsJHohED+OM5Ym93AQ6Ijbb6QG51ps23edUJrR0t0eL3UvDyGu9YcU4c2Q6GJpIUtl81JNTnK6FB7L1ym02XuVoOhELiY0rM204iriH7qK+Qwf+AmPhjKVd82xhrUUCs+CRfxRmdZ+keEMPEgwhh15cWUcGJLu8Po+TxEgAezVB6XJgfQOggkhw8LipWxydNQHUC7cdP9kjQBLSoAkIUrvZZnhkUwZAuGFGyLBZnTqeWlJj/6+3HVPl++bmP4fuVEFpURJqt1ZCn/pv6JlI+noDkYH4ItcC1h7qmTU9wyvJOCbAprKCKDMXd9RIImCuiLKUU8sx4Sjwh/0/VyH3g9v6mrVP+KYXeRGLlIh9fbr/isXhq/l6M93ooaCE9VockAKe0q0WyYx/EDtjrUPLanweXCib+XbAgvSQ4TCkxAEhqCMZR4quCuYYumvpZfNIJuK5ua5xJrdWFarpzcrM1uj+upbuaitD/esb2pfzq7n1VVc68KhdmdIYKiBCRKgVtqoDxJ/cbKl/AbxciISrj8DsJtuzjk1IkkHHJK8kwtdKOLqSenLVoUopLGC21qr5SDscrNAs0/n9ltS4kXpjs4Pw9jqQePK4+fmLXiPOcaeLEp4xOf2bpr798kwNHIpZF/TUvs6uN1I+cFw1VBBQrWTkMw+pxhJ1zpRUbITSfL57UpHmrxYL+yQ+PMn/nIjl6NPnQ9eRf5+Ee9i8P8MCaguPoXa4y8h/Z7fcWo6zbNpp4/HjVlbG4kivkoxDK+UXdSmbQcg+RK7fwo7VpHhflShNltk79bk/uKowSPOERiOQshke/I1n279mE32lW+5QgNWyK5PEoDyM2foNgnJjiUblk3ySHM/zD2cBVIr7UdfJwKo2ekBshGuC/Vi6IS8Udpq9Z+qxSEMd104r8dTSrWKdgk0Du1Y07CTCjoV6rOijHQIfsYRGWikRI3zMPSuVwLDj3BNDvgJn+F5AkzZhf02HBJnjFgYKkj8dEzFB1QrHp0+ggJpEgugzaZftZzbboSmoSDn47VzGmgRpsrw0p23yUraMbT1l4nEKb1WW2uME41+zOMYf7DzAy4e7tJK59envXgdebDGds9gRqd98gjRg7U2BYMHEsOOECkvn5ndnVM92eKp6q8M24bgLZ2hztmHDTMqwu3si0tjwt9mHi3WdIZyjr9vuCIP2Tj8NZj8nN4/Eihlmrel24Kp1RyqXPY7SxX/wN+3cf1+XI10U1SjF57rsmzVcsyf8=" />
+
+<input type="hidden" name="__VIEWSTATEGENERATOR" id="__VIEWSTATEGENERATOR" value="F9A7B218" />
+<input type="hidden" name="__EVENTVALIDATION" id="__EVENTVALIDATION" value="Tdbxo0Z6sz44GQq6m6mAu0XUQDQ8toIHoYvkcPnRwnfHDeoj+OihgJwDOPBAKmc5RC8pVKDlIOs2D7HEUdVplCXKhRNlh+s/DRnzglBxPmFkNALb1fGU4gVzJFxNQ971osKbqnzo4nfPe6UbjueTjUJnrghbGAotO8E5BtGdXAAcxphwBW2F/qkJ1K5oqgmfvNifzOPaBDLEzVrk8/JmfkzVdF5085Q7XWw1kvjN0HD7oPGz38Z5zbajaDQavvIALdB1EhSDVllZWUbaR2JHdEca47LrfeMcW+QJHnnkzBsHO5lObt7Z/FgxDZJPiCBfbF+UH2OBnFjJRkJgciyZrGBacHFhUeJZvZ33h0eL1pCt03Ij+9gIgkII82zS4STUQFcI5by5AcvDTldCgpttMaity8HWDXBeme8rJQpBqmnARwFIDNvAMdy6W5mLQjn4N1rI/osuLlGx8oCmwEAEbkurjNLib84Vkg3roI63LS9w3EWhuHfQ3aEvwmKJ66XlEibEno3q/8/lBUiSXmwR9YFcIw+nL4lmOBK6x/yqb6IFcgn/HxPBDPaJJsSnRlHZrD2PvPPGkhTTScwStr+1RH9icwmiCYYdWRWw6xv6VbhS4thxj7FarNa3lehrbj1ZrZTAIDNVjADwBF/ygPttMSjmSN8zr1NmJ0t6xZd3liQybVlU9Zb2syfQ68Xg8p/WuNdzdwkOxK0jJYHOuviApSxitKCUMTuHIyHOXhSmryvgediKiJJl+BEP9THvaVQnmsmiY8AwejFliMFT1MJI7YYdw5rmJfEds0JISgw8NJ4aI8t6QcyTWH9f0cprtGPpwGDDU2P6CV69WbiKdupKRtcNjsspJ52gOvLThAw6PnrKE/3N8BzVKoBlumVuL4H1ln/+HfowxgQNh/Zkst0rkJ1+2ZYXn0Khq3WajKoNU7Y=" />
+		
+		<table align="left" cellspacing="0" cellpadding="0" width="880" height="100%" border="0">
+			<tbody>
+				<tr>
+					<td valign="top" align="left" colspan="3" height="95" width="100%">
+						
+						<table width="100%" height="135" border="0" cellpadding="0" cellspacing="0">
+							<!-- WIDTH="875"  -->
+							
+								
+	<TR>
+		<TD width="135" height="135" ROWSPAN="4" vAlign="top" align="left">
+			<a href="/"><IMG SRC="/images/header_logo.gif" WIDTH="135" HEIGHT="140" border="0" ALT=""></a></TD>
+		<TD class="header_titlebar" height="51" COLSPAN="2" vAlign="top" align="left" >
+			<IMG border="0" SRC="/images/header_titlebar.gif" WIDTH="580" HEIGHT="51" ALT=""></TD>
+		<TD class="header_titlebar" height="51" valign="bottom"  style="padding-left: 10px;">
+	<!--	<div id="google_translate_element"></div><script type="text/javascript">
+function googleTranslateElementInit() {
+  new google.translate.TranslateElement({pageLanguage: 'en', includedLanguages: 'en,es,fr', layout: google.translate.TranslateElement.InlineLayout.SIMPLE, autoDisplay: false, gaTrack: true, gaId: 'UA-9079456-1'}, 'google_translate_element');
+}
+</script><script type="text/javascript" src="//translate.google.com/translate_a/element.js?cb=googleTranslateElementInit"></script> -->
+		<a href="https://cocorahs.blogspot.com/" title="Go to CoCoRaHS Blog" target="blog" ><img src="/images/icons/socialmedia/blogger_16.png" width="16" height="16" border="0"></a>&nbsp;<a href="https://www.facebook.com/CoCoRaHS" title="Go to CoCoRaHS Facebook page" target="facebook" ><img src="/images/icons/socialmedia/facebook_16.png" width="16" height="16" border="0"></a>&nbsp;<a href="https://www.youtube.com/cocorahs/" title="Go to CoCoRaHS YouTube Channel" target="youtube" ><img src="/images/icons/socialmedia/youtube_16.png"  width="16" height="16" border="0"></a></td>
+		<TD HEIGHT="83" width="82" ROWSPAN="2" vAlign="top" align="left">
+			<IMG SRC="/images/header_endcap.gif" WIDTH="82" HEIGHT="83" ALT=""></TD>
+	</TR>
+	<TR>
+		<TD class="header_menubar" style="padding-top: 0px;" width="52" HEIGHT="43" ROWSPAN="2" vAlign="top" align="left" ><IMG border="0" SRC="/images/header_titlebar_left.gif" WIDTH="52" HEIGHT="43" ALT=""></TD>
+		<TD height="32" class="header_menubar" vAlign="top" align="left" nowrap>
+			
+<div class="topmenu" nowrap >
+	<a href="/">Home</a> | 
+	<a href="/Content.aspx?page=countries">Countries</a> | 
+	<a href="/States.aspx">States</a> | 
+	<a href="/ViewData/">View Data</a> | 
+	<a href="/Maps/">Maps</a>
+	<img src="/images/spacer.gif" width="20" height="5" >
+		<a href="/Admin/MyDataEntry/">My Data Entry</a> | <a href="/Login.aspx">Login</a>
+</div>
+			</TD>
+		<TD class="header_menubar" vAlign=top align=center>
+			<IMG border="0" height=2 alt="" src="/images/spacer.gif" width=1>
+		</TD>	
+	</TR>
+
+
+
+
+
+							
+							<tr>
+								<!-- Page Title Area  -->
+								<td class="PageTitle" colspan="3" rowspan="2" valign="top">
+									
+		View Data : List Daily Precipitation Reports	<select name="obsSwitcher:ddlObsUnits" id="obsSwitcher_ddlObsUnits">
+	<option selected="selected" value="usunits">US Units</option>
+	<option value="metric">Metric</option>
+
+</select>	
+	
+									<img height="22" alt="" border="0" src="/images/spacer.gif" width="1"></td>
+							</tr>
+							<tr>
+								<td valign="top" align="left" height="46">
+									<img border="0" style="width: 52px;" height="46" src="/images/spacer.gif" width="52"></td>
+							</tr>
+						</table>
+						
+					</td>
+				</tr>
+				<tr>
+					<td colspan="3" valign="top">
+						<table border="0" width="100%" cellspacing="0" cellpadding="0" id="tblMainBody">
+							<tr>
+								<td valign="top" width="200" height="500" align="left" style="width: 200px;">
+									
+		
+<div class="MenuPanel">
+	<div class="MenuPanelHeader">View Data</div>
+	<div class="MenuPanelBody">
+		<ul class="MenuPanelList">
+			<li><a href="/ViewData/ListDailyPrecipReports.aspx" >Daily Precip Reports </a></li>
+			<li><a href="/ViewData/ListDailyComments.aspx" >Daily Comments Reports</a></li>
+			<li><a href="/ViewData/ListIntensePrecipReports.aspx" >Significant Weather Reports</a></li>
+			<li><a href="/ViewData/ListMultiDayPrecipReports.aspx" >Multiple Day Reports</a></li>
+			<li><a href="/ViewData/ListConditionMonitoringReports.aspx" >Condition Monitoring Reports</a></li>
+			<li><a href="/ViewData/ConditionMonitoring/" >Condition Monitoring Charts</a></li>
+			<li><a href="/ViewData/ListSoilMoistureReports.aspx" >Soil Moisture</a></li>
+			<li><a href="/ViewData/ListETReports.aspx">ET Reports</a></li>
+			<br><br>
+			<li><a href="/ViewData/ListDaysWithHail.aspx" >Days with Hail</a></li>
+			<li><a href="/ViewData/ListHailReports.aspx" >Search Hail Reports</a></li>			
+			<li><a href="/ViewData/ListStationHailReports.aspx" >Station Hail Reports</a></li>			
+			<li><a href="/ViewData/StationPrecipSummary.aspx" >Station Precip Summary</a></li>
+			<br><br>
+			<li><a href="https://wys.cocorahs.org" target="_blank" >Water Year Summary</a></li>
+			<li><a href="/ViewData/StationPrecipSummary.aspx" >Station Precip Summary</a></li>
+			<li><a href="/ViewData/StationSnowSummary.aspx" >Station Snow Summary</a></li>
+
+			<li><a href="/ViewData/RainyDaysReport.aspx" >Rainy Days Report</a></li>
+			<li><a href="/ViewData/TotalPrecipSummary.aspx" >Total Precip Summary</a></li>
+			<br />
+			<li><a href="/ViewData/StationWaterBalanceSummary.aspx">Station Water Balance</a></li>	
+			<li><a href="/ViewData/WaterBalanceSummary.aspx">Water Balance Summary</a></li>
+			<li><a href="/ViewData/StationWaterBalanceChart.aspx">Water Balance Charts</a></li>
+			<br />
+			<li><a href="/Stations/ListStations.aspx" >List Stations</a></li>
+		</ul>	
+	</div>
+	<div class="MenuPanelTitle">FROST Data</div>
+	<div class="MenuPanelBody">
+		<ul class="MenuPanelList">
+			<li><a href="/ViewData/ListFrostReports.aspx">Frost</a></li>		
+			<li><a href="/ViewData/ListOpticsReports.aspx">Optics</a></li>
+			<li><a href="/ViewData/ListSnowflakeReports.aspx">Snowflake</a></li>
+			<li><a href="/ViewData/ListThunderReports.aspx">Thunder</a></li>
+		</ul>	
+	</div>
+	<div class="MenuPanelFooter"></div>	
+</div>
+
+	
+									
+										
+										
+<div class="MenuPanel">
+	<div class="MenuPanelHeader">Main Menu</div>
+	<div class="MenuPanelBody">
+		<ul class="MenuPanelList">
+			<li><a href="/" >Home</a></li>
+			<li><a href="/Content.aspx?page=aboutus" >About Us</a></li>
+			<li><a href="/Content.aspx?page=application">Join CoCoRaHS</a></li>			
+			<li><a href="/Content.aspx?page=contactus">Contact Us</a></li>
+			<li><a href="https://give.colostate.edu/cocorahs-2026" target="_blank">Donate</a></li>
+			
+		</ul>	
+	</div>
+	<div class="MenuPanelTitle">Resources</div>
+	<div class="MenuPanelBody">
+		<ul class="MenuPanelList">
+
+			<li><a href="/Content.aspx?page=Help">FAQ / Help</a></li>
+		<!--	<li><a href="/Content.aspx?page=training">Training</a></li> -->		
+			<li><a href="/Content.aspx?page=education">Education</a></li>	
+			<li><a href="/Content.aspx?page=training_slideshows">Training Slide-Shows</a></li>
+            <li><a href="http://www.youtube.com/cocorahs/" target="_blank">Videos</a></li>
+            <li><a href="/Content.aspx?page=condition">Condition Monitoring</a></li>
+			<!-- <li><a href="/Content.aspx?page=droughtimpactreports">Drought Impacts</a></li> -->
+			<li><a href="/Content.aspx?page=et">Evapotranspiration</a></li>	
+			<li><a href="/Content.aspx?page=soilmoisture">Soil Moisture</a></li>	
+			<li><a href="/Content.aspx?page=climate-normals">NCEI Normals</a></li>	
+				
+			<br><br>
+			<li><a href="/Content.aspx?page=coord">Volunteer Coordinators</a></li>
+			<li><a href="/Content.aspx?page=HailPadDropOff">Hail Pad <br>Distribution/Drop-off</a></li>
+			<li><a href="/Content.aspx?page=HelpNeeded">Help Needed</a></li>
+			<li><a href="/Content.aspx?page=PrintableForms">Printable Forms</a></li>			
+				<br><br>
+				
+		
+			<li><a href="/Content.aspx?page=catch" ><i>The Catch</i></a></li>
+			
+		<li><a href="/Content.aspx?page=mod&mod=1">The Squall Line</a></li>
+		<li><a href="/Content.aspx?page=publications">Publications</a></li>
+		<li><a href="http://cocorahs.blogspot.com/" target="_blank">CoCoRaHS Blog</a></li>		
+		<li><a href="/Content.aspx?page=groups" >Web Groups</a></li>
+		<li><a href="/Content.aspx?page=StateNewsletters">State Newsletters</a></li>
+		<li><a href="/Content.aspx?page=MasterGardener">Master Gardener Guide</a></li>		
+		<li><a href="/Content.aspx?page=50StatesClimates">State Climate Series</a></li>
+		<li><a href="/marchmadness.aspx">Rain Gauge Rally</a></li>
+		<li><a href="/Content.aspx?page=wxtalk">WxTalk Webinars</a></li>	
+<br><br>
+			<li><a href="/Content.aspx?page=sponsors">Sponsors</a></li>			
+		
+			<li><a href="/Content.aspx?page=links">Links</a></li>
+			<li><a href="/Content.aspx?page=store" target="_blank" >CoCoRaHS Store</a></li>
+
+		</ul>	
+	</div>
+	<div class="MenuPanelFooter">&nbsp;</div>
+</div>
+<div style="margin-left:15px;width: 170px; margin-top:8px;">
+	<a href="https://www.nws.noaa.gov/com/weatherreadynation/#.VOt1A3a3yB8" target="_blank"><img src="/images/amb_logo_140x89.png" width="140px" /></a><br />
+	<a href="https://www.cocorahs.org/Content.aspx?page=noaa" ><img height="147" src="/images/NOAAProductsLink.gif" width="140" border="0"></a><br /> 
+	<a href="/Content.aspx?page=CoCoRaHS_Uses" ><img src="/images/WhoUses140.png" border="0" width="140px"></a>
+</div>
+									
+
+									&nbsp;       
+										
+								</td>
+								<td id="tdMainBody" class="MainBody" valign="top" width="100%" height="100%" align="left">
+									
+									<div id="ValidationSummary1" class="ErrorBox" style="color:#C00000;background-color:Beige;border-color:#C00000;border-width:1px;border-style:Solid;width:500px;visibility:hidden;display:none;">
+
+</div>
+									
+	
+	
+	
+<table class="ControlWrapper" cellspacing="0" border="0">
+	<tr>
+		<td class="ControlHeader" colspan="2">Search Daily Precipitation Reports</td>
+	</tr>
+	<tr>
+		<td colspan="2" class="ControlBody" nowrap >
+		<strong>Station Fields: <input name="frmPrecipReportSearch:ucStationTextFieldsFilter:tbTextFieldValue" type="text" id="frmPrecipReportSearch_ucStationTextFieldsFilter_tbTextFieldValue" />
+<span id="frmPrecipReportSearch_ucStationTextFieldsFilter_cblTextFieldsToSearch"><input id="frmPrecipReportSearch_ucStationTextFieldsFilter_cblTextFieldsToSearch_0" type="checkbox" name="frmPrecipReportSearch:ucStationTextFieldsFilter:cblTextFieldsToSearch:0" /><label for="frmPrecipReportSearch_ucStationTextFieldsFilter_cblTextFieldsToSearch_0">Station Number</label><input id="frmPrecipReportSearch_ucStationTextFieldsFilter_cblTextFieldsToSearch_1" type="checkbox" name="frmPrecipReportSearch:ucStationTextFieldsFilter:cblTextFieldsToSearch:1" /><label for="frmPrecipReportSearch_ucStationTextFieldsFilter_cblTextFieldsToSearch_1">Station Name</label></span>
+ </strong>
+		</td>
+	</tr>
+  <TR>
+    <TD colSpan="2" class="ControlBody"><strong>Location: </strong><select name="frmPrecipReportSearch:ucStateCountyFilter:ddlCountry" id="frmPrecipReportSearch_ucStateCountyFilter_ddlCountry">
+	<option selected="selected" value="0">All Countries</option>
+	<option value="840">USA</option>
+	<option value="124">Canada</option>
+	<option value="144">Bahamas</option>
+
+</select>
+
+</TD></TR>
+  <TR>
+    <TD colSpan="2" class="ControlBody"><strong>Date Range: </strong>
+<table border="0" cellpadding="2" cellspacing="0">
+	<tr>
+		<td><strong>Start Date:</strong>
+			<div style="display:inline-block;">
+			
+			</div>
+		</td>
+		<td>
+
+			<div id="frmPrecipReportSearch_ucDateRangeFilter_dcStartDate_btnGrpDate" class="custom-date-picker"><button id="frmPrecipReportSearch_ucDateRangeFilter_dcStartDate_pb" class="button-prev">&lt;</button><input name="frmPrecipReportSearch:ucDateRangeFilter:dcStartDate:di" type="text" id="frmPrecipReportSearch_ucDateRangeFilter_dcStartDate_di" style="width:146px" /><button id="frmPrecipReportSearch_ucDateRangeFilter_dcStartDate_nb" class="button-next">&gt;</button><input type="hidden" name="frmPrecipReportSearch:ucDateRangeFilter:dcStartDate:hfDate" id="frmPrecipReportSearch_ucDateRangeFilter_dcStartDate_hfDate" value="2026-11-14" /></div>
+		</td>
+		<td><strong>End Date:</strong></td>
+		<td><div id="frmPrecipReportSearch_ucDateRangeFilter_dcEndDate_btnGrpDate" class="custom-date-picker"><button id="frmPrecipReportSearch_ucDateRangeFilter_dcEndDate_pb" class="button-prev">&lt;</button><input name="frmPrecipReportSearch:ucDateRangeFilter:dcEndDate:di" type="text" id="frmPrecipReportSearch_ucDateRangeFilter_dcEndDate_di" style="width:146px" /><button id="frmPrecipReportSearch_ucDateRangeFilter_dcEndDate_nb" class="button-next">&gt;</button><input type="hidden" name="frmPrecipReportSearch:ucDateRangeFilter:dcEndDate:hfDate" id="frmPrecipReportSearch_ucDateRangeFilter_dcEndDate_hfDate" value="2026-11-14" /></div>
+		</td>
+	</tr>
+</table>
+</TD></TR>
+	<tr>
+		<td colSpan="2" class="ControlBody">
+			<strong>Precip Value: </strong>
+			<select name="frmPrecipReportSearch:ddlPrecipField" id="frmPrecipReportSearch_ddlPrecipField">
+	<option selected="selected" value="">All Precip Values</option>
+	<option value="TotalPrecipAmt">Gauge Catch</option>
+	<option value="NewSnowDepth">Snowfall Depth</option>
+	<option value="SnowCorePrecipAmt">Snowfall SWE</option>
+	<option value="TotalSnowDepth">Snowpack Depth</option>
+	<option value="TotalSnowSWE">Snowpack SWE</option>
+
+</select>
+			<select name="frmPrecipReportSearch:ucPrecipValueFilter:ddlOperator" id="frmPrecipReportSearch_ucPrecipValueFilter_ddlOperator">
+	<option value="">Operator</option>
+	<option value="Equal">=</option>
+	<option value="GreaterEqual">&gt;=</option>
+	<option value="GreaterThan">&gt;</option>
+	<option value="LessEqual">&lt;=</option>
+	<option value="LesserThan">&lt;</option>
+	<option value="NotEqual">!=</option>
+
+</select><input name="frmPrecipReportSearch:ucPrecipValueFilter:tbPrecipValue:tbPrecip" type="text" maxlength="5" size="5" id="frmPrecipReportSearch_ucPrecipValueFilter_tbPrecipValue_tbPrecip" />
+
+		</td>
+	</tr>
+	<tr>
+		<td colspan="2" class="ControlHeaderButtons" align="left"><input type="submit" name="frmPrecipReportSearch:btnSearch" value="Search" id="frmPrecipReportSearch_btnSearch" /></td>
+	</tr>
+  <tr id="frmPrecipReportSearch_SearchDisplayRow">
+	<TD colspan="2" class="ControlBody"><strong>Searched: </strong>Report date on 11/14/2026. </TD>
+</tr>
+
+</table>
+
+	
+<script language="JavaScript">
+function ConfirmDelete(url){
+	bConfirm = confirm("Click OK to Delete.");
+	if(bConfirm)
+		location.replace(url);
+}
+</script>
+<table id="Table1" style="padding:10px 0px" border="0">
+	<tr>
+		<td style="PADDING-LEFT: 5px" noWrap>
+			<b>Showing 1 - 50 of 374 Records.</b></td>
+		<td style="PADDING-RIGHT: 5px" noWrap align="right">
+			<a id="ucReportList_wcBackPager" href="javascript:__doPostBack(&#39;ucReportList$wcBackPager&#39;,&#39;8&#39;)">&lt;Back</a>&nbsp;
+			Page
+			<select id="ucReportList_wcDropDownListPager" name="ucReportList:wcDropDownListPager" onchange="__doPostBack(&#39;ucReportList$wcDropDownListPager&#39;,&#39;&#39;)" size="1">
+	<option selected="" value="1">
+		1
+	</option><option value="2">
+		2
+	</option><option value="3">
+		3
+	</option><option value="4">
+		4
+	</option><option value="5">
+		5
+	</option><option value="6">
+		6
+	</option><option value="7">
+		7
+	</option><option value="8">
+		8
+	</option>
+</select>&nbsp;
+			<a id="ucReportList_wcNextPager" href="javascript:__doPostBack(&#39;ucReportList$wcNextPager&#39;,&#39;2&#39;)">Next&gt;</a></td>
+	</tr>
+	
+<tr>
+	<td colspan="2">
+<table class="Grid" cellspacing="0" rules="all" border="1" id="ucReportList_ReportGrid" width="700">
+	<tr class="GridHeader">
+		<td align="center"><font color="WhiteSmoke"><a href="javascript:__doPostBack(&#39;ucReportList$ReportGrid$_ctl1$_ctl1&#39;,&#39;&#39;)"><font color="WhiteSmoke">Obs<br />Date</font></a><span><font size="2"> &#9650;</font></span></font></td><td align="center"><font color="WhiteSmoke"><a href="javascript:__doPostBack(&#39;ucReportList$ReportGrid$_ctl1$_ctl2&#39;,&#39;&#39;)"><font color="WhiteSmoke">Obs Time</font></a></font></td><td align="center"><font color="WhiteSmoke"><a href="javascript:__doPostBack(&#39;ucReportList$ReportGrid$_ctl1$_ctl3&#39;,&#39;&#39;)"><font color="WhiteSmoke">Station Number</font></a></font></td><td align="center"><font color="WhiteSmoke"><a href="javascript:__doPostBack(&#39;ucReportList$ReportGrid$_ctl1$_ctl4&#39;,&#39;&#39;)"><font color="WhiteSmoke">Station Name</font></a></font></td><td align="center"><font color="WhiteSmoke"><a href="javascript:__doPostBack(&#39;ucReportList$ReportGrid$_ctl1$_ctl5&#39;,&#39;&#39;)"><font color="WhiteSmoke">Gauge Catch in.</font></a></font></td><td align="center"><font color="WhiteSmoke"><div style="margin-bottom:8px;">24hr Snowfall</div>
+				<span style="width:50px;display:inline-block;font-size:small"><a id="ucReportList_ReportGrid__ctl1_lnkSortSnowDepth" href="javascript:__doPostBack(&#39;ucReportList$ReportGrid$_ctl1$lnkSortSnowDepth&#39;,&#39;&#39;)"><img id="ucReportList_ReportGrid__ctl1_imgSort" src="../images/icons/coco_icon_snowflake_32.png" alt="New Snow Depth" border="0" width="24" /></a><br>in</span>
+				<span style="width:50px;display:inline-block;font-size:small"><a id="ucReportList_ReportGrid__ctl1_Linkbutton2" href="javascript:__doPostBack(&#39;ucReportList$ReportGrid$_ctl1$Linkbutton2&#39;,&#39;&#39;)"><img id="ucReportList_ReportGrid__ctl1_Image3" src="../images/icons/coco_icon_raindrop_32.png" alt="Water Content" border="0" width="24" /></a><br>in</span>
+				<span style="width:60px;display:inline-block">SLR</span>
+			</font></td><td align="center"><font color="WhiteSmoke"><div style="margin-bottom:8px;">Snowpack</div>
+				<span style="width:50px;display:inline-block;font-size:small"><a id="ucReportList_ReportGrid__ctl1_Linkbutton1" href="javascript:__doPostBack(&#39;ucReportList$ReportGrid$_ctl1$Linkbutton1&#39;,&#39;&#39;)"><img id="ucReportList_ReportGrid__ctl1_Image1" NAME="Image1" src="../images/icons/coco_icon_snowflake_32.png" alt="Total Snow Depth" border="0" width="24" /></a><br>in</span>
+				<span style="width:50px;display:inline-block;font-size:small"><a id="ucReportList_ReportGrid__ctl1_Linkbutton3" href="javascript:__doPostBack(&#39;ucReportList$ReportGrid$_ctl1$Linkbutton3&#39;,&#39;&#39;)"><img id="ucReportList_ReportGrid__ctl1_Image2" src="../images/icons/coco_icon_raindrop_32.png" alt="Water Content" border="0" width="24" /></a><br>in</span>
+				<span style="width:60px;display:inline-block">Density</span>
+			</font></td><td align="center"><font color="WhiteSmoke">Notes</font></td><td align="center"><font color="WhiteSmoke"><a href="javascript:__doPostBack(&#39;ucReportList$ReportGrid$_ctl1$_ctl6&#39;,&#39;&#39;)"><font color="WhiteSmoke">State</font></a></font></td><td align="center"><font color="WhiteSmoke"><a href="javascript:__doPostBack(&#39;ucReportList$ReportGrid$_ctl1$_ctl7&#39;,&#39;&#39;)"><font color="WhiteSmoke">County</font></a></font></td><td align="center"><font color="WhiteSmoke">View</font></td><td align="center"><font color="WhiteSmoke"><img src="/images/icons/fa/map-marked-alt_lightgray.png" width="20" height="20" align="absbottom"> Maps</font></td>
+	</tr><tr class="GridItem">
+		<td nowrap="nowrap">11/14/2026 </td><td nowrap="nowrap"> 12:00 AM </td><td nowrap="nowrap"> AL-CM-4 </td><td nowrap="nowrap"> Hanceville 1.6 E </td><td>
+				&nbsp;&nbsp;0.00&nbsp;&nbsp;
+			</td><td nowrap="nowrap" align="center">
+				<span style="width:50px;display:inline-block">0.0</span>
+				<span style="width:50px;display:inline-block">NA</span>
+				<span style="width:60px;display:inline-block">NA</span>
+			</td><td nowrap="nowrap" align="center">	
+				<span style="width:50px;display:inline-block">NA</span>
+				<span style="width:50px;display:inline-block">NA</span>
+				<span style="width:60px;display:inline-block">NA</span>
+			</td><td nowrap="nowrap" align="center">	
+				&nbsp;&nbsp;
+			</td><td>AL</td><td>Cullman</td><td nowrap="nowrap" align="center">	
+				&nbsp;<a title="View" href="ViewDailyPrecipReport.aspx?DailyPrecipReportID=07cd882b-0304-456a-accf-a4f432ebde13" ><img src="/images/icons/fa/list-alt_blue.png" width="18" height="18" border="0" alt="View" style="margin:3px" /></a>
+			</td><td nowrap="nowrap" align="center">	
+				&nbsp;<span class="GridLinkLabel" ><a href="https://maps.cocorahs.org/?maptype=precip&datetype=daily&date=11/14/2026&center=34.065585,-86.735358" alt="Google Map" target="_blank" class="GridLinkLabel" style="text-decoration: none;" >Active</a> | <a href="https://www.cocorahs.org/Maps/ViewMap.aspx?type=precip&state=AL&county=CM&date=11/14/2026" alt="Static Map" target="_blank" style="text-decoration: none;" >Static</a></span>&nbsp;&nbsp;
+			</td>
+	</tr><tr class="GridAltItem">
+		<td nowrap="nowrap">11/14/2026 </td><td nowrap="nowrap"> 12:00 AM </td><td nowrap="nowrap"> KY-BN-18 </td><td nowrap="nowrap"> Florence 3.2 SSE </td><td>
+				&nbsp;&nbsp;0.09&nbsp;&nbsp;
+			</td><td nowrap="nowrap" align="center">
+				<span style="width:50px;display:inline-block">NA</span>
+				<span style="width:50px;display:inline-block">NA</span>
+				<span style="width:60px;display:inline-block">NA</span>
+			</td><td nowrap="nowrap" align="center">	
+				<span style="width:50px;display:inline-block">NA</span>
+				<span style="width:50px;display:inline-block">NA</span>
+				<span style="width:60px;display:inline-block">NA</span>
+			</td><td nowrap="nowrap" align="center">	
+				&nbsp;&nbsp;
+			</td><td>KY</td><td>Boone</td><td nowrap="nowrap" align="center">	
+				&nbsp;<a title="View" href="ViewDailyPrecipReport.aspx?DailyPrecipReportID=c31580cb-2e5a-4a0e-9470-b187099f38f5" ><img src="/images/icons/fa/list-alt_blue.png" width="18" height="18" border="0" alt="View" style="margin:3px" /></a>
+			</td><td nowrap="nowrap" align="center">	
+				&nbsp;<span class="GridLinkLabel" ><a href="https://maps.cocorahs.org/?maptype=precip&datetype=daily&date=11/14/2026&center=38.946208,-84.628546" alt="Google Map" target="_blank" class="GridLinkLabel" style="text-decoration: none;" >Active</a> | <a href="https://www.cocorahs.org/Maps/ViewMap.aspx?type=precip&state=KY&county=BN&date=11/14/2026" alt="Static Map" target="_blank" style="text-decoration: none;" >Static</a></span>&nbsp;&nbsp;
+			</td>
+	</tr><tr class="GridItem">
+		<td nowrap="nowrap">11/14/2026 </td><td nowrap="nowrap"> 12:00 AM </td><td nowrap="nowrap"> NJ-GL-33 </td><td nowrap="nowrap"> Pitman 0.7 ENE </td><td>
+				&nbsp;&nbsp;0.36&nbsp;&nbsp;
+			</td><td nowrap="nowrap" align="center">
+				<span style="width:50px;display:inline-block">NA</span>
+				<span style="width:50px;display:inline-block">NA</span>
+				<span style="width:60px;display:inline-block">NA</span>
+			</td><td nowrap="nowrap" align="center">	
+				<span style="width:50px;display:inline-block">NA</span>
+				<span style="width:50px;display:inline-block">NA</span>
+				<span style="width:60px;display:inline-block">NA</span>
+			</td><td nowrap="nowrap" align="center">	
+				&nbsp;&nbsp;
+			</td><td>NJ</td><td>Gloucester</td><td nowrap="nowrap" align="center">	
+				&nbsp;<a title="View" href="ViewDailyPrecipReport.aspx?DailyPrecipReportID=3447aa81-a4c5-4ef0-8c76-cbcd051bafa6" ><img src="/images/icons/fa/list-alt_blue.png" width="18" height="18" border="0" alt="View" style="margin:3px" /></a>
+			</td><td nowrap="nowrap" align="center">	
+				&nbsp;<span class="GridLinkLabel" ><a href="https://maps.cocorahs.org/?maptype=precip&datetype=daily&date=11/14/2026&center=39.736993,-75.118857" alt="Google Map" target="_blank" class="GridLinkLabel" style="text-decoration: none;" >Active</a> | <a href="https://www.cocorahs.org/Maps/ViewMap.aspx?type=precip&state=NJ&county=GL&date=11/14/2026" alt="Static Map" target="_blank" style="text-decoration: none;" >Static</a></span>&nbsp;&nbsp;
+			</td>
+	</tr><tr class="GridAltItem">
+		<td nowrap="nowrap">11/14/2026 </td><td nowrap="nowrap"> 12:00 AM </td><td nowrap="nowrap"> NY-DT-35 </td><td nowrap="nowrap"> Pleasant Valley 1.7 S </td><td>
+				&nbsp;&nbsp;0.20&nbsp;&nbsp;
+			</td><td nowrap="nowrap" align="center">
+				<span style="width:50px;display:inline-block">T</span>
+				<span style="width:50px;display:inline-block">NA</span>
+				<span style="width:60px;display:inline-block">NA</span>
+			</td><td nowrap="nowrap" align="center">	
+				<span style="width:50px;display:inline-block">NA</span>
+				<span style="width:50px;display:inline-block">NA</span>
+				<span style="width:60px;display:inline-block">NA</span>
+			</td><td nowrap="nowrap" align="center">	
+				&nbsp;X&nbsp;
+			</td><td>NY</td><td>Dutchess</td><td nowrap="nowrap" align="center">	
+				&nbsp;<a title="View" href="ViewDailyPrecipReport.aspx?DailyPrecipReportID=6bdbc829-b585-4e11-b664-fcc00a340407" ><img src="/images/icons/fa/list-alt_blue.png" width="18" height="18" border="0" alt="View" style="margin:3px" /></a>
+			</td><td nowrap="nowrap" align="center">	
+				&nbsp;<span class="GridLinkLabel" ><a href="https://maps.cocorahs.org/?maptype=precip&datetype=daily&date=11/14/2026&center=41.7237,-73.821" alt="Google Map" target="_blank" class="GridLinkLabel" style="text-decoration: none;" >Active</a> | <a href="https://www.cocorahs.org/Maps/ViewMap.aspx?type=precip&state=NY&county=DT&date=11/14/2026" alt="Static Map" target="_blank" style="text-decoration: none;" >Static</a></span>&nbsp;&nbsp;
+			</td>
+	</tr><tr class="GridItem">
+		<td nowrap="nowrap">11/14/2026 </td><td nowrap="nowrap"> 12:00 AM </td><td nowrap="nowrap"> VA-FD-1 </td><td nowrap="nowrap"> Stephens City 2.2 E </td><td>
+				&nbsp;&nbsp;0.00&nbsp;&nbsp;
+			</td><td nowrap="nowrap" align="center">
+				<span style="width:50px;display:inline-block">0.0</span>
+				<span style="width:50px;display:inline-block">NA</span>
+				<span style="width:60px;display:inline-block">NA</span>
+			</td><td nowrap="nowrap" align="center">	
+				<span style="width:50px;display:inline-block">NA</span>
+				<span style="width:50px;display:inline-block">NA</span>
+				<span style="width:60px;display:inline-block">NA</span>
+			</td><td nowrap="nowrap" align="center">	
+				&nbsp;&nbsp;
+			</td><td>VA</td><td>Frederick</td><td nowrap="nowrap" align="center">	
+				&nbsp;<a title="View" href="ViewDailyPrecipReport.aspx?DailyPrecipReportID=e27b6fbf-5d9d-40ca-a54a-972320bc31ac" ><img src="/images/icons/fa/list-alt_blue.png" width="18" height="18" border="0" alt="View" style="margin:3px" /></a>
+			</td><td nowrap="nowrap" align="center">	
+				&nbsp;<span class="GridLinkLabel" ><a href="https://maps.cocorahs.org/?maptype=precip&datetype=daily&date=11/14/2026&center=39.100209,-78.180235" alt="Google Map" target="_blank" class="GridLinkLabel" style="text-decoration: none;" >Active</a> | <a href="https://www.cocorahs.org/Maps/ViewMap.aspx?type=precip&state=VA&county=FD&date=11/14/2026" alt="Static Map" target="_blank" style="text-decoration: none;" >Static</a></span>&nbsp;&nbsp;
+			</td>
+	</tr><tr class="GridAltItem">
+		<td nowrap="nowrap">11/14/2026 </td><td nowrap="nowrap"> 12:00 AM </td><td nowrap="nowrap"> CAN-MB-50 </td><td nowrap="nowrap"> Morden 3.2 NNE </td><td>
+				&nbsp;&nbsp;0.00&nbsp;&nbsp;
+			</td><td nowrap="nowrap" align="center">
+				<span style="width:50px;display:inline-block">0.0</span>
+				<span style="width:50px;display:inline-block">NA</span>
+				<span style="width:60px;display:inline-block">NA</span>
+			</td><td nowrap="nowrap" align="center">	
+				<span style="width:50px;display:inline-block">NA</span>
+				<span style="width:50px;display:inline-block">NA</span>
+				<span style="width:60px;display:inline-block">NA</span>
+			</td><td nowrap="nowrap" align="center">	
+				&nbsp;&nbsp;
+			</td><td>CAN</td><td>Manitoba</td><td nowrap="nowrap" align="center">	
+				&nbsp;<a title="View" href="ViewDailyPrecipReport.aspx?DailyPrecipReportID=9537757e-76e3-4e6c-873d-c643c1747de0" ><img src="/images/icons/fa/list-alt_blue.png" width="18" height="18" border="0" alt="View" style="margin:3px" /></a>
+			</td><td nowrap="nowrap" align="center">	
+				&nbsp;<a href="https://maps.cocorahs.org/?maptype=precip&datetype=daily&date=11/14/2026&center=49.218001,-98.093253" alt="Map"  target="_blank" ><img src="https://www.cocorahs.org/images/icons/icon_map_b_16x16.png" width="16" height="16" /></a>&nbsp;&nbsp;
+			</td>
+	</tr><tr class="GridItem">
+		<td nowrap="nowrap">11/14/2026 </td><td nowrap="nowrap"> 12:05 AM </td><td nowrap="nowrap"> NH-MR-25 </td><td nowrap="nowrap"> Chichester 2.7 SSW </td><td>
+				&nbsp;&nbsp;0.13&nbsp;&nbsp;
+			</td><td nowrap="nowrap" align="center">
+				<span style="width:50px;display:inline-block">0.0</span>
+				<span style="width:50px;display:inline-block">0.00</span>
+				<span style="width:60px;display:inline-block">NA</span>
+			</td><td nowrap="nowrap" align="center">	
+				<span style="width:50px;display:inline-block">0.0</span>
+				<span style="width:50px;display:inline-block">0.00</span>
+				<span style="width:60px;display:inline-block">NA</span>
+			</td><td nowrap="nowrap" align="center">	
+				&nbsp;X&nbsp;
+			</td><td>NH</td><td>Merrimack</td><td nowrap="nowrap" align="center">	
+				&nbsp;<a title="View" href="ViewDailyPrecipReport.aspx?DailyPrecipReportID=6827df87-ca63-48ac-9f4f-6d0ec2aa2f1f" ><img src="/images/icons/fa/list-alt_blue.png" width="18" height="18" border="0" alt="View" style="margin:3px" /></a>
+			</td><td nowrap="nowrap" align="center">	
+				&nbsp;<span class="GridLinkLabel" ><a href="https://maps.cocorahs.org/?maptype=precip&datetype=daily&date=11/14/2026&center=43.2115,-71.4143" alt="Google Map" target="_blank" class="GridLinkLabel" style="text-decoration: none;" >Active</a> | <a href="https://www.cocorahs.org/Maps/ViewMap.aspx?type=precip&state=NH&county=MR&date=11/14/2026" alt="Static Map" target="_blank" style="text-decoration: none;" >Static</a></span>&nbsp;&nbsp;
+			</td>
+	</tr><tr class="GridAltItem">
+		<td nowrap="nowrap">11/14/2026 </td><td nowrap="nowrap"> 1:00 AM </td><td nowrap="nowrap"> PA-DL-15 </td><td nowrap="nowrap"> Bryn Mawr 0.7 W </td><td>
+				&nbsp;&nbsp;0.05&nbsp;&nbsp;
+			</td><td nowrap="nowrap" align="center">
+				<span style="width:50px;display:inline-block">0.0</span>
+				<span style="width:50px;display:inline-block">NA</span>
+				<span style="width:60px;display:inline-block">NA</span>
+			</td><td nowrap="nowrap" align="center">	
+				<span style="width:50px;display:inline-block">0.0</span>
+				<span style="width:50px;display:inline-block">NA</span>
+				<span style="width:60px;display:inline-block">NA</span>
+			</td><td nowrap="nowrap" align="center">	
+				&nbsp;X&nbsp;
+			</td><td>PA</td><td>Delaware</td><td nowrap="nowrap" align="center">	
+				&nbsp;<a title="View" href="ViewDailyPrecipReport.aspx?DailyPrecipReportID=f5e66a06-1153-44a2-b0ff-d3407019ed24" ><img src="/images/icons/fa/list-alt_blue.png" width="18" height="18" border="0" alt="View" style="margin:3px" /></a>
+			</td><td nowrap="nowrap" align="center">	
+				&nbsp;<span class="GridLinkLabel" ><a href="https://maps.cocorahs.org/?maptype=precip&datetype=daily&date=11/14/2026&center=40.02326,-75.329887" alt="Google Map" target="_blank" class="GridLinkLabel" style="text-decoration: none;" >Active</a> | <a href="https://www.cocorahs.org/Maps/ViewMap.aspx?type=precip&state=PA&county=DL&date=11/14/2026" alt="Static Map" target="_blank" style="text-decoration: none;" >Static</a></span>&nbsp;&nbsp;
+			</td>
+	</tr><tr class="GridItem">
+		<td nowrap="nowrap">11/14/2026 </td><td nowrap="nowrap"> 2:00 AM </td><td nowrap="nowrap"> TX-RF-10 </td><td nowrap="nowrap"> Woodsboro 7.6 SSE </td><td>
+				&nbsp;&nbsp;0.00&nbsp;&nbsp;
+			</td><td nowrap="nowrap" align="center">
+				<span style="width:50px;display:inline-block">0.0</span>
+				<span style="width:50px;display:inline-block">NA</span>
+				<span style="width:60px;display:inline-block">NA</span>
+			</td><td nowrap="nowrap" align="center">	
+				<span style="width:50px;display:inline-block">NA</span>
+				<span style="width:50px;display:inline-block">NA</span>
+				<span style="width:60px;display:inline-block">NA</span>
+			</td><td nowrap="nowrap" align="center">	
+				&nbsp;&nbsp;
+			</td><td>TX</td><td>Refugio</td><td nowrap="nowrap" align="center">	
+				&nbsp;<a title="View" href="ViewDailyPrecipReport.aspx?DailyPrecipReportID=c2bb0dde-b4cf-4d13-9f8e-772d4d2fe4f0" ><img src="/images/icons/fa/list-alt_blue.png" width="18" height="18" border="0" alt="View" style="margin:3px" /></a>
+			</td><td nowrap="nowrap" align="center">	
+				&nbsp;<span class="GridLinkLabel" ><a href="https://maps.cocorahs.org/?maptype=precip&datetype=daily&date=11/14/2026&center=28.144938,-97.257435" alt="Google Map" target="_blank" class="GridLinkLabel" style="text-decoration: none;" >Active</a> | <a href="https://www.cocorahs.org/Maps/ViewMap.aspx?type=precip&state=TX&county=RF&date=11/14/2026" alt="Static Map" target="_blank" style="text-decoration: none;" >Static</a></span>&nbsp;&nbsp;
+			</td>
+	</tr><tr class="GridAltItem">
+		<td nowrap="nowrap">11/14/2026 </td><td nowrap="nowrap"> 3:00 AM </td><td nowrap="nowrap"> MN-HN-805 </td><td nowrap="nowrap"> Plymouth 2.5 SSW </td><td>
+				&nbsp;&nbsp;0.00&nbsp;&nbsp;
+			</td><td nowrap="nowrap" align="center">
+				<span style="width:50px;display:inline-block">0.0</span>
+				<span style="width:50px;display:inline-block">0.00</span>
+				<span style="width:60px;display:inline-block">NA</span>
+			</td><td nowrap="nowrap" align="center">	
+				<span style="width:50px;display:inline-block">0.0</span>
+				<span style="width:50px;display:inline-block">0.00</span>
+				<span style="width:60px;display:inline-block">NA</span>
+			</td><td nowrap="nowrap" align="center">	
+				&nbsp;&nbsp;
+			</td><td>MN</td><td>Hennepin</td><td nowrap="nowrap" align="center">	
+				&nbsp;<a title="View" href="ViewDailyPrecipReport.aspx?DailyPrecipReportID=6cb419e6-2ac8-4c45-8d33-31fc04e4575b" ><img src="/images/icons/fa/list-alt_blue.png" width="18" height="18" border="0" alt="View" style="margin:3px" /></a>
+			</td><td nowrap="nowrap" align="center">	
+				&nbsp;<span class="GridLinkLabel" ><a href="https://maps.cocorahs.org/?maptype=precip&datetype=daily&date=11/14/2026&center=44.9881,-93.4765" alt="Google Map" target="_blank" class="GridLinkLabel" style="text-decoration: none;" >Active</a> | <a href="https://www.cocorahs.org/Maps/ViewMap.aspx?type=precip&state=MN&county=HN&date=11/14/2026" alt="Static Map" target="_blank" style="text-decoration: none;" >Static</a></span>&nbsp;&nbsp;
+			</td>
+	</tr><tr class="GridItem">
+		<td nowrap="nowrap">11/14/2026 </td><td nowrap="nowrap"> 3:30 AM </td><td nowrap="nowrap"> MN-BK-10 </td><td nowrap="nowrap"> Detroit Lakes 5.7 N </td><td>
+				&nbsp;&nbsp;0.00&nbsp;&nbsp;
+			</td><td nowrap="nowrap" align="center">
+				<span style="width:50px;display:inline-block">0.0</span>
+				<span style="width:50px;display:inline-block">0.00</span>
+				<span style="width:60px;display:inline-block">NA</span>
+			</td><td nowrap="nowrap" align="center">	
+				<span style="width:50px;display:inline-block">0.0</span>
+				<span style="width:50px;display:inline-block">0.00</span>
+				<span style="width:60px;display:inline-block">NA</span>
+			</td><td nowrap="nowrap" align="center">	
+				&nbsp;&nbsp;
+			</td><td>MN</td><td>Becker</td><td nowrap="nowrap" align="center">	
+				&nbsp;<a title="View" href="ViewDailyPrecipReport.aspx?DailyPrecipReportID=8d3dff16-c841-4369-9981-a814e06fdd2c" ><img src="/images/icons/fa/list-alt_blue.png" width="18" height="18" border="0" alt="View" style="margin:3px" /></a>
+			</td><td nowrap="nowrap" align="center">	
+				&nbsp;<span class="GridLinkLabel" ><a href="https://maps.cocorahs.org/?maptype=precip&datetype=daily&date=11/14/2026&center=46.88666667,-95.84444444" alt="Google Map" target="_blank" class="GridLinkLabel" style="text-decoration: none;" >Active</a> | <a href="https://www.cocorahs.org/Maps/ViewMap.aspx?type=precip&state=MN&county=BK&date=11/14/2026" alt="Static Map" target="_blank" style="text-decoration: none;" >Static</a></span>&nbsp;&nbsp;
+			</td>
+	</tr><tr class="GridAltItem">
+		<td nowrap="nowrap">11/14/2026 </td><td nowrap="nowrap"> 3:45 AM </td><td nowrap="nowrap"> OH-CB-22 </td><td nowrap="nowrap"> Columbiana 0.1 NNW </td><td>
+				&nbsp;&nbsp;0.01&nbsp;&nbsp;
+			</td><td nowrap="nowrap" align="center">
+				<span style="width:50px;display:inline-block">NA</span>
+				<span style="width:50px;display:inline-block">NA</span>
+				<span style="width:60px;display:inline-block">NA</span>
+			</td><td nowrap="nowrap" align="center">	
+				<span style="width:50px;display:inline-block">NA</span>
+				<span style="width:50px;display:inline-block">NA</span>
+				<span style="width:60px;display:inline-block">NA</span>
+			</td><td nowrap="nowrap" align="center">	
+				&nbsp;&nbsp;
+			</td><td>OH</td><td>Columbiana</td><td nowrap="nowrap" align="center">	
+				&nbsp;<a title="View" href="ViewDailyPrecipReport.aspx?DailyPrecipReportID=e42786af-d49c-4b99-844b-50bf9e67e677" ><img src="/images/icons/fa/list-alt_blue.png" width="18" height="18" border="0" alt="View" style="margin:3px" /></a>
+			</td><td nowrap="nowrap" align="center">	
+				&nbsp;<span class="GridLinkLabel" ><a href="https://maps.cocorahs.org/?maptype=precip&datetype=daily&date=11/14/2026&center=40.8872106,-80.689418" alt="Google Map" target="_blank" class="GridLinkLabel" style="text-decoration: none;" >Active</a> | <a href="https://www.cocorahs.org/Maps/ViewMap.aspx?type=precip&state=OH&county=CB&date=11/14/2026" alt="Static Map" target="_blank" style="text-decoration: none;" >Static</a></span>&nbsp;&nbsp;
+			</td>
+	</tr><tr class="GridItem">
+		<td nowrap="nowrap">11/14/2026 </td><td nowrap="nowrap"> 3:56 AM </td><td nowrap="nowrap"> TN-PK-1 </td><td nowrap="nowrap"> Benton 2.3 ESE </td><td>
+				&nbsp;&nbsp;0.00&nbsp;&nbsp;
+			</td><td nowrap="nowrap" align="center">
+				<span style="width:50px;display:inline-block">0.0</span>
+				<span style="width:50px;display:inline-block">0.00</span>
+				<span style="width:60px;display:inline-block">NA</span>
+			</td><td nowrap="nowrap" align="center">	
+				<span style="width:50px;display:inline-block">0.0</span>
+				<span style="width:50px;display:inline-block">0.00</span>
+				<span style="width:60px;display:inline-block">NA</span>
+			</td><td nowrap="nowrap" align="center">	
+				&nbsp;&nbsp;
+			</td><td>TN</td><td>Polk</td><td nowrap="nowrap" align="center">	
+				&nbsp;<a title="View" href="ViewDailyPrecipReport.aspx?DailyPrecipReportID=65148990-a3a3-460d-801c-208b7717a14b" ><img src="/images/icons/fa/list-alt_blue.png" width="18" height="18" border="0" alt="View" style="margin:3px" /></a>
+			</td><td nowrap="nowrap" align="center">	
+				&nbsp;<span class="GridLinkLabel" ><a href="https://maps.cocorahs.org/?maptype=precip&datetype=daily&date=11/14/2026&center=35.168769,-84.613542" alt="Google Map" target="_blank" class="GridLinkLabel" style="text-decoration: none;" >Active</a> | <a href="https://www.cocorahs.org/Maps/ViewMap.aspx?type=precip&state=TN&county=PK&date=11/14/2026" alt="Static Map" target="_blank" style="text-decoration: none;" >Static</a></span>&nbsp;&nbsp;
+			</td>
+	</tr><tr class="GridAltItem">
+		<td nowrap="nowrap">11/14/2026 </td><td nowrap="nowrap"> 4:00 AM </td><td nowrap="nowrap"> CT-LT-21 </td><td nowrap="nowrap"> New Hartford Center 1.7 SSW </td><td>
+				&nbsp;&nbsp;0.04&nbsp;&nbsp;
+			</td><td nowrap="nowrap" align="center">
+				<span style="width:50px;display:inline-block">NA</span>
+				<span style="width:50px;display:inline-block">NA</span>
+				<span style="width:60px;display:inline-block">NA</span>
+			</td><td nowrap="nowrap" align="center">	
+				<span style="width:50px;display:inline-block">NA</span>
+				<span style="width:50px;display:inline-block">NA</span>
+				<span style="width:60px;display:inline-block">NA</span>
+			</td><td nowrap="nowrap" align="center">	
+				&nbsp;&nbsp;
+			</td><td>CT</td><td>Litchfield</td><td nowrap="nowrap" align="center">	
+				&nbsp;<a title="View" href="ViewDailyPrecipReport.aspx?DailyPrecipReportID=65398c9b-f85a-4c18-a22d-28ca83097549" ><img src="/images/icons/fa/list-alt_blue.png" width="18" height="18" border="0" alt="View" style="margin:3px" /></a>
+			</td><td nowrap="nowrap" align="center">	
+				&nbsp;<span class="GridLinkLabel" ><a href="https://maps.cocorahs.org/?maptype=precip&datetype=daily&date=11/14/2026&center=41.85795,-72.98967" alt="Google Map" target="_blank" class="GridLinkLabel" style="text-decoration: none;" >Active</a> | <a href="https://www.cocorahs.org/Maps/ViewMap.aspx?type=precip&state=CT&county=LT&date=11/14/2026" alt="Static Map" target="_blank" style="text-decoration: none;" >Static</a></span>&nbsp;&nbsp;
+			</td>
+	</tr><tr class="GridItem">
+		<td nowrap="nowrap">11/14/2026 </td><td nowrap="nowrap"> 4:00 AM </td><td nowrap="nowrap"> IL-MP-4 </td><td nowrap="nowrap"> Girard 1.2 W </td><td>
+				&nbsp;&nbsp;0.00&nbsp;&nbsp;
+			</td><td nowrap="nowrap" align="center">
+				<span style="width:50px;display:inline-block">0.0</span>
+				<span style="width:50px;display:inline-block">NA</span>
+				<span style="width:60px;display:inline-block">NA</span>
+			</td><td nowrap="nowrap" align="center">	
+				<span style="width:50px;display:inline-block">NA</span>
+				<span style="width:50px;display:inline-block">NA</span>
+				<span style="width:60px;display:inline-block">NA</span>
+			</td><td nowrap="nowrap" align="center">	
+				&nbsp;&nbsp;
+			</td><td>IL</td><td>Macoupin</td><td nowrap="nowrap" align="center">	
+				&nbsp;<a title="View" href="ViewDailyPrecipReport.aspx?DailyPrecipReportID=ad6500ba-ed1f-479e-af27-edd8530d37f0" ><img src="/images/icons/fa/list-alt_blue.png" width="18" height="18" border="0" alt="View" style="margin:3px" /></a>
+			</td><td nowrap="nowrap" align="center">	
+				&nbsp;<span class="GridLinkLabel" ><a href="https://maps.cocorahs.org/?maptype=precip&datetype=daily&date=11/14/2026&center=39.44688,-89.805333" alt="Google Map" target="_blank" class="GridLinkLabel" style="text-decoration: none;" >Active</a> | <a href="https://www.cocorahs.org/Maps/ViewMap.aspx?type=precip&state=IL&county=MP&date=11/14/2026" alt="Static Map" target="_blank" style="text-decoration: none;" >Static</a></span>&nbsp;&nbsp;
+			</td>
+	</tr><tr class="GridAltItem">
+		<td nowrap="nowrap">11/14/2026 </td><td nowrap="nowrap"> 4:00 AM </td><td nowrap="nowrap"> OH-CB-8 </td><td nowrap="nowrap"> Hanoverton 0.4 ENE </td><td>
+				&nbsp;&nbsp;0.04&nbsp;&nbsp;
+			</td><td nowrap="nowrap" align="center">
+				<span style="width:50px;display:inline-block">NA</span>
+				<span style="width:50px;display:inline-block">NA</span>
+				<span style="width:60px;display:inline-block">NA</span>
+			</td><td nowrap="nowrap" align="center">	
+				<span style="width:50px;display:inline-block">NA</span>
+				<span style="width:50px;display:inline-block">NA</span>
+				<span style="width:60px;display:inline-block">NA</span>
+			</td><td nowrap="nowrap" align="center">	
+				&nbsp;&nbsp;
+			</td><td>OH</td><td>Columbiana</td><td nowrap="nowrap" align="center">	
+				&nbsp;<a title="View" href="ViewDailyPrecipReport.aspx?DailyPrecipReportID=ad5866e8-d673-461b-8842-bfb305b09dde" ><img src="/images/icons/fa/list-alt_blue.png" width="18" height="18" border="0" alt="View" style="margin:3px" /></a>
+			</td><td nowrap="nowrap" align="center">	
+				&nbsp;<span class="GridLinkLabel" ><a href="https://maps.cocorahs.org/?maptype=precip&datetype=daily&date=11/14/2026&center=40.756964,-80.929192" alt="Google Map" target="_blank" class="GridLinkLabel" style="text-decoration: none;" >Active</a> | <a href="https://www.cocorahs.org/Maps/ViewMap.aspx?type=precip&state=OH&county=CB&date=11/14/2026" alt="Static Map" target="_blank" style="text-decoration: none;" >Static</a></span>&nbsp;&nbsp;
+			</td>
+	</tr><tr class="GridItem">
+		<td nowrap="nowrap">11/14/2026 </td><td nowrap="nowrap"> 4:15 AM </td><td nowrap="nowrap"> MN-FM-18 </td><td nowrap="nowrap"> Lanesboro 0.2 SSW </td><td>
+				&nbsp;&nbsp;0.00&nbsp;&nbsp;
+			</td><td nowrap="nowrap" align="center">
+				<span style="width:50px;display:inline-block">0.0</span>
+				<span style="width:50px;display:inline-block">NA</span>
+				<span style="width:60px;display:inline-block">NA</span>
+			</td><td nowrap="nowrap" align="center">	
+				<span style="width:50px;display:inline-block">NA</span>
+				<span style="width:50px;display:inline-block">NA</span>
+				<span style="width:60px;display:inline-block">NA</span>
+			</td><td nowrap="nowrap" align="center">	
+				&nbsp;&nbsp;
+			</td><td>MN</td><td>Fillmore</td><td nowrap="nowrap" align="center">	
+				&nbsp;<a title="View" href="ViewDailyPrecipReport.aspx?DailyPrecipReportID=32976d73-a2ea-4435-beec-c3b52e88b8a7" ><img src="/images/icons/fa/list-alt_blue.png" width="18" height="18" border="0" alt="View" style="margin:3px" /></a>
+			</td><td nowrap="nowrap" align="center">	
+				&nbsp;<span class="GridLinkLabel" ><a href="https://maps.cocorahs.org/?maptype=precip&datetype=daily&date=11/14/2026&center=43.715515,-91.972189" alt="Google Map" target="_blank" class="GridLinkLabel" style="text-decoration: none;" >Active</a> | <a href="https://www.cocorahs.org/Maps/ViewMap.aspx?type=precip&state=MN&county=FM&date=11/14/2026" alt="Static Map" target="_blank" style="text-decoration: none;" >Static</a></span>&nbsp;&nbsp;
+			</td>
+	</tr><tr class="GridAltItem">
+		<td nowrap="nowrap">11/14/2026 </td><td nowrap="nowrap"> 4:15 AM </td><td nowrap="nowrap"> MT-MS-26 </td><td nowrap="nowrap"> Seeley Lake 1.2 E </td><td>
+				&nbsp;&nbsp;0.00&nbsp;&nbsp;
+			</td><td nowrap="nowrap" align="center">
+				<span style="width:50px;display:inline-block">0.0</span>
+				<span style="width:50px;display:inline-block">NA</span>
+				<span style="width:60px;display:inline-block">NA</span>
+			</td><td nowrap="nowrap" align="center">	
+				<span style="width:50px;display:inline-block">NA</span>
+				<span style="width:50px;display:inline-block">NA</span>
+				<span style="width:60px;display:inline-block">NA</span>
+			</td><td nowrap="nowrap" align="center">	
+				&nbsp;&nbsp;
+			</td><td>MT</td><td>Missoula</td><td nowrap="nowrap" align="center">	
+				&nbsp;<a title="View" href="ViewDailyPrecipReport.aspx?DailyPrecipReportID=faf652d2-2bc5-4c5d-887c-8f02b14f5fb0" ><img src="/images/icons/fa/list-alt_blue.png" width="18" height="18" border="0" alt="View" style="margin:3px" /></a>
+			</td><td nowrap="nowrap" align="center">	
+				&nbsp;<span class="GridLinkLabel" ><a href="https://maps.cocorahs.org/?maptype=precip&datetype=daily&date=11/14/2026&center=47.177859,-113.459935" alt="Google Map" target="_blank" class="GridLinkLabel" style="text-decoration: none;" >Active</a> | <a href="https://www.cocorahs.org/Maps/ViewMap.aspx?type=precip&state=MT&county=MS&date=11/14/2026" alt="Static Map" target="_blank" style="text-decoration: none;" >Static</a></span>&nbsp;&nbsp;
+			</td>
+	</tr><tr class="GridItem">
+		<td nowrap="nowrap">11/14/2026 </td><td nowrap="nowrap"> 4:16 AM </td><td nowrap="nowrap"> FL-PN-126 </td><td nowrap="nowrap"> Dunedin 2.4 ESE </td><td>
+				&nbsp;&nbsp;0.00&nbsp;&nbsp;
+			</td><td nowrap="nowrap" align="center">
+				<span style="width:50px;display:inline-block">0.0</span>
+				<span style="width:50px;display:inline-block">NA</span>
+				<span style="width:60px;display:inline-block">NA</span>
+			</td><td nowrap="nowrap" align="center">	
+				<span style="width:50px;display:inline-block">NA</span>
+				<span style="width:50px;display:inline-block">NA</span>
+				<span style="width:60px;display:inline-block">NA</span>
+			</td><td nowrap="nowrap" align="center">	
+				&nbsp;&nbsp;
+			</td><td>FL</td><td>Pinellas</td><td nowrap="nowrap" align="center">	
+				&nbsp;<a title="View" href="ViewDailyPrecipReport.aspx?DailyPrecipReportID=86da6579-c26e-4bdc-a654-69a7a1c305e4" ><img src="/images/icons/fa/list-alt_blue.png" width="18" height="18" border="0" alt="View" style="margin:3px" /></a>
+			</td><td nowrap="nowrap" align="center">	
+				&nbsp;<span class="GridLinkLabel" ><a href="https://maps.cocorahs.org/?maptype=precip&datetype=daily&date=11/14/2026&center=28.0274381,-82.7743619" alt="Google Map" target="_blank" class="GridLinkLabel" style="text-decoration: none;" >Active</a> | <a href="https://www.cocorahs.org/Maps/ViewMap.aspx?type=precip&state=FL&county=PN&date=11/14/2026" alt="Static Map" target="_blank" style="text-decoration: none;" >Static</a></span>&nbsp;&nbsp;
+			</td>
+	</tr><tr class="GridAltItem">
+		<td nowrap="nowrap">11/14/2026 </td><td nowrap="nowrap"> 4:18 AM </td><td nowrap="nowrap"> SC-CF-5 </td><td nowrap="nowrap"> Pageland 9.0 WNW </td><td>
+				&nbsp;&nbsp;0.00&nbsp;&nbsp;
+			</td><td nowrap="nowrap" align="center">
+				<span style="width:50px;display:inline-block">0.0</span>
+				<span style="width:50px;display:inline-block">NA</span>
+				<span style="width:60px;display:inline-block">NA</span>
+			</td><td nowrap="nowrap" align="center">	
+				<span style="width:50px;display:inline-block">NA</span>
+				<span style="width:50px;display:inline-block">NA</span>
+				<span style="width:60px;display:inline-block">NA</span>
+			</td><td nowrap="nowrap" align="center">	
+				&nbsp;&nbsp;
+			</td><td>SC</td><td>Chesterfield</td><td nowrap="nowrap" align="center">	
+				&nbsp;<a title="View" href="ViewDailyPrecipReport.aspx?DailyPrecipReportID=1b5f0913-3520-4dcd-abf6-25c131071ca4" ><img src="/images/icons/fa/list-alt_blue.png" width="18" height="18" border="0" alt="View" style="margin:3px" /></a>
+			</td><td nowrap="nowrap" align="center">	
+				&nbsp;<span class="GridLinkLabel" ><a href="https://maps.cocorahs.org/?maptype=precip&datetype=daily&date=11/14/2026&center=34.81507,-80.54004" alt="Google Map" target="_blank" class="GridLinkLabel" style="text-decoration: none;" >Active</a> | <a href="https://www.cocorahs.org/Maps/ViewMap.aspx?type=precip&state=SC&county=CF&date=11/14/2026" alt="Static Map" target="_blank" style="text-decoration: none;" >Static</a></span>&nbsp;&nbsp;
+			</td>
+	</tr><tr class="GridItem">
+		<td nowrap="nowrap">11/14/2026 </td><td nowrap="nowrap"> 4:21 AM </td><td nowrap="nowrap"> CAN-MB-382 </td><td nowrap="nowrap"> Winnipeg 8.7 SE </td><td>
+				&nbsp;&nbsp;0.00&nbsp;&nbsp;
+			</td><td nowrap="nowrap" align="center">
+				<span style="width:50px;display:inline-block">0.0</span>
+				<span style="width:50px;display:inline-block">NA</span>
+				<span style="width:60px;display:inline-block">NA</span>
+			</td><td nowrap="nowrap" align="center">	
+				<span style="width:50px;display:inline-block">NA</span>
+				<span style="width:50px;display:inline-block">NA</span>
+				<span style="width:60px;display:inline-block">NA</span>
+			</td><td nowrap="nowrap" align="center">	
+				&nbsp;X&nbsp;
+			</td><td>CAN</td><td>Manitoba</td><td nowrap="nowrap" align="center">	
+				&nbsp;<a title="View" href="ViewDailyPrecipReport.aspx?DailyPrecipReportID=1bb38a71-3b92-4c7a-82bc-b82f3eabce61" ><img src="/images/icons/fa/list-alt_blue.png" width="18" height="18" border="0" alt="View" style="margin:3px" /></a>
+			</td><td nowrap="nowrap" align="center">	
+				&nbsp;<a href="https://maps.cocorahs.org/?maptype=precip&datetype=daily&date=11/14/2026&center=49.83864,-97.06478" alt="Map"  target="_blank" ><img src="https://www.cocorahs.org/images/icons/icon_map_b_16x16.png" width="16" height="16" /></a>&nbsp;&nbsp;
+			</td>
+	</tr><tr class="GridAltItem">
+		<td nowrap="nowrap">11/14/2026 </td><td nowrap="nowrap"> 4:30 AM </td><td nowrap="nowrap"> CT-NL-32 </td><td nowrap="nowrap"> Niantic 1.1 SW </td><td>
+				&nbsp;&nbsp;0.02&nbsp;&nbsp;
+			</td><td nowrap="nowrap" align="center">
+				<span style="width:50px;display:inline-block">0.0</span>
+				<span style="width:50px;display:inline-block">0.00</span>
+				<span style="width:60px;display:inline-block">NA</span>
+			</td><td nowrap="nowrap" align="center">	
+				<span style="width:50px;display:inline-block">0.0</span>
+				<span style="width:50px;display:inline-block">0.00</span>
+				<span style="width:60px;display:inline-block">NA</span>
+			</td><td nowrap="nowrap" align="center">	
+				&nbsp;X&nbsp;
+			</td><td>CT</td><td>New London</td><td nowrap="nowrap" align="center">	
+				&nbsp;<a title="View" href="ViewDailyPrecipReport.aspx?DailyPrecipReportID=e812420c-0921-4144-a187-37760f0b6f6d" ><img src="/images/icons/fa/list-alt_blue.png" width="18" height="18" border="0" alt="View" style="margin:3px" /></a>
+			</td><td nowrap="nowrap" align="center">	
+				&nbsp;<span class="GridLinkLabel" ><a href="https://maps.cocorahs.org/?maptype=precip&datetype=daily&date=11/14/2026&center=41.30986,-72.20648" alt="Google Map" target="_blank" class="GridLinkLabel" style="text-decoration: none;" >Active</a> | <a href="https://www.cocorahs.org/Maps/ViewMap.aspx?type=precip&state=CT&county=NL&date=11/14/2026" alt="Static Map" target="_blank" style="text-decoration: none;" >Static</a></span>&nbsp;&nbsp;
+			</td>
+	</tr><tr class="GridItem">
+		<td nowrap="nowrap">11/14/2026 </td><td nowrap="nowrap"> 4:30 AM </td><td nowrap="nowrap"> DE-NC-10 </td><td nowrap="nowrap"> Newport 2.4 WNW </td><td>
+				&nbsp;&nbsp;0.01&nbsp;&nbsp;
+			</td><td nowrap="nowrap" align="center">
+				<span style="width:50px;display:inline-block">NA</span>
+				<span style="width:50px;display:inline-block">NA</span>
+				<span style="width:60px;display:inline-block">NA</span>
+			</td><td nowrap="nowrap" align="center">	
+				<span style="width:50px;display:inline-block">NA</span>
+				<span style="width:50px;display:inline-block">NA</span>
+				<span style="width:60px;display:inline-block">NA</span>
+			</td><td nowrap="nowrap" align="center">	
+				&nbsp;&nbsp;
+			</td><td>DE</td><td>New Castle</td><td nowrap="nowrap" align="center">	
+				&nbsp;<a title="View" href="ViewDailyPrecipReport.aspx?DailyPrecipReportID=ef0aff7c-22dc-463e-bba5-58fb7899f4f1" ><img src="/images/icons/fa/list-alt_blue.png" width="18" height="18" border="0" alt="View" style="margin:3px" /></a>
+			</td><td nowrap="nowrap" align="center">	
+				&nbsp;<span class="GridLinkLabel" ><a href="https://maps.cocorahs.org/?maptype=precip&datetype=daily&date=11/14/2026&center=39.725585,-75.648791" alt="Google Map" target="_blank" class="GridLinkLabel" style="text-decoration: none;" >Active</a> | <a href="https://www.cocorahs.org/Maps/ViewMap.aspx?type=precip&state=DE&county=NC&date=11/14/2026" alt="Static Map" target="_blank" style="text-decoration: none;" >Static</a></span>&nbsp;&nbsp;
+			</td>
+	</tr><tr class="GridAltItem">
+		<td nowrap="nowrap">11/14/2026 </td><td nowrap="nowrap"> 4:30 AM </td><td nowrap="nowrap"> MI-WY-174 </td><td nowrap="nowrap"> Livonia 1.5 SW </td><td>
+				&nbsp;&nbsp;T&nbsp;&nbsp;
+			</td><td nowrap="nowrap" align="center">
+				<span style="width:50px;display:inline-block">NA</span>
+				<span style="width:50px;display:inline-block">NA</span>
+				<span style="width:60px;display:inline-block">NA</span>
+			</td><td nowrap="nowrap" align="center">	
+				<span style="width:50px;display:inline-block">NA</span>
+				<span style="width:50px;display:inline-block">NA</span>
+				<span style="width:60px;display:inline-block">NA</span>
+			</td><td nowrap="nowrap" align="center">	
+				&nbsp;X&nbsp;
+			</td><td>MI</td><td>Wayne</td><td nowrap="nowrap" align="center">	
+				&nbsp;<a title="View" href="ViewDailyPrecipReport.aspx?DailyPrecipReportID=e7efbc3e-5157-456b-a69c-8c3d082b4d8c" ><img src="/images/icons/fa/list-alt_blue.png" width="18" height="18" border="0" alt="View" style="margin:3px" /></a>
+			</td><td nowrap="nowrap" align="center">	
+				&nbsp;<span class="GridLinkLabel" ><a href="https://maps.cocorahs.org/?maptype=precip&datetype=daily&date=11/14/2026&center=42.383251,-83.392635" alt="Google Map" target="_blank" class="GridLinkLabel" style="text-decoration: none;" >Active</a> | <a href="https://www.cocorahs.org/Maps/ViewMap.aspx?type=precip&state=MI&county=WY&date=11/14/2026" alt="Static Map" target="_blank" style="text-decoration: none;" >Static</a></span>&nbsp;&nbsp;
+			</td>
+	</tr><tr class="GridItem">
+		<td nowrap="nowrap">11/14/2026 </td><td nowrap="nowrap"> 4:30 AM </td><td nowrap="nowrap"> TN-HK-8 </td><td nowrap="nowrap"> Bulls Gap 0.9 SSW </td><td>
+				&nbsp;&nbsp;0.01&nbsp;&nbsp;
+			</td><td nowrap="nowrap" align="center">
+				<span style="width:50px;display:inline-block">NA</span>
+				<span style="width:50px;display:inline-block">NA</span>
+				<span style="width:60px;display:inline-block">NA</span>
+			</td><td nowrap="nowrap" align="center">	
+				<span style="width:50px;display:inline-block">NA</span>
+				<span style="width:50px;display:inline-block">NA</span>
+				<span style="width:60px;display:inline-block">NA</span>
+			</td><td nowrap="nowrap" align="center">	
+				&nbsp;X&nbsp;
+			</td><td>TN</td><td>Hawkins</td><td nowrap="nowrap" align="center">	
+				&nbsp;<a title="View" href="ViewDailyPrecipReport.aspx?DailyPrecipReportID=8992309e-9768-4dc0-af7c-61ada584a50c" ><img src="/images/icons/fa/list-alt_blue.png" width="18" height="18" border="0" alt="View" style="margin:3px" /></a>
+			</td><td nowrap="nowrap" align="center">	
+				&nbsp;<span class="GridLinkLabel" ><a href="https://maps.cocorahs.org/?maptype=precip&datetype=daily&date=11/14/2026&center=36.2528,-83.0867" alt="Google Map" target="_blank" class="GridLinkLabel" style="text-decoration: none;" >Active</a> | <a href="https://www.cocorahs.org/Maps/ViewMap.aspx?type=precip&state=TN&county=HK&date=11/14/2026" alt="Static Map" target="_blank" style="text-decoration: none;" >Static</a></span>&nbsp;&nbsp;
+			</td>
+	</tr><tr class="GridAltItem">
+		<td nowrap="nowrap">11/14/2026 </td><td nowrap="nowrap"> 4:30 AM </td><td nowrap="nowrap"> WI-WH-7 </td><td nowrap="nowrap"> Wild Rose 0.5 E </td><td>
+				&nbsp;&nbsp;0.00&nbsp;&nbsp;
+			</td><td nowrap="nowrap" align="center">
+				<span style="width:50px;display:inline-block">0.0</span>
+				<span style="width:50px;display:inline-block">NA</span>
+				<span style="width:60px;display:inline-block">NA</span>
+			</td><td nowrap="nowrap" align="center">	
+				<span style="width:50px;display:inline-block">NA</span>
+				<span style="width:50px;display:inline-block">NA</span>
+				<span style="width:60px;display:inline-block">NA</span>
+			</td><td nowrap="nowrap" align="center">	
+				&nbsp;&nbsp;
+			</td><td>WI</td><td>Waushara</td><td nowrap="nowrap" align="center">	
+				&nbsp;<a title="View" href="ViewDailyPrecipReport.aspx?DailyPrecipReportID=08f3dc81-e1ba-4d64-97cf-1f190344e537" ><img src="/images/icons/fa/list-alt_blue.png" width="18" height="18" border="0" alt="View" style="margin:3px" /></a>
+			</td><td nowrap="nowrap" align="center">	
+				&nbsp;<span class="GridLinkLabel" ><a href="https://maps.cocorahs.org/?maptype=precip&datetype=daily&date=11/14/2026&center=44.177649,-89.238124" alt="Google Map" target="_blank" class="GridLinkLabel" style="text-decoration: none;" >Active</a> | <a href="https://www.cocorahs.org/Maps/ViewMap.aspx?type=precip&state=WI&county=WH&date=11/14/2026" alt="Static Map" target="_blank" style="text-decoration: none;" >Static</a></span>&nbsp;&nbsp;
+			</td>
+	</tr><tr class="GridItem">
+		<td nowrap="nowrap">11/14/2026 </td><td nowrap="nowrap"> 4:30 AM </td><td nowrap="nowrap"> WY-FM-71 </td><td nowrap="nowrap"> Fort Washakie 3.7 SE </td><td>
+				&nbsp;&nbsp;0.00&nbsp;&nbsp;
+			</td><td nowrap="nowrap" align="center">
+				<span style="width:50px;display:inline-block">0.0</span>
+				<span style="width:50px;display:inline-block">NA</span>
+				<span style="width:60px;display:inline-block">NA</span>
+			</td><td nowrap="nowrap" align="center">	
+				<span style="width:50px;display:inline-block">NA</span>
+				<span style="width:50px;display:inline-block">NA</span>
+				<span style="width:60px;display:inline-block">NA</span>
+			</td><td nowrap="nowrap" align="center">	
+				&nbsp;&nbsp;
+			</td><td>WY</td><td>Fremont</td><td nowrap="nowrap" align="center">	
+				&nbsp;<a title="View" href="ViewDailyPrecipReport.aspx?DailyPrecipReportID=6cb42d9a-eb96-4c38-b928-d95bfad18dec" ><img src="/images/icons/fa/list-alt_blue.png" width="18" height="18" border="0" alt="View" style="margin:3px" /></a>
+			</td><td nowrap="nowrap" align="center">	
+				&nbsp;<span class="GridLinkLabel" ><a href="https://maps.cocorahs.org/?maptype=precip&datetype=daily&date=11/14/2026&center=42.97721,-108.86579" alt="Google Map" target="_blank" class="GridLinkLabel" style="text-decoration: none;" >Active</a> | <a href="https://www.cocorahs.org/Maps/ViewMap.aspx?type=precip&state=WY&county=FM&date=11/14/2026" alt="Static Map" target="_blank" style="text-decoration: none;" >Static</a></span>&nbsp;&nbsp;
+			</td>
+	</tr><tr class="GridAltItem">
+		<td nowrap="nowrap">11/14/2026 </td><td nowrap="nowrap"> 4:33 AM </td><td nowrap="nowrap"> MN-AA-6 </td><td nowrap="nowrap"> Blaine 2.4 W </td><td>
+				&nbsp;&nbsp;NA&nbsp;&nbsp;
+			</td><td nowrap="nowrap" align="center">
+				<span style="width:50px;display:inline-block">NA</span>
+				<span style="width:50px;display:inline-block">NA</span>
+				<span style="width:60px;display:inline-block">NA</span>
+			</td><td nowrap="nowrap" align="center">	
+				<span style="width:50px;display:inline-block">NA</span>
+				<span style="width:50px;display:inline-block">NA</span>
+				<span style="width:60px;display:inline-block">NA</span>
+			</td><td nowrap="nowrap" align="center">	
+				&nbsp;X&nbsp;
+			</td><td>MN</td><td>Anoka</td><td nowrap="nowrap" align="center">	
+				&nbsp;<a title="View" href="ViewDailyPrecipReport.aspx?DailyPrecipReportID=ac8e738a-20ca-4f65-a580-2055a7566258" ><img src="/images/icons/fa/list-alt_blue.png" width="18" height="18" border="0" alt="View" style="margin:3px" /></a>
+			</td><td nowrap="nowrap" align="center">	
+				&nbsp;<span class="GridLinkLabel" ><a href="https://maps.cocorahs.org/?maptype=precip&datetype=daily&date=11/14/2026&center=45.1707859,-93.2569597" alt="Google Map" target="_blank" class="GridLinkLabel" style="text-decoration: none;" >Active</a> | <a href="https://www.cocorahs.org/Maps/ViewMap.aspx?type=precip&state=MN&county=AA&date=11/14/2026" alt="Static Map" target="_blank" style="text-decoration: none;" >Static</a></span>&nbsp;&nbsp;
+			</td>
+	</tr><tr class="GridItem">
+		<td nowrap="nowrap">11/14/2026 </td><td nowrap="nowrap"> 4:34 AM </td><td nowrap="nowrap"> MS-AM-1 </td><td nowrap="nowrap"> Liberty 6.4 ENE </td><td>
+				&nbsp;&nbsp;0.00&nbsp;&nbsp;
+			</td><td nowrap="nowrap" align="center">
+				<span style="width:50px;display:inline-block">0.0</span>
+				<span style="width:50px;display:inline-block">NA</span>
+				<span style="width:60px;display:inline-block">NA</span>
+			</td><td nowrap="nowrap" align="center">	
+				<span style="width:50px;display:inline-block">NA</span>
+				<span style="width:50px;display:inline-block">NA</span>
+				<span style="width:60px;display:inline-block">NA</span>
+			</td><td nowrap="nowrap" align="center">	
+				&nbsp;X&nbsp;
+			</td><td>MS</td><td>Amite</td><td nowrap="nowrap" align="center">	
+				&nbsp;<a title="View" href="ViewDailyPrecipReport.aspx?DailyPrecipReportID=26b8305a-c2e5-49d5-bb23-c427470c5bb4" ><img src="/images/icons/fa/list-alt_blue.png" width="18" height="18" border="0" alt="View" style="margin:3px" /></a>
+			</td><td nowrap="nowrap" align="center">	
+				&nbsp;<span class="GridLinkLabel" ><a href="https://maps.cocorahs.org/?maptype=precip&datetype=daily&date=11/14/2026&center=31.195986,-90.700824" alt="Google Map" target="_blank" class="GridLinkLabel" style="text-decoration: none;" >Active</a> | <a href="https://www.cocorahs.org/Maps/ViewMap.aspx?type=precip&state=MS&county=AM&date=11/14/2026" alt="Static Map" target="_blank" style="text-decoration: none;" >Static</a></span>&nbsp;&nbsp;
+			</td>
+	</tr><tr class="GridAltItem">
+		<td nowrap="nowrap">11/14/2026 </td><td nowrap="nowrap"> 4:35 AM </td><td nowrap="nowrap"> NY-NS-27 </td><td nowrap="nowrap"> Port Washington 0.8 N </td><td>
+				&nbsp;&nbsp;0.29&nbsp;&nbsp;
+			</td><td nowrap="nowrap" align="center">
+				<span style="width:50px;display:inline-block">NA</span>
+				<span style="width:50px;display:inline-block">NA</span>
+				<span style="width:60px;display:inline-block">NA</span>
+			</td><td nowrap="nowrap" align="center">	
+				<span style="width:50px;display:inline-block">NA</span>
+				<span style="width:50px;display:inline-block">NA</span>
+				<span style="width:60px;display:inline-block">NA</span>
+			</td><td nowrap="nowrap" align="center">	
+				&nbsp;&nbsp;
+			</td><td>NY</td><td>Nassau</td><td nowrap="nowrap" align="center">	
+				&nbsp;<a title="View" href="ViewDailyPrecipReport.aspx?DailyPrecipReportID=46b373ab-b338-43b2-b061-433c6567a44b" ><img src="/images/icons/fa/list-alt_blue.png" width="18" height="18" border="0" alt="View" style="margin:3px" /></a>
+			</td><td nowrap="nowrap" align="center">	
+				&nbsp;<span class="GridLinkLabel" ><a href="https://maps.cocorahs.org/?maptype=precip&datetype=daily&date=11/14/2026&center=40.839167,-73.68025" alt="Google Map" target="_blank" class="GridLinkLabel" style="text-decoration: none;" >Active</a> | <a href="https://www.cocorahs.org/Maps/ViewMap.aspx?type=precip&state=NY&county=NS&date=11/14/2026" alt="Static Map" target="_blank" style="text-decoration: none;" >Static</a></span>&nbsp;&nbsp;
+			</td>
+	</tr><tr class="GridItem">
+		<td nowrap="nowrap">11/14/2026 </td><td nowrap="nowrap"> 4:39 AM </td><td nowrap="nowrap"> MD-MG-106 </td><td nowrap="nowrap"> Silver Spring 6.4 NNE </td><td>
+				&nbsp;&nbsp;0.00&nbsp;&nbsp;
+			</td><td nowrap="nowrap" align="center">
+				<span style="width:50px;display:inline-block">0.0</span>
+				<span style="width:50px;display:inline-block">NA</span>
+				<span style="width:60px;display:inline-block">NA</span>
+			</td><td nowrap="nowrap" align="center">	
+				<span style="width:50px;display:inline-block">NA</span>
+				<span style="width:50px;display:inline-block">NA</span>
+				<span style="width:60px;display:inline-block">NA</span>
+			</td><td nowrap="nowrap" align="center">	
+				&nbsp;&nbsp;
+			</td><td>MD</td><td>Montgomery</td><td nowrap="nowrap" align="center">	
+				&nbsp;<a title="View" href="ViewDailyPrecipReport.aspx?DailyPrecipReportID=692f7b05-83f8-4cbc-9af4-3ce4ee3685c6" ><img src="/images/icons/fa/list-alt_blue.png" width="18" height="18" border="0" alt="View" style="margin:3px" /></a>
+			</td><td nowrap="nowrap" align="center">	
+				&nbsp;<span class="GridLinkLabel" ><a href="https://maps.cocorahs.org/?maptype=precip&datetype=daily&date=11/14/2026&center=39.080732,-77.008126" alt="Google Map" target="_blank" class="GridLinkLabel" style="text-decoration: none;" >Active</a> | <a href="https://www.cocorahs.org/Maps/ViewMap.aspx?type=precip&state=MD&county=MG&date=11/14/2026" alt="Static Map" target="_blank" style="text-decoration: none;" >Static</a></span>&nbsp;&nbsp;
+			</td>
+	</tr><tr class="GridAltItem">
+		<td nowrap="nowrap">11/14/2026 </td><td nowrap="nowrap"> 4:45 AM </td><td nowrap="nowrap"> OH-ST-11 </td><td nowrap="nowrap"> Canton 2.0 ENE </td><td>
+				&nbsp;&nbsp;0.08&nbsp;&nbsp;
+			</td><td nowrap="nowrap" align="center">
+				<span style="width:50px;display:inline-block">NA</span>
+				<span style="width:50px;display:inline-block">NA</span>
+				<span style="width:60px;display:inline-block">NA</span>
+			</td><td nowrap="nowrap" align="center">	
+				<span style="width:50px;display:inline-block">NA</span>
+				<span style="width:50px;display:inline-block">NA</span>
+				<span style="width:60px;display:inline-block">NA</span>
+			</td><td nowrap="nowrap" align="center">	
+				&nbsp;X&nbsp;
+			</td><td>OH</td><td>Stark</td><td nowrap="nowrap" align="center">	
+				&nbsp;<a title="View" href="ViewDailyPrecipReport.aspx?DailyPrecipReportID=d6dddfc4-2f2c-4663-a1e7-0935f45b9266" ><img src="/images/icons/fa/list-alt_blue.png" width="18" height="18" border="0" alt="View" style="margin:3px" /></a>
+			</td><td nowrap="nowrap" align="center">	
+				&nbsp;<span class="GridLinkLabel" ><a href="https://maps.cocorahs.org/?maptype=precip&datetype=daily&date=11/14/2026&center=40.8224,-81.33738" alt="Google Map" target="_blank" class="GridLinkLabel" style="text-decoration: none;" >Active</a> | <a href="https://www.cocorahs.org/Maps/ViewMap.aspx?type=precip&state=OH&county=ST&date=11/14/2026" alt="Static Map" target="_blank" style="text-decoration: none;" >Static</a></span>&nbsp;&nbsp;
+			</td>
+	</tr><tr class="GridItem">
+		<td nowrap="nowrap">11/14/2026 </td><td nowrap="nowrap"> 4:50 AM </td><td nowrap="nowrap"> SC-GW-8 </td><td nowrap="nowrap"> Hodges 5.5 NE </td><td>
+				&nbsp;&nbsp;0.00&nbsp;&nbsp;
+			</td><td nowrap="nowrap" align="center">
+				<span style="width:50px;display:inline-block">0.0</span>
+				<span style="width:50px;display:inline-block">NA</span>
+				<span style="width:60px;display:inline-block">NA</span>
+			</td><td nowrap="nowrap" align="center">	
+				<span style="width:50px;display:inline-block">NA</span>
+				<span style="width:50px;display:inline-block">NA</span>
+				<span style="width:60px;display:inline-block">NA</span>
+			</td><td nowrap="nowrap" align="center">	
+				&nbsp;&nbsp;
+			</td><td>SC</td><td>Greenwood</td><td nowrap="nowrap" align="center">	
+				&nbsp;<a title="View" href="ViewDailyPrecipReport.aspx?DailyPrecipReportID=d2cc7597-98d1-4b95-bc2a-ed75616ca9ef" ><img src="/images/icons/fa/list-alt_blue.png" width="18" height="18" border="0" alt="View" style="margin:3px" /></a>
+			</td><td nowrap="nowrap" align="center">	
+				&nbsp;<span class="GridLinkLabel" ><a href="https://maps.cocorahs.org/?maptype=precip&datetype=daily&date=11/14/2026&center=34.3357,-82.1717" alt="Google Map" target="_blank" class="GridLinkLabel" style="text-decoration: none;" >Active</a> | <a href="https://www.cocorahs.org/Maps/ViewMap.aspx?type=precip&state=SC&county=GW&date=11/14/2026" alt="Static Map" target="_blank" style="text-decoration: none;" >Static</a></span>&nbsp;&nbsp;
+			</td>
+	</tr><tr class="GridAltItem">
+		<td nowrap="nowrap">11/14/2026 </td><td nowrap="nowrap"> 4:56 AM </td><td nowrap="nowrap"> NY-CB-19 </td><td nowrap="nowrap"> Valatie 3.2 NE </td><td>
+				&nbsp;&nbsp;0.03&nbsp;&nbsp;
+			</td><td nowrap="nowrap" align="center">
+				<span style="width:50px;display:inline-block">NA</span>
+				<span style="width:50px;display:inline-block">NA</span>
+				<span style="width:60px;display:inline-block">NA</span>
+			</td><td nowrap="nowrap" align="center">	
+				<span style="width:50px;display:inline-block">NA</span>
+				<span style="width:50px;display:inline-block">NA</span>
+				<span style="width:60px;display:inline-block">NA</span>
+			</td><td nowrap="nowrap" align="center">	
+				&nbsp;&nbsp;
+			</td><td>NY</td><td>Columbia</td><td nowrap="nowrap" align="center">	
+				&nbsp;<a title="View" href="ViewDailyPrecipReport.aspx?DailyPrecipReportID=6a3e39ac-3dbe-44bb-a7d2-b16b8d9b7f1b" ><img src="/images/icons/fa/list-alt_blue.png" width="18" height="18" border="0" alt="View" style="margin:3px" /></a>
+			</td><td nowrap="nowrap" align="center">	
+				&nbsp;<span class="GridLinkLabel" ><a href="https://maps.cocorahs.org/?maptype=precip&datetype=daily&date=11/14/2026&center=42.452999,-73.640381" alt="Google Map" target="_blank" class="GridLinkLabel" style="text-decoration: none;" >Active</a> | <a href="https://www.cocorahs.org/Maps/ViewMap.aspx?type=precip&state=NY&county=CB&date=11/14/2026" alt="Static Map" target="_blank" style="text-decoration: none;" >Static</a></span>&nbsp;&nbsp;
+			</td>
+	</tr><tr class="GridItem">
+		<td nowrap="nowrap">11/14/2026 </td><td nowrap="nowrap"> 4:57 AM </td><td nowrap="nowrap"> IL-CP-149 </td><td nowrap="nowrap"> Rantoul 1.4 NNE </td><td>
+				&nbsp;&nbsp;0.05&nbsp;&nbsp;
+			</td><td nowrap="nowrap" align="center">
+				<span style="width:50px;display:inline-block">NA</span>
+				<span style="width:50px;display:inline-block">NA</span>
+				<span style="width:60px;display:inline-block">NA</span>
+			</td><td nowrap="nowrap" align="center">	
+				<span style="width:50px;display:inline-block">NA</span>
+				<span style="width:50px;display:inline-block">NA</span>
+				<span style="width:60px;display:inline-block">NA</span>
+			</td><td nowrap="nowrap" align="center">	
+				&nbsp;&nbsp;
+			</td><td>IL</td><td>Champaign</td><td nowrap="nowrap" align="center">	
+				&nbsp;<a title="View" href="ViewDailyPrecipReport.aspx?DailyPrecipReportID=b3a85634-2478-4095-9bd4-f20d664db51a" ><img src="/images/icons/fa/list-alt_blue.png" width="18" height="18" border="0" alt="View" style="margin:3px" /></a>
+			</td><td nowrap="nowrap" align="center">	
+				&nbsp;<span class="GridLinkLabel" ><a href="https://maps.cocorahs.org/?maptype=precip&datetype=daily&date=11/14/2026&center=40.3218632,-88.1440698" alt="Google Map" target="_blank" class="GridLinkLabel" style="text-decoration: none;" >Active</a> | <a href="https://www.cocorahs.org/Maps/ViewMap.aspx?type=precip&state=IL&county=CP&date=11/14/2026" alt="Static Map" target="_blank" style="text-decoration: none;" >Static</a></span>&nbsp;&nbsp;
+			</td>
+	</tr><tr class="GridAltItem">
+		<td nowrap="nowrap">11/14/2026 </td><td nowrap="nowrap"> 4:58 AM </td><td nowrap="nowrap"> NC-CN-93 </td><td nowrap="nowrap"> Havelock 1.9 SSE </td><td>
+				&nbsp;&nbsp;T&nbsp;&nbsp;
+			</td><td nowrap="nowrap" align="center">
+				<span style="width:50px;display:inline-block">NA</span>
+				<span style="width:50px;display:inline-block">NA</span>
+				<span style="width:60px;display:inline-block">NA</span>
+			</td><td nowrap="nowrap" align="center">	
+				<span style="width:50px;display:inline-block">NA</span>
+				<span style="width:50px;display:inline-block">NA</span>
+				<span style="width:60px;display:inline-block">NA</span>
+			</td><td nowrap="nowrap" align="center">	
+				&nbsp;&nbsp;
+			</td><td>NC</td><td>Craven</td><td nowrap="nowrap" align="center">	
+				&nbsp;<a title="View" href="ViewDailyPrecipReport.aspx?DailyPrecipReportID=7c7175f2-a0db-4a44-9e47-8fbb9f489ff6" ><img src="/images/icons/fa/list-alt_blue.png" width="18" height="18" border="0" alt="View" style="margin:3px" /></a>
+			</td><td nowrap="nowrap" align="center">	
+				&nbsp;<span class="GridLinkLabel" ><a href="https://maps.cocorahs.org/?maptype=precip&datetype=daily&date=11/14/2026&center=34.880585,-76.886178" alt="Google Map" target="_blank" class="GridLinkLabel" style="text-decoration: none;" >Active</a> | <a href="https://www.cocorahs.org/Maps/ViewMap.aspx?type=precip&state=NC&county=CN&date=11/14/2026" alt="Static Map" target="_blank" style="text-decoration: none;" >Static</a></span>&nbsp;&nbsp;
+			</td>
+	</tr><tr class="GridItem">
+		<td nowrap="nowrap">11/14/2026 </td><td nowrap="nowrap"> 4:59 AM </td><td nowrap="nowrap"> IL-LS-1 </td><td nowrap="nowrap"> Ottawa 1.3 NW </td><td>
+				&nbsp;&nbsp;T&nbsp;&nbsp;
+			</td><td nowrap="nowrap" align="center">
+				<span style="width:50px;display:inline-block">T</span>
+				<span style="width:50px;display:inline-block">T</span>
+				<span style="width:60px;display:inline-block">NA</span>
+			</td><td nowrap="nowrap" align="center">	
+				<span style="width:50px;display:inline-block">NA</span>
+				<span style="width:50px;display:inline-block">NA</span>
+				<span style="width:60px;display:inline-block">NA</span>
+			</td><td nowrap="nowrap" align="center">	
+				&nbsp;&nbsp;
+			</td><td>IL</td><td>La Salle</td><td nowrap="nowrap" align="center">	
+				&nbsp;<a title="View" href="ViewDailyPrecipReport.aspx?DailyPrecipReportID=710cd43a-fd28-4544-ab4a-b6d867152468" ><img src="/images/icons/fa/list-alt_blue.png" width="18" height="18" border="0" alt="View" style="margin:3px" /></a>
+			</td><td nowrap="nowrap" align="center">	
+				&nbsp;<span class="GridLinkLabel" ><a href="https://maps.cocorahs.org/?maptype=precip&datetype=daily&date=11/14/2026&center=41.3633,-88.85664" alt="Google Map" target="_blank" class="GridLinkLabel" style="text-decoration: none;" >Active</a> | <a href="https://www.cocorahs.org/Maps/ViewMap.aspx?type=precip&state=IL&county=LS&date=11/14/2026" alt="Static Map" target="_blank" style="text-decoration: none;" >Static</a></span>&nbsp;&nbsp;
+			</td>
+	</tr><tr class="GridAltItem">
+		<td nowrap="nowrap">11/14/2026 </td><td nowrap="nowrap"> 5:00 AM </td><td nowrap="nowrap"> AL-ET-7 </td><td nowrap="nowrap"> Rainbow City 2.8 NNE </td><td>
+				&nbsp;&nbsp;0.00&nbsp;&nbsp;
+			</td><td nowrap="nowrap" align="center">
+				<span style="width:50px;display:inline-block">0.0</span>
+				<span style="width:50px;display:inline-block">NA</span>
+				<span style="width:60px;display:inline-block">NA</span>
+			</td><td nowrap="nowrap" align="center">	
+				<span style="width:50px;display:inline-block">NA</span>
+				<span style="width:50px;display:inline-block">NA</span>
+				<span style="width:60px;display:inline-block">NA</span>
+			</td><td nowrap="nowrap" align="center">	
+				&nbsp;&nbsp;
+			</td><td>AL</td><td>Etowah</td><td nowrap="nowrap" align="center">	
+				&nbsp;<a title="View" href="ViewDailyPrecipReport.aspx?DailyPrecipReportID=b1e17f99-7616-40ca-9cec-0f8d577c6a1f" ><img src="/images/icons/fa/list-alt_blue.png" width="18" height="18" border="0" alt="View" style="margin:3px" /></a>
+			</td><td nowrap="nowrap" align="center">	
+				&nbsp;<span class="GridLinkLabel" ><a href="https://maps.cocorahs.org/?maptype=precip&datetype=daily&date=11/14/2026&center=33.96397,-86.061704" alt="Google Map" target="_blank" class="GridLinkLabel" style="text-decoration: none;" >Active</a> | <a href="https://www.cocorahs.org/Maps/ViewMap.aspx?type=precip&state=AL&county=ET&date=11/14/2026" alt="Static Map" target="_blank" style="text-decoration: none;" >Static</a></span>&nbsp;&nbsp;
+			</td>
+	</tr><tr class="GridItem">
+		<td nowrap="nowrap">11/14/2026 </td><td nowrap="nowrap"> 5:00 AM </td><td nowrap="nowrap"> DE-SS-15 </td><td nowrap="nowrap"> Selbyville 7.1 E </td><td>
+				&nbsp;&nbsp;0.00&nbsp;&nbsp;
+			</td><td nowrap="nowrap" align="center">
+				<span style="width:50px;display:inline-block">0.0</span>
+				<span style="width:50px;display:inline-block">NA</span>
+				<span style="width:60px;display:inline-block">NA</span>
+			</td><td nowrap="nowrap" align="center">	
+				<span style="width:50px;display:inline-block">NA</span>
+				<span style="width:50px;display:inline-block">NA</span>
+				<span style="width:60px;display:inline-block">NA</span>
+			</td><td nowrap="nowrap" align="center">	
+				&nbsp;&nbsp;
+			</td><td>DE</td><td>Sussex</td><td nowrap="nowrap" align="center">	
+				&nbsp;<a title="View" href="ViewDailyPrecipReport.aspx?DailyPrecipReportID=a96e6bca-8f65-4a8a-af4d-33c0391c8340" ><img src="/images/icons/fa/list-alt_blue.png" width="18" height="18" border="0" alt="View" style="margin:3px" /></a>
+			</td><td nowrap="nowrap" align="center">	
+				&nbsp;<span class="GridLinkLabel" ><a href="https://maps.cocorahs.org/?maptype=precip&datetype=daily&date=11/14/2026&center=38.461155,-75.089328" alt="Google Map" target="_blank" class="GridLinkLabel" style="text-decoration: none;" >Active</a> | <a href="https://www.cocorahs.org/Maps/ViewMap.aspx?type=precip&state=DE&county=SS&date=11/14/2026" alt="Static Map" target="_blank" style="text-decoration: none;" >Static</a></span>&nbsp;&nbsp;
+			</td>
+	</tr><tr class="GridAltItem">
+		<td nowrap="nowrap">11/14/2026 </td><td nowrap="nowrap"> 5:00 AM </td><td nowrap="nowrap"> FL-IR-50 </td><td nowrap="nowrap"> Vero Beach South 2.4 WNW </td><td>
+				&nbsp;&nbsp;0.00&nbsp;&nbsp;
+			</td><td nowrap="nowrap" align="center">
+				<span style="width:50px;display:inline-block">0.0</span>
+				<span style="width:50px;display:inline-block">NA</span>
+				<span style="width:60px;display:inline-block">NA</span>
+			</td><td nowrap="nowrap" align="center">	
+				<span style="width:50px;display:inline-block">NA</span>
+				<span style="width:50px;display:inline-block">NA</span>
+				<span style="width:60px;display:inline-block">NA</span>
+			</td><td nowrap="nowrap" align="center">	
+				&nbsp;&nbsp;
+			</td><td>FL</td><td>Indian River</td><td nowrap="nowrap" align="center">	
+				&nbsp;<a title="View" href="ViewDailyPrecipReport.aspx?DailyPrecipReportID=5ae0a5f5-2d61-424c-9076-1d909c883654" ><img src="/images/icons/fa/list-alt_blue.png" width="18" height="18" border="0" alt="View" style="margin:3px" /></a>
+			</td><td nowrap="nowrap" align="center">	
+				&nbsp;<span class="GridLinkLabel" ><a href="https://maps.cocorahs.org/?maptype=precip&datetype=daily&date=11/14/2026&center=27.630637,-80.449648" alt="Google Map" target="_blank" class="GridLinkLabel" style="text-decoration: none;" >Active</a> | <a href="https://www.cocorahs.org/Maps/ViewMap.aspx?type=precip&state=FL&county=IR&date=11/14/2026" alt="Static Map" target="_blank" style="text-decoration: none;" >Static</a></span>&nbsp;&nbsp;
+			</td>
+	</tr><tr class="GridItem">
+		<td nowrap="nowrap">11/14/2026 </td><td nowrap="nowrap"> 5:00 AM </td><td nowrap="nowrap"> FL-PK-87 </td><td nowrap="nowrap"> Lakeland 5.8 NE </td><td>
+				&nbsp;&nbsp;0.00&nbsp;&nbsp;
+			</td><td nowrap="nowrap" align="center">
+				<span style="width:50px;display:inline-block">0.0</span>
+				<span style="width:50px;display:inline-block">NA</span>
+				<span style="width:60px;display:inline-block">NA</span>
+			</td><td nowrap="nowrap" align="center">	
+				<span style="width:50px;display:inline-block">NA</span>
+				<span style="width:50px;display:inline-block">NA</span>
+				<span style="width:60px;display:inline-block">NA</span>
+			</td><td nowrap="nowrap" align="center">	
+				&nbsp;&nbsp;
+			</td><td>FL</td><td>Polk</td><td nowrap="nowrap" align="center">	
+				&nbsp;<a title="View" href="ViewDailyPrecipReport.aspx?DailyPrecipReportID=ecdc4736-7bd2-48b7-9079-18bb41a9dd0a" ><img src="/images/icons/fa/list-alt_blue.png" width="18" height="18" border="0" alt="View" style="margin:3px" /></a>
+			</td><td nowrap="nowrap" align="center">	
+				&nbsp;<span class="GridLinkLabel" ><a href="https://maps.cocorahs.org/?maptype=precip&datetype=daily&date=11/14/2026&center=28.099386,-81.892181" alt="Google Map" target="_blank" class="GridLinkLabel" style="text-decoration: none;" >Active</a> | <a href="https://www.cocorahs.org/Maps/ViewMap.aspx?type=precip&state=FL&county=PK&date=11/14/2026" alt="Static Map" target="_blank" style="text-decoration: none;" >Static</a></span>&nbsp;&nbsp;
+			</td>
+	</tr><tr class="GridAltItem">
+		<td nowrap="nowrap">11/14/2026 </td><td nowrap="nowrap"> 5:00 AM </td><td nowrap="nowrap"> FL-SJ-4 </td><td nowrap="nowrap"> St. Augustine South 2.1 SSW </td><td>
+				&nbsp;&nbsp;0.00&nbsp;&nbsp;
+			</td><td nowrap="nowrap" align="center">
+				<span style="width:50px;display:inline-block">0.0</span>
+				<span style="width:50px;display:inline-block">NA</span>
+				<span style="width:60px;display:inline-block">NA</span>
+			</td><td nowrap="nowrap" align="center">	
+				<span style="width:50px;display:inline-block">NA</span>
+				<span style="width:50px;display:inline-block">NA</span>
+				<span style="width:60px;display:inline-block">NA</span>
+			</td><td nowrap="nowrap" align="center">	
+				&nbsp;X&nbsp;
+			</td><td>FL</td><td>St. Johns</td><td nowrap="nowrap" align="center">	
+				&nbsp;<a title="View" href="ViewDailyPrecipReport.aspx?DailyPrecipReportID=11a7b741-0932-4f28-af37-9b1939327dfb" ><img src="/images/icons/fa/list-alt_blue.png" width="18" height="18" border="0" alt="View" style="margin:3px" /></a>
+			</td><td nowrap="nowrap" align="center">	
+				&nbsp;<span class="GridLinkLabel" ><a href="https://maps.cocorahs.org/?maptype=precip&datetype=daily&date=11/14/2026&center=29.81285,-81.331895" alt="Google Map" target="_blank" class="GridLinkLabel" style="text-decoration: none;" >Active</a> | <a href="https://www.cocorahs.org/Maps/ViewMap.aspx?type=precip&state=FL&county=SJ&date=11/14/2026" alt="Static Map" target="_blank" style="text-decoration: none;" >Static</a></span>&nbsp;&nbsp;
+			</td>
+	</tr><tr class="GridItem">
+		<td nowrap="nowrap">11/14/2026 </td><td nowrap="nowrap"> 5:00 AM </td><td nowrap="nowrap"> FL-SJ-60 </td><td nowrap="nowrap"> St Augustine 1.7 SSE </td><td>
+				&nbsp;&nbsp;0.00&nbsp;&nbsp;
+			</td><td nowrap="nowrap" align="center">
+				<span style="width:50px;display:inline-block">0.0</span>
+				<span style="width:50px;display:inline-block">NA</span>
+				<span style="width:60px;display:inline-block">NA</span>
+			</td><td nowrap="nowrap" align="center">	
+				<span style="width:50px;display:inline-block">NA</span>
+				<span style="width:50px;display:inline-block">NA</span>
+				<span style="width:60px;display:inline-block">NA</span>
+			</td><td nowrap="nowrap" align="center">	
+				&nbsp;&nbsp;
+			</td><td>FL</td><td>St. Johns</td><td nowrap="nowrap" align="center">	
+				&nbsp;<a title="View" href="ViewDailyPrecipReport.aspx?DailyPrecipReportID=f873f7f5-227d-4e2a-88ab-8a632fa25a43" ><img src="/images/icons/fa/list-alt_blue.png" width="18" height="18" border="0" alt="View" style="margin:3px" /></a>
+			</td><td nowrap="nowrap" align="center">	
+				&nbsp;<span class="GridLinkLabel" ><a href="https://maps.cocorahs.org/?maptype=precip&datetype=daily&date=11/14/2026&center=29.868797,-81.300485" alt="Google Map" target="_blank" class="GridLinkLabel" style="text-decoration: none;" >Active</a> | <a href="https://www.cocorahs.org/Maps/ViewMap.aspx?type=precip&state=FL&county=SJ&date=11/14/2026" alt="Static Map" target="_blank" style="text-decoration: none;" >Static</a></span>&nbsp;&nbsp;
+			</td>
+	</tr><tr class="GridAltItem">
+		<td nowrap="nowrap">11/14/2026 </td><td nowrap="nowrap"> 5:00 AM </td><td nowrap="nowrap"> GA-PE-3 </td><td nowrap="nowrap"> Byron 3.0 S </td><td>
+				&nbsp;&nbsp;0.00&nbsp;&nbsp;
+			</td><td nowrap="nowrap" align="center">
+				<span style="width:50px;display:inline-block">0.0</span>
+				<span style="width:50px;display:inline-block">NA</span>
+				<span style="width:60px;display:inline-block">NA</span>
+			</td><td nowrap="nowrap" align="center">	
+				<span style="width:50px;display:inline-block">NA</span>
+				<span style="width:50px;display:inline-block">NA</span>
+				<span style="width:60px;display:inline-block">NA</span>
+			</td><td nowrap="nowrap" align="center">	
+				&nbsp;&nbsp;
+			</td><td>GA</td><td>Peach</td><td nowrap="nowrap" align="center">	
+				&nbsp;<a title="View" href="ViewDailyPrecipReport.aspx?DailyPrecipReportID=e108536e-b89d-4bf4-9a46-a52a26f10dfb" ><img src="/images/icons/fa/list-alt_blue.png" width="18" height="18" border="0" alt="View" style="margin:3px" /></a>
+			</td><td nowrap="nowrap" align="center">	
+				&nbsp;<span class="GridLinkLabel" ><a href="https://maps.cocorahs.org/?maptype=precip&datetype=daily&date=11/14/2026&center=32.6085725,-83.756026" alt="Google Map" target="_blank" class="GridLinkLabel" style="text-decoration: none;" >Active</a> | <a href="https://www.cocorahs.org/Maps/ViewMap.aspx?type=precip&state=GA&county=PE&date=11/14/2026" alt="Static Map" target="_blank" style="text-decoration: none;" >Static</a></span>&nbsp;&nbsp;
+			</td>
+	</tr><tr class="GridItem">
+		<td nowrap="nowrap">11/14/2026 </td><td nowrap="nowrap"> 5:00 AM </td><td nowrap="nowrap"> IL-SP-28 </td><td nowrap="nowrap"> Freeport 4.3 W </td><td>
+				&nbsp;&nbsp;0.00&nbsp;&nbsp;
+			</td><td nowrap="nowrap" align="center">
+				<span style="width:50px;display:inline-block">0.0</span>
+				<span style="width:50px;display:inline-block">NA</span>
+				<span style="width:60px;display:inline-block">NA</span>
+			</td><td nowrap="nowrap" align="center">	
+				<span style="width:50px;display:inline-block">NA</span>
+				<span style="width:50px;display:inline-block">NA</span>
+				<span style="width:60px;display:inline-block">NA</span>
+			</td><td nowrap="nowrap" align="center">	
+				&nbsp;&nbsp;
+			</td><td>IL</td><td>Stephenson</td><td nowrap="nowrap" align="center">	
+				&nbsp;<a title="View" href="ViewDailyPrecipReport.aspx?DailyPrecipReportID=cf2bd3e7-fd28-4124-8fe5-382e307f49ac" ><img src="/images/icons/fa/list-alt_blue.png" width="18" height="18" border="0" alt="View" style="margin:3px" /></a>
+			</td><td nowrap="nowrap" align="center">	
+				&nbsp;<span class="GridLinkLabel" ><a href="https://maps.cocorahs.org/?maptype=precip&datetype=daily&date=11/14/2026&center=42.28884,-89.719033" alt="Google Map" target="_blank" class="GridLinkLabel" style="text-decoration: none;" >Active</a> | <a href="https://www.cocorahs.org/Maps/ViewMap.aspx?type=precip&state=IL&county=SP&date=11/14/2026" alt="Static Map" target="_blank" style="text-decoration: none;" >Static</a></span>&nbsp;&nbsp;
+			</td>
+	</tr><tr class="GridAltItem">
+		<td nowrap="nowrap">11/14/2026 </td><td nowrap="nowrap"> 5:00 AM </td><td nowrap="nowrap"> IL-WN-45 </td><td nowrap="nowrap"> Machesney Park 0.9 W </td><td>
+				&nbsp;&nbsp;0.00&nbsp;&nbsp;
+			</td><td nowrap="nowrap" align="center">
+				<span style="width:50px;display:inline-block">0.0</span>
+				<span style="width:50px;display:inline-block">NA</span>
+				<span style="width:60px;display:inline-block">NA</span>
+			</td><td nowrap="nowrap" align="center">	
+				<span style="width:50px;display:inline-block">NA</span>
+				<span style="width:50px;display:inline-block">NA</span>
+				<span style="width:60px;display:inline-block">NA</span>
+			</td><td nowrap="nowrap" align="center">	
+				&nbsp;&nbsp;
+			</td><td>IL</td><td>Winnebago</td><td nowrap="nowrap" align="center">	
+				&nbsp;<a title="View" href="ViewDailyPrecipReport.aspx?DailyPrecipReportID=142cccee-c7a0-488f-99cb-8d66a6144598" ><img src="/images/icons/fa/list-alt_blue.png" width="18" height="18" border="0" alt="View" style="margin:3px" /></a>
+			</td><td nowrap="nowrap" align="center">	
+				&nbsp;<span class="GridLinkLabel" ><a href="https://maps.cocorahs.org/?maptype=precip&datetype=daily&date=11/14/2026&center=42.36219,-89.05493" alt="Google Map" target="_blank" class="GridLinkLabel" style="text-decoration: none;" >Active</a> | <a href="https://www.cocorahs.org/Maps/ViewMap.aspx?type=precip&state=IL&county=WN&date=11/14/2026" alt="Static Map" target="_blank" style="text-decoration: none;" >Static</a></span>&nbsp;&nbsp;
+			</td>
+	</tr><tr class="GridItem">
+		<td nowrap="nowrap">11/14/2026 </td><td nowrap="nowrap"> 5:00 AM </td><td nowrap="nowrap"> IN-BT-11 </td><td nowrap="nowrap"> Earl Park 5.0 NW </td><td>
+				&nbsp;&nbsp;0.01&nbsp;&nbsp;
+			</td><td nowrap="nowrap" align="center">
+				<span style="width:50px;display:inline-block">NA</span>
+				<span style="width:50px;display:inline-block">NA</span>
+				<span style="width:60px;display:inline-block">NA</span>
+			</td><td nowrap="nowrap" align="center">	
+				<span style="width:50px;display:inline-block">NA</span>
+				<span style="width:50px;display:inline-block">NA</span>
+				<span style="width:60px;display:inline-block">NA</span>
+			</td><td nowrap="nowrap" align="center">	
+				&nbsp;&nbsp;
+			</td><td>IN</td><td>Benton</td><td nowrap="nowrap" align="center">	
+				&nbsp;<a title="View" href="ViewDailyPrecipReport.aspx?DailyPrecipReportID=4d6a6f1f-eb22-44b9-b008-62ad4dbe7ee0" ><img src="/images/icons/fa/list-alt_blue.png" width="18" height="18" border="0" alt="View" style="margin:3px" /></a>
+			</td><td nowrap="nowrap" align="center">	
+				&nbsp;<span class="GridLinkLabel" ><a href="https://maps.cocorahs.org/?maptype=precip&datetype=daily&date=11/14/2026&center=40.733936,-87.492383" alt="Google Map" target="_blank" class="GridLinkLabel" style="text-decoration: none;" >Active</a> | <a href="https://www.cocorahs.org/Maps/ViewMap.aspx?type=precip&state=IN&county=BT&date=11/14/2026" alt="Static Map" target="_blank" style="text-decoration: none;" >Static</a></span>&nbsp;&nbsp;
+			</td>
+	</tr><tr class="GridAltItem">
+		<td nowrap="nowrap">11/14/2026 </td><td nowrap="nowrap"> 5:00 AM </td><td nowrap="nowrap"> IN-HM-67 </td><td nowrap="nowrap"> Fishers 4.3 ENE </td><td>
+				&nbsp;&nbsp;T&nbsp;&nbsp;
+			</td><td nowrap="nowrap" align="center">
+				<span style="width:50px;display:inline-block">NA</span>
+				<span style="width:50px;display:inline-block">NA</span>
+				<span style="width:60px;display:inline-block">NA</span>
+			</td><td nowrap="nowrap" align="center">	
+				<span style="width:50px;display:inline-block">NA</span>
+				<span style="width:50px;display:inline-block">NA</span>
+				<span style="width:60px;display:inline-block">NA</span>
+			</td><td nowrap="nowrap" align="center">	
+				&nbsp;&nbsp;
+			</td><td>IN</td><td>Hamilton</td><td nowrap="nowrap" align="center">	
+				&nbsp;<a title="View" href="ViewDailyPrecipReport.aspx?DailyPrecipReportID=2ba25c1d-86f8-48fe-a68f-9c6c7df9b011" ><img src="/images/icons/fa/list-alt_blue.png" width="18" height="18" border="0" alt="View" style="margin:3px" /></a>
+			</td><td nowrap="nowrap" align="center">	
+				&nbsp;<span class="GridLinkLabel" ><a href="https://maps.cocorahs.org/?maptype=precip&datetype=daily&date=11/14/2026&center=39.966561,-85.943146" alt="Google Map" target="_blank" class="GridLinkLabel" style="text-decoration: none;" >Active</a> | <a href="https://www.cocorahs.org/Maps/ViewMap.aspx?type=precip&state=IN&county=HM&date=11/14/2026" alt="Static Map" target="_blank" style="text-decoration: none;" >Static</a></span>&nbsp;&nbsp;
+			</td>
+	</tr><tr class="GridItem">
+		<td nowrap="nowrap">11/14/2026 </td><td nowrap="nowrap"> 5:00 AM </td><td nowrap="nowrap"> KS-DK-65 </td><td nowrap="nowrap"> Chapman 0.2 SSE </td><td>
+				&nbsp;&nbsp;0.00&nbsp;&nbsp;
+			</td><td nowrap="nowrap" align="center">
+				<span style="width:50px;display:inline-block">0.0</span>
+				<span style="width:50px;display:inline-block">NA</span>
+				<span style="width:60px;display:inline-block">NA</span>
+			</td><td nowrap="nowrap" align="center">	
+				<span style="width:50px;display:inline-block">NA</span>
+				<span style="width:50px;display:inline-block">NA</span>
+				<span style="width:60px;display:inline-block">NA</span>
+			</td><td nowrap="nowrap" align="center">	
+				&nbsp;X&nbsp;
+			</td><td>KS</td><td>Dickinson</td><td nowrap="nowrap" align="center">	
+				&nbsp;<a title="View" href="ViewDailyPrecipReport.aspx?DailyPrecipReportID=eeacb0cf-4250-47d7-bc7c-f5599e658d2e" ><img src="/images/icons/fa/list-alt_blue.png" width="18" height="18" border="0" alt="View" style="margin:3px" /></a>
+			</td><td nowrap="nowrap" align="center">	
+				&nbsp;<span class="GridLinkLabel" ><a href="https://maps.cocorahs.org/?maptype=precip&datetype=daily&date=11/14/2026&center=38.969065,-97.018338" alt="Google Map" target="_blank" class="GridLinkLabel" style="text-decoration: none;" >Active</a> | <a href="https://www.cocorahs.org/Maps/ViewMap.aspx?type=precip&state=KS&county=DK&date=11/14/2026" alt="Static Map" target="_blank" style="text-decoration: none;" >Static</a></span>&nbsp;&nbsp;
+			</td>
+	</tr><tr class="GridAltItem">
+		<td nowrap="nowrap">11/14/2026 </td><td nowrap="nowrap"> 5:00 AM </td><td nowrap="nowrap"> KS-DK-72 </td><td nowrap="nowrap"> Abilene 1.3 SSE </td><td>
+				&nbsp;&nbsp;0.00&nbsp;&nbsp;
+			</td><td nowrap="nowrap" align="center">
+				<span style="width:50px;display:inline-block">0.0</span>
+				<span style="width:50px;display:inline-block">NA</span>
+				<span style="width:60px;display:inline-block">NA</span>
+			</td><td nowrap="nowrap" align="center">	
+				<span style="width:50px;display:inline-block">NA</span>
+				<span style="width:50px;display:inline-block">NA</span>
+				<span style="width:60px;display:inline-block">NA</span>
+			</td><td nowrap="nowrap" align="center">	
+				&nbsp;&nbsp;
+			</td><td>KS</td><td>Dickinson</td><td nowrap="nowrap" align="center">	
+				&nbsp;<a title="View" href="ViewDailyPrecipReport.aspx?DailyPrecipReportID=f58429f2-5af9-424e-8238-cfd629892bee" ><img src="/images/icons/fa/list-alt_blue.png" width="18" height="18" border="0" alt="View" style="margin:3px" /></a>
+			</td><td nowrap="nowrap" align="center">	
+				&nbsp;<span class="GridLinkLabel" ><a href="https://maps.cocorahs.org/?maptype=precip&datetype=daily&date=11/14/2026&center=38.9028661,-97.213553" alt="Google Map" target="_blank" class="GridLinkLabel" style="text-decoration: none;" >Active</a> | <a href="https://www.cocorahs.org/Maps/ViewMap.aspx?type=precip&state=KS&county=DK&date=11/14/2026" alt="Static Map" target="_blank" style="text-decoration: none;" >Static</a></span>&nbsp;&nbsp;
+			</td>
+	</tr>
+</table>
+	</td>
+</tr>
+	<tr>
+		<td style="PADDING-LEFT: 5px" noWrap>
+			<b>Showing 1 - 50 of 374 Records.</b></td>
+		<td style="PADDING-RIGHT: 5px" noWrap align="right">
+			<a id="ucReportList_wcBackPager2" href="javascript:__doPostBack(&#39;ucReportList$wcBackPager2&#39;,&#39;8&#39;)">&lt;Back</a>&nbsp;
+			Page
+			<select id="ucReportList_wcDropDownListPager2" name="ucReportList:wcDropDownListPager2" onchange="__doPostBack(&#39;ucReportList$wcDropDownListPager2&#39;,&#39;&#39;)" size="1">
+	<option selected="" value="1">
+		1
+	</option><option value="2">
+		2
+	</option><option value="3">
+		3
+	</option><option value="4">
+		4
+	</option><option value="5">
+		5
+	</option><option value="6">
+		6
+	</option><option value="7">
+		7
+	</option><option value="8">
+		8
+	</option>
+</select>&nbsp;
+			<a id="ucReportList_wcNextPager2" href="javascript:__doPostBack(&#39;ucReportList$wcNextPager2&#39;,&#39;2&#39;)">Next&gt;</a></td>
+	</tr>
+</table> 
+
+									<br />
+									
+								</td>
+
+								<td valign="top" width="5">
+									&nbsp;
+								</td>
+							</tr>
+						</table>
+					</td>
+				</tr>
+				<tr>
+					<td colspan="3" height="20" align="center">
+						
+							<div id="Footer" style="font-size: smaller; text-align: center">
+								<hr width="100%" size="1">
+								<font face="Verdana, Arial, Helvetica, sans-serif" size="1">For questions or 
+										comments concerning this web page please contact <a href="mailto:info@cocorahs.org">info@cocorahs.org</a>.										
+										<br />
+									Unless otherwise noted, all content on the CoCoRaHS website is released under a <a rel="license" href="https://creativecommons.org/licenses/by/4.0/" target="_blank">Creative Commons Attribution 4.0 License</a>.
+				<br />
+									<a href="/Content.aspx?page=privacypolicy">Privacy Policy</a>&nbsp;&nbsp;<a href="/Content.aspx?page=datausagepolicy">Data Usage Policy</a>
+									<i>Copyright &copy; 1998-2025, Colorado Climate Center, All rights reserved.</i></font>
+							</div>
+						
+					</td>
+				</tr>
+			</tbody>
+		</table>
+		<br clear="all" />
+	
+
+<script type="text/javascript">
+<!--
+
+(function($) {
+var dateFormat = 'yyyy-MM-dd';
+var dateDisplayFormat = 'M/d/yyyy';
+var frmPrecipReportSearch_ucDateRangeFilter_dcStartDate_date = luxon.DateTime.fromISO($("#frmPrecipReportSearch_ucDateRangeFilter_dcStartDate_hfDate").val()).toJSDate();
+var minDateJs = new Date(1998, 5, 17);
+var maxDateJs = new Date(2026, 10, 14);
+var minDateTxt = minDateJs.toDateString();
+var maxDateTxt = maxDateJs.toDateString();
+var minDateDt = luxon.DateTime.fromJSDate(minDateJs);
+var maxDateDt = luxon.DateTime.fromJSDate(maxDateJs);
+
+$("#dcStartDate_btnGrpDate").kendoButtonGroup({});
+$("#frmPrecipReportSearch_ucDateRangeFilter_dcStartDate_di").kendoDatePicker({
+            dateInput: true,
+			autoFill: true,
+			componentType:"modern",
+			value: frmPrecipReportSearch_ucDateRangeFilter_dcStartDate_date,
+			min: minDateJs,
+			max: maxDateJs,
+			weekNumber: false,
+			format: dateDisplayFormat,
+	/*		messages: {
+				dateInput: {
+					year: "y",
+					month: "m",
+					day: "d"
+				},
+			},*/
+			change: function (e) {
+				console.log('change', e.sender.value());
+				var evtDate = e.sender.value();
+				var newDate = (evtDate)? evtDate : kendo.date.today();
+				var minDate = luxon.DateTime.fromJSDate(e.sender.options.min);
+				var maxDate = luxon.DateTime.fromJSDate(e.sender.options.max);
+				var nextBtn = $('#frmPrecipReportSearch_ucDateRangeFilter_dcStartDate_nb').data('kendoButton');
+				var prevBtn = $('#frmPrecipReportSearch_ucDateRangeFilter_dcStartDate_pb').data('kendoButton');
+				if (newDate == null) {
+					setTimeout(function(){
+						// delay needed to account for invalid date correction
+						newDate = kendo.parseDate(e.sender._dateInput.dateInputInstance.currentText);
+						updateDate(newDate);
+					});
+				} else {
+					updateDate(newDate);
+				}
+			}
+		});
+		$('#frmPrecipReportSearch_ucDateRangeFilter_dcStartDate_pb').kendoButton({
+themeColor: 'base',
+			click: function(e) {
+				var datePicker = $('#frmPrecipReportSearch_ucDateRangeFilter_dcStartDate_di').data("kendoDatePicker");
+				var currentDate = luxon.DateTime.fromJSDate(datePicker.value());
+				if(!currentDate.isValid){
+					console.log('NextBtn: Invalid Date');
+					 currentDate = luxon.DateTime.now().startOf('day');
+					//datePicker.value(currentDate.minus({ days: 1 }).toJSDate());
+					var d = currentDate.minus({ days: 1 }).toJSDate();
+					updateDate(d);
+					return;
+				}
+				var minDate = luxon.DateTime.fromJSDate(datePicker.options.min);
+				console.log(currentDate, minDate);
+				if(currentDate.equals(minDate)) {
+					console.log('prevButton: date is at min');
+					return;
+				}		
+				var d = currentDate.minus({ days: 1 }).toJSDate();
+				updateDate(d);
+			},
+		});
+		$('#frmPrecipReportSearch_ucDateRangeFilter_dcStartDate_nb').kendoButton({
+			click: function(e) {
+				var datePicker = $("#frmPrecipReportSearch_ucDateRangeFilter_dcStartDate_di").data("kendoDatePicker");
+				var currentDate = luxon.DateTime.fromJSDate(datePicker.value());
+				if(!currentDate.isValid){
+					console.log('NextBtn: Invalid Date');
+					 currentDate = luxon.DateTime.now().startOf('day');
+					updateDate(currentDate.toJSDate());
+				}
+				var maxDate = luxon.DateTime.fromJSDate(datePicker.options.max);
+				console.log(currentDate, maxDate);
+				if(currentDate.equals(maxDate)) {
+					console.log('nextButton: date is at max');
+					return;
+				}		
+				var nextDay = currentDate.plus({ days: 1 });
+				updateDate(nextDay.toJSDate());
+			},
+		});
+
+		var updatePrevNextBtns = function(date) {
+			var nextBtn = $('#frmPrecipReportSearch_ucDateRangeFilter_dcStartDate_nb').data('kendoButton');
+			var prevBtn = $('#frmPrecipReportSearch_ucDateRangeFilter_dcStartDate_pb').data('kendoButton');
+			var dt = luxon.DateTime.fromJSDate(date);
+			nextBtn.enable(!maxDateDt.equals(dt));
+			prevBtn.enable(!minDateDt.equals(dt));
+		};
+		var updateDate = function(newDate) {
+			$('#frmPrecipReportSearch_ucDateRangeFilter_dcStartDate_di').data("kendoDatePicker").value(newDate);
+			$('#frmPrecipReportSearch_ucDateRangeFilter_dcStartDate_hfDate').val(kendo.toString(newDate, dateFormat));
+			updatePrevNextBtns(newDate);
+			
+		};
+
+		// init buttons
+		updatePrevNextBtns(frmPrecipReportSearch_ucDateRangeFilter_dcStartDate_date);
+})(jQuery);
+
+(function($) {
+var dateFormat = 'yyyy-MM-dd';
+var dateDisplayFormat = 'M/d/yyyy';
+var frmPrecipReportSearch_ucDateRangeFilter_dcEndDate_date = luxon.DateTime.fromISO($("#frmPrecipReportSearch_ucDateRangeFilter_dcEndDate_hfDate").val()).toJSDate();
+var minDateJs = new Date(1998, 5, 17);
+var maxDateJs = new Date(2026, 10, 14);
+var minDateTxt = minDateJs.toDateString();
+var maxDateTxt = maxDateJs.toDateString();
+var minDateDt = luxon.DateTime.fromJSDate(minDateJs);
+var maxDateDt = luxon.DateTime.fromJSDate(maxDateJs);
+
+$("#dcEndDate_btnGrpDate").kendoButtonGroup({});
+$("#frmPrecipReportSearch_ucDateRangeFilter_dcEndDate_di").kendoDatePicker({
+            dateInput: true,
+			autoFill: true,
+			componentType:"modern",
+			value: frmPrecipReportSearch_ucDateRangeFilter_dcEndDate_date,
+			min: minDateJs,
+			max: maxDateJs,
+			weekNumber: false,
+			format: dateDisplayFormat,
+	/*		messages: {
+				dateInput: {
+					year: "y",
+					month: "m",
+					day: "d"
+				},
+			},*/
+			change: function (e) {
+				console.log('change', e.sender.value());
+				var evtDate = e.sender.value();
+				var newDate = (evtDate)? evtDate : kendo.date.today();
+				var minDate = luxon.DateTime.fromJSDate(e.sender.options.min);
+				var maxDate = luxon.DateTime.fromJSDate(e.sender.options.max);
+				var nextBtn = $('#frmPrecipReportSearch_ucDateRangeFilter_dcEndDate_nb').data('kendoButton');
+				var prevBtn = $('#frmPrecipReportSearch_ucDateRangeFilter_dcEndDate_pb').data('kendoButton');
+				if (newDate == null) {
+					setTimeout(function(){
+						// delay needed to account for invalid date correction
+						newDate = kendo.parseDate(e.sender._dateInput.dateInputInstance.currentText);
+						updateDate(newDate);
+					});
+				} else {
+					updateDate(newDate);
+				}
+			}
+		});
+		$('#frmPrecipReportSearch_ucDateRangeFilter_dcEndDate_pb').kendoButton({
+themeColor: 'base',
+			click: function(e) {
+				var datePicker = $('#frmPrecipReportSearch_ucDateRangeFilter_dcEndDate_di').data("kendoDatePicker");
+				var currentDate = luxon.DateTime.fromJSDate(datePicker.value());
+				if(!currentDate.isValid){
+					console.log('NextBtn: Invalid Date');
+					 currentDate = luxon.DateTime.now().startOf('day');
+					//datePicker.value(currentDate.minus({ days: 1 }).toJSDate());
+					var d = currentDate.minus({ days: 1 }).toJSDate();
+					updateDate(d);
+					return;
+				}
+				var minDate = luxon.DateTime.fromJSDate(datePicker.options.min);
+				console.log(currentDate, minDate);
+				if(currentDate.equals(minDate)) {
+					console.log('prevButton: date is at min');
+					return;
+				}		
+				var d = currentDate.minus({ days: 1 }).toJSDate();
+				updateDate(d);
+			},
+		});
+		$('#frmPrecipReportSearch_ucDateRangeFilter_dcEndDate_nb').kendoButton({
+			click: function(e) {
+				var datePicker = $("#frmPrecipReportSearch_ucDateRangeFilter_dcEndDate_di").data("kendoDatePicker");
+				var currentDate = luxon.DateTime.fromJSDate(datePicker.value());
+				if(!currentDate.isValid){
+					console.log('NextBtn: Invalid Date');
+					 currentDate = luxon.DateTime.now().startOf('day');
+					updateDate(currentDate.toJSDate());
+				}
+				var maxDate = luxon.DateTime.fromJSDate(datePicker.options.max);
+				console.log(currentDate, maxDate);
+				if(currentDate.equals(maxDate)) {
+					console.log('nextButton: date is at max');
+					return;
+				}		
+				var nextDay = currentDate.plus({ days: 1 });
+				updateDate(nextDay.toJSDate());
+			},
+		});
+
+		var updatePrevNextBtns = function(date) {
+			var nextBtn = $('#frmPrecipReportSearch_ucDateRangeFilter_dcEndDate_nb').data('kendoButton');
+			var prevBtn = $('#frmPrecipReportSearch_ucDateRangeFilter_dcEndDate_pb').data('kendoButton');
+			var dt = luxon.DateTime.fromJSDate(date);
+			nextBtn.enable(!maxDateDt.equals(dt));
+			prevBtn.enable(!minDateDt.equals(dt));
+		};
+		var updateDate = function(newDate) {
+			$('#frmPrecipReportSearch_ucDateRangeFilter_dcEndDate_di').data("kendoDatePicker").value(newDate);
+			$('#frmPrecipReportSearch_ucDateRangeFilter_dcEndDate_hfDate').val(kendo.toString(newDate, dateFormat));
+			updatePrevNextBtns(newDate);
+			
+		};
+
+		// init buttons
+		updatePrevNextBtns(frmPrecipReportSearch_ucDateRangeFilter_dcEndDate_date);
+})(jQuery);
+// -->
+</script>
+</form>
+</body>
+</html>
+

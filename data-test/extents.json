@@ -1,0 +1,402 @@
+{
+ "s2": {
+  "bounds_ll": [
+   -99.1304,
+   40.62,
+   -98.97,
+   40.7801
+  ],
+  "res": "10.0 m",
+  "scene": "S2B_MSIL2A_20250814T171859_R012_T14TML_20250814T205709",
+  "date": "2025-08-14"
+ },
+ "landsat": {
+  "bounds_ll": [
+   -99.1305,
+   40.6201,
+   -98.9702,
+   40.7802
+  ],
+  "crs": "EPSG:32614",
+  "res": "30.0 m",
+  "scene": "LC09_L2SP_029032_20250705_02_T1",
+  "date": "2025-07-05"
+ },
+ "dem": {
+  "bounds_ll": [
+   -99.1301,
+   40.6201,
+   -98.9701,
+   40.7801
+  ],
+  "res": "30 m",
+  "date": "DEM statique"
+ },
+ "naip": {
+  "bounds_ll": [
+   -99.0901,
+   40.685,
+   -99.01,
+   40.735
+  ],
+  "res": "1.2 m (d\u00e9cim\u00e9)",
+  "scene": "ne_m_4009924_nw_14_060_20220718",
+  "date": "2022-07-18"
+ },
+ "_meta": {
+  "zone": [
+   -99.13,
+   40.62,
+   -98.97,
+   40.78
+  ],
+  "parcel": [
+   -99.09,
+   40.685,
+   -99.01,
+   40.735
+  ]
+ },
+ "modis": {
+  "bounds_ll": [
+   -102.2841,
+   40.0,
+   -95.8169,
+   41.5
+  ],
+  "res": "231.7 m",
+  "scene": "MOD13Q1.A2025177.h10v04.061.2025195132830",
+  "date": "2025-07 (16j)"
+ },
+ "ecostress": {
+  "ECO_L3T_JET": {
+   "id": "G3573373889-LPCLOUD",
+   "date": "2025-05-27",
+   "bounds_ll": [
+    -100.1994491,
+    40.5570672,
+    -98.883448,
+    41.5517856
+   ],
+   "contains_point": true
+  },
+  "ECO_L4T_ESI": {
+   "id": "G3573373743-LPCLOUD",
+   "date": "2025-05-27",
+   "bounds_ll": [
+    -100.1994491,
+    40.5570672,
+    -98.883448,
+    41.5517856
+   ],
+   "contains_point": true
+  },
+  "ECO_L2T_LSTE": {
+   "id": "G3550381975-LPCLOUD",
+   "date": "2025-05-20",
+   "bounds_ll": [
+    -100.1994491,
+    40.5570672,
+    -98.883448,
+    41.5517856
+   ],
+   "contains_point": true
+  }
+ },
+ "era5": {
+  "bounds_ll": [
+   -100.0,
+   40.25,
+   -98.5,
+   41.0
+  ],
+  "res": "0.25\u00b0 (~28 km)",
+  "date": "2025-07-15"
+ },
+ "s2zoom": {
+  "bounds_ll": [
+   -99.0901,
+   40.6851,
+   -99.0101,
+   40.7351
+  ],
+  "res": "10.0 m",
+  "scene": "S2B_MSIL2A_20250814T171859_R012_T14TML_20250814T205709",
+  "date": "2025-08-14"
+ },
+ "cdl_2020": {
+  "bounds_ll": [
+   -99.45,
+   40.45,
+   -98.65,
+   40.9
+  ],
+  "res": "30 m source / rendu WMS",
+  "date": "2020",
+  "scene": "cdl_2020"
+ },
+ "cdl_2021": {
+  "bounds_ll": [
+   -99.45,
+   40.45,
+   -98.65,
+   40.9
+  ],
+  "res": "30 m source / rendu WMS",
+  "date": "2021",
+  "scene": "cdl_2021"
+ },
+ "cdl_2022": {
+  "bounds_ll": [
+   -99.45,
+   40.45,
+   -98.65,
+   40.9
+  ],
+  "res": "30 m source / rendu WMS",
+  "date": "2022",
+  "scene": "cdl_2022"
+ },
+ "cdl_2023": {
+  "bounds_ll": [
+   -99.45,
+   40.45,
+   -98.65,
+   40.9
+  ],
+  "res": "30 m source / rendu WMS",
+  "date": "2023",
+  "scene": "cdl_2023"
+ },
+ "cdl_2024": {
+  "bounds_ll": [
+   -99.45,
+   40.45,
+   -98.65,
+   40.9
+  ],
+  "res": "30 m source / rendu WMS",
+  "date": "2024",
+  "scene": "cdl_2024"
+ },
+ "gibs_smap_rz": {
+  "bounds_ll": [
+   -104.0,
+   37.0,
+   -94.0,
+   44.0
+  ],
+  "res": "tuile rendue (~native)",
+  "date": "2025-07-15",
+  "scene": "SMAP_L4_Analyzed_Root_Zone_Soil_Moisture"
+ },
+ "gibs_smap_surf": {
+  "bounds_ll": [
+   -104.0,
+   37.0,
+   -94.0,
+   44.0
+  ],
+  "res": "tuile rendue (~native)",
+  "date": "2025-07-15",
+  "scene": "SMAP_L4_Analyzed_Surface_Soil_Moisture"
+ },
+ "gibs_smap_gpp": {
+  "bounds_ll": [
+   -104.0,
+   37.0,
+   -94.0,
+   44.0
+  ],
+  "res": "tuile rendue (~native)",
+  "date": "2025-07-15",
+  "scene": "SMAP_L4_Mean_Gross_Primary_Productivity"
+ },
+ "gibs_grace": {
+  "bounds_ll": [
+   -104.0,
+   37.0,
+   -94.0,
+   44.0
+  ],
+  "res": "tuile rendue (~native)",
+  "date": "dernier dispo",
+  "scene": "GRACE_Tellus_Liquid_Water_Equivalent_Thickness_Mascon_CRI"
+ },
+ "gibs_imerg": {
+  "bounds_ll": [
+   -104.0,
+   37.0,
+   -94.0,
+   44.0
+  ],
+  "res": "tuile rendue (~native)",
+  "date": "2025-07-15",
+  "scene": "IMERG_Precipitation_Rate"
+ },
+ "gibs_modis_ndvi": {
+  "bounds_ll": [
+   -104.0,
+   37.0,
+   -94.0,
+   44.0
+  ],
+  "res": "tuile rendue (~native)",
+  "date": "2025-07-11",
+  "scene": "MODIS_Terra_NDVI_8Day"
+ },
+ "gibs_modis_lst": {
+  "bounds_ll": [
+   -104.0,
+   37.0,
+   -94.0,
+   44.0
+  ],
+  "res": "tuile rendue (~native)",
+  "date": "2025-07-11",
+  "scene": "MODIS_Terra_L3_Land_Surface_Temp_8Day_Day"
+ },
+ "gibs_viirs_ndvi": {
+  "bounds_ll": [
+   -104.0,
+   37.0,
+   -94.0,
+   44.0
+  ],
+  "res": "tuile rendue (~native)",
+  "date": "2025-07-11",
+  "scene": "VIIRS_SNPP_NDVI_8Day"
+ },
+ "landfire": {
+  "bounds_ll": [
+   -99.6,
+   40.3,
+   -98.5,
+   41.1
+  ],
+  "res": "30 m (rendu WMS)",
+  "date": "LF2024",
+  "scene": "LF2024_EVT_CONUS"
+ },
+ "cdl_2025": {
+  "bounds_ll": [
+   -99.45,
+   40.45,
+   -98.65,
+   40.9
+  ],
+  "res": "30 m source / rendu WMS",
+  "date": "2025",
+  "scene": "cdl_2025"
+ },
+ "gaez": {
+  "bounds_ll": [
+   -99.5,
+   40.3,
+   -98.5,
+   41.1
+  ],
+  "res": "0.083\u00b0 (~9 km)",
+  "date": "GAEZ v4",
+  "scene": "res05 Suitability"
+ },
+ "gaez_maize": {
+  "bounds_ll": [
+   -100.5,
+   39.5,
+   -97.5,
+   42.0
+  ],
+  "res": "0.083\u00b0 (~9 km)",
+  "date": "GAEZ v4 2041-2070 RCP4.5",
+  "scene": "res05 Maize rainfed SI"
+ },
+ "gaez_soybean": {
+  "bounds_ll": [
+   -100.5,
+   39.5,
+   -97.5,
+   42.0
+  ],
+  "res": "0.083\u00b0 (~9 km)",
+  "date": "GAEZ v4 2041-2070 RCP4.5",
+  "scene": "res05 Soybean rainfed SI"
+ },
+ "gaez_sorghum": {
+  "bounds_ll": [
+   -100.5,
+   39.5,
+   -97.5,
+   42.0
+  ],
+  "res": "0.083\u00b0 (~9 km)",
+  "date": "GAEZ v4 2041-2070 RCP4.5",
+  "scene": "res05 Sorghum rainfed SI"
+ },
+ "gaez_wheat": {
+  "bounds_ll": [
+   -100.5,
+   39.5,
+   -97.5,
+   42.0
+  ],
+  "res": "0.083\u00b0 (~9 km)",
+  "date": "GAEZ v4 2041-2070 RCP4.5",
+  "scene": "res05 Wheat rainfed SI"
+ },
+ "gaez_alfalfa": {
+  "bounds_ll": [
+   -100.5,
+   39.5,
+   -97.5,
+   42.0
+  ],
+  "res": "0.083\u00b0 (~9 km)",
+  "date": "GAEZ v4 2041-2070 RCP4.5",
+  "scene": "res05 Alfalfa rainfed SI"
+ },
+ "prism_tmin": {
+  "bounds_ll": [
+   -102.521,
+   39.021,
+   -95.021,
+   42.521
+  ],
+  "res": "4 km",
+  "date": "2025-07-15",
+  "scene": "PRISM tmin daily"
+ },
+ "prism_ppt": {
+  "bounds_ll": [
+   -102.521,
+   39.021,
+   -95.021,
+   42.521
+  ],
+  "res": "4 km",
+  "date": "2025-07-15",
+  "scene": "PRISM ppt daily"
+ },
+ "eco_etdaily": {
+  "bounds_ll": [
+   -99.1303,
+   40.6199,
+   -98.9699,
+   40.7801
+  ],
+  "res": "70 m",
+  "date": "2025-06-07",
+  "scene": "ECOv002_L3T_JET_39237_007_14TMK_20250607T1600"
+ },
+ "smap_l3": {
+  "bounds_ll": [
+   -105,
+   36,
+   -93,
+   44
+  ],
+  "res": "9 km (grille 33 km filtr\u00e9e)",
+  "date": "2025-07-15",
+  "scene": "SPL3SMP_E R19240 AM"
+ }
+}

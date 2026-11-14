@@ -106,11 +106,12 @@ def adapt(model, field: Field, forcing: Forcing, actions: Actions,
                 if dctx is not None else field.context)
     rep = {"best_loss": round(result.best_loss, 8),
            "epochs_run": result.epochs_run,
-           "z0_shift": round(float(leaves["z0"].detach()
+           "z0_shift": (round(float(leaves["z0"].detach()
                                    .sub(base_z).norm()), 4)
-           if z0 is not None else 0.0,
-           "ctx_shift": round(float(leaves["dctx"].detach().norm()), 4)
-           if dctx is not None else 0.0}
+           if z0 is not None else None),
+           "ctx_shift": (round(float(leaves["dctx"].detach().norm()), 4)
+           if dctx is not None else None),
+           "handles": sorted(leaves)}
     if x0 is not None:
         base_x = torch.stack(
             [_get_variable(field.state, n) for n in state_vars], -1)
