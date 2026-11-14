@@ -1,0 +1,99 @@
+{
+  "name": "jepa",
+  "spec": {
+    "lat": 42.0,
+    "lon": -93.6,
+    "soil": "silt_loam",
+    "depths": [
+      0.3,
+      1.5
+    ],
+    "crop": "maize",
+    "horizon": 1,
+    "years": [],
+    "realizations": 4,
+    "members": 16,
+    "obs_every": 10,
+    "noise": 0.05,
+    "perturb": {},
+    "obs_channels": [
+      "ndvi",
+      "sm1"
+    ],
+    "channels": [
+      "yield_kg"
+    ],
+    "alphas": [
+      0.1
+    ],
+    "latent_dim": 8,
+    "hier": [
+      1,
+      4,
+      16
+    ],
+    "ema": 0.996,
+    "sig_weight": 1.0,
+    "epochs": 120,
+    "lr": 0.05,
+    "seed": 0
+  },
+  "results": {
+    "latent": {
+      "dim": 8,
+      "sigreg_final": 0.075192,
+      "z_std_final": 0.881505,
+      "best_loss": 0.07148821,
+      "epochs_run": 120
+    },
+    "z_pred_rmse": 0.085876,
+    "channels": {
+      "ndvi": {
+        "prior": 0.0,
+        "jepa_probe": 0.168532,
+        "residual": 0.012658,
+        "hybrid": 0.007492,
+        "hybrid_reduction_pct": 0.0
+      },
+      "sm1": {
+        "prior": 0.0,
+        "jepa_probe": 0.137529,
+        "residual": 0.012004,
+        "hybrid": 0.014144,
+        "hybrid_reduction_pct": 0.0
+      }
+    },
+    "hier": {
+      "strides": [
+        1,
+        4,
+        16
+      ],
+      "channels": {
+        "ndvi": 0.126914,
+        "sm1": 0.226173
+      },
+      "best_loss": 0.09007879
+    }
+  },
+  "seconds": 494.252,
+  "meta": {
+    "python": "3.15.2",
+    "torch": "2.15.0+cu132",
+    "device": "cuda",
+    "argv": [
+      "exp",
+      "jepa",
+      "--realizations",
+      "4",
+      "--horizon",
+      "1",
+      "--epochs",
+      "120",
+      "--hier",
+      "1,4,16",
+      "--out",
+      "results/jepa_hier.json"
+    ]
+  }
+}

@@ -1,0 +1,80 @@
+{
+  "name": "adapt",
+  "spec": {
+    "lat": 42.0,
+    "lon": -93.6,
+    "soil": "silt_loam",
+    "depths": [
+      0.3,
+      1.5
+    ],
+    "crop": "maize",
+    "horizon": 1,
+    "years": [],
+    "realizations": 4,
+    "members": 16,
+    "obs_every": 10,
+    "noise": 0.05,
+    "perturb": {},
+    "obs_channels": [
+      "ndvi",
+      "sm1"
+    ],
+    "channels": [
+      "yield_kg"
+    ],
+    "alphas": [
+      0.1
+    ],
+    "latent_dim": 8,
+    "hier": [],
+    "ema": 0.996,
+    "sig_weight": 1.0,
+    "epochs": 120,
+    "lr": 0.05,
+    "seed": 0
+  },
+  "results": {
+    "obs_rmse": {
+      "frozen": 0.006482,
+      "t2z": 0.004287,
+      "optta": 0.008843
+    },
+    "t2z_report": {
+      "best_loss": 0.00027472,
+      "epochs_run": 120,
+      "z0_shift": 0.0,
+      "ctx_shift": 0.0,
+      "state_shift": 5.6211
+    },
+    "optta_report": {
+      "best_loss": -34.32423973,
+      "epochs_run": 120,
+      "z0_shift": 0.0,
+      "ctx_shift": 0.0,
+      "state_shift": 8.5071
+    },
+    "mppi_reward": {
+      "frozen": 342.4122,
+      "adapted": 343.2529
+    }
+  },
+  "seconds": 400.095,
+  "meta": {
+    "python": "3.15.2",
+    "torch": "2.15.0+cu132",
+    "device": "cuda",
+    "argv": [
+      "exp",
+      "adapt",
+      "--realizations",
+      "4",
+      "--horizon",
+      "1",
+      "--epochs",
+      "120",
+      "--out",
+      "results/adapt.json"
+    ]
+  }
+}
