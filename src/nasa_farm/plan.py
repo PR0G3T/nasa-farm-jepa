@@ -5,7 +5,7 @@ evaluation beats sampling-based search: exact Pareto front, zero
 approximation error, fully vectorized.
 
 Execution is delegated to the hardware layer (`nasa_farm.hardware`): every
-usable device is a co-executing lane, work is pulled from a shared
+usable device is a co-executing lane, work is split into contiguous
 cursor sized by *measured* per-lane rates, blocks stream through pinned
 staging on dedicated streams, fixed-shape blocks replay through
 accelerator graphs, and failures degrade lane-by-lane (OOM shrinks the
@@ -381,8 +381,9 @@ def evaluate(model: WorldModel, field0: Field, plans: torch.Tensor,
 
     - device="auto": every usable accelerator plus the CPU co-executes;
       lanes are measured once per workload signature (cached on disk),
-      pruned below 5 % of the top rate, then pull uniformly-sized blocks
-      from a shared cursor — faster lanes absorb more work automatically.
+      pruned below 5 % of the top rate, then receive a contiguous share
+      of plan rows proportional to their rate — uniform block times, a
+      deterministic assignment, bit-identical reruns.
     - device explicit / small sweeps: single lane, blocks memory-sized.
     - workers=0: physical cores on the CPU lane (pinned), 1 on accel
       lanes and when a compiled step parallelizes inside its kernels.

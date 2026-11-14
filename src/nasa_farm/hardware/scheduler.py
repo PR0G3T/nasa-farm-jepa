@@ -1,15 +1,15 @@
 """Co-execution scheduler: every lane works, measured, never assumed.
 
 A ``Lane`` is one compute endpoint — a CPU worker pool or one
-accelerator device. Work is a row-space of plans; lanes pull blocks from
-a shared cursor guided by self-scheduling (pulls shrink toward the end,
-bounding tail latency), so faster lanes naturally absorb more work and a
-slowing lane simply pulls less — co-execution without a fixed split.
+accelerator device. Work is a row-space of plans; each lane gets a
+contiguous share proportional to its measured rate, chunked into
+uniform-time blocks — faster lanes simply get larger shares, and the
+assignment is deterministic, so reruns are bit-identical.
 
 Failure ladder, per lane: OOM → halve the pull → shrink workers (CPU)
-→ lane dies → survivors absorb remaining rows → only when no lane is
-left does the original error propagate. Non-OOM errors abort the whole
-sweep immediately: a bug is never masked by lower settings.
+→ lane dies → its range is re-split among survivors → only when no lane
+is left does the original error propagate. Non-OOM errors abort the
+whole sweep immediately: a bug is never masked by lower settings.
 """
 
 from __future__ import annotations
@@ -100,74 +100,76 @@ def device_label(device: torch.device) -> str:
     return name(device)
 
 
-def run(lanes: list[Lane], plans: torch.Tensor,
-        output: torch.Tensor, scen: int) -> None:
-    """Drive `lanes` over the rows of `plans`, writing each block's
-    metrics into ``out[start*s : end*s]``.
+def _shrink(lane: Lane) -> bool:
+    """OOM recovery. True → the lane keeps working with less."""
+    if lane.block_rows > 1:
+        lane.block_rows = max(1, lane.block_rows // 2)
+        return True
+    if lane.device.type == "cpu" and lane.pool is not None \
+            and lane.workers > 1:
+        lane.workers = max(1, lane.workers // 2)
+        lane.pool.shutdown(wait=True)
+        lane.pool = (_pool.make(lane.workers)
+                     if lane.workers > 1 else None)
+        lane.block_rows = lane.cap_rows
+        return True
+    lane.alive = False
+    memory.empty(lane.device)
+    return False
 
-    Lanes pull blocks concurrently; ``out`` slots are disjoint per row
-    range so assembly is order-free and bit-identical to serial.
-    """
-    n_rows = plans.shape[0]
-    lock = threading.Lock()
-    abort = threading.Event()
-    errors: list[BaseException] = []
-    position = [0]
 
-    def take(lane: Lane) -> tuple[int, int]:
-        """Steady state: uniform pulls (max graph/ctx reuse). Tail zone
-        (remaining fits in one round of blocks): fair-share split so no
-        lane idles while another straggles."""
-        with lock:
-            remaining = n_rows - position[0]
-            if remaining <= 0:
-                return 0, 0
-            live = max(1, sum(1 for l in lanes if l.alive))
-            k = (lane.block_rows if remaining > lane.block_rows * live
-                 else max(1, remaining // live))
-            k = min(k, remaining)
-            start = position[0]
-            position[0] += k
-            return start, k
+def _split(lanes: list[Lane],
+           ranges: list[tuple[int, int]]) -> list[tuple[Lane, list]]:
+    """Contiguous rate-proportional apportion of pending row ranges.
+    Deterministic: identical rates → identical row→lane assignment."""
+    total = sum(hi - lo for lo, hi in ranges)
+    rates = [lane.rate for lane in lanes]
+    if sum(rates) <= 0:
+        rates = [1.0] * len(lanes)
+    scale = total / sum(rates)
+    want = [rate * scale for rate in rates]
+    counts = [int(w) for w in want]
+    order = sorted(range(len(lanes)),
+                   key=lambda i: want[i] - counts[i], reverse=True)
+    for i in order[:total - sum(counts)]:
+        counts[i] += 1
+    out = [(lane, []) for lane in lanes]
+    spans = iter(ranges)
+    lo, hi = next(spans)
+    for (_, parts), n in zip(out, counts):
+        while n > 0:
+            if lo == hi:
+                lo, hi = next(spans)
+            take = min(n, hi - lo)
+            parts.append((lo, lo + take))
+            lo += take
+            n -= take
+    return out
 
-    def give_back(k: int) -> None:
-        with lock:
-            position[0] -= k
 
-    def shrink(lane: Lane) -> bool:
-        """OOM recovery. True → lane keeps working with less."""
-        if lane.block_rows > 1:
-            lane.block_rows = max(1, lane.block_rows // 2)
-            return True
-        if lane.device.type == "cpu" and lane.pool is not None \
-                and lane.workers > 1:
-            lane.workers = max(1, lane.workers // 2)
-            lane.pool.shutdown(wait=True)
-            lane.pool = (_pool.make(lane.workers)
-                         if lane.workers > 1 else None)
-            lane.block_rows = lane.cap_rows
-            return True
-        lane.alive = False
-        memory.empty(lane.device)
-        return False
-
-    def drive(lane: Lane) -> None:
-        while not abort.is_set():
-            start, k = take(lane)
-            if k <= 0:
-                return
-            block = plans[start:start + k]
+def _drive(lane: Lane, ranges: list[tuple[int, int]],
+           plans: torch.Tensor, output: torch.Tensor, scen: int,
+           pending: list, lock: threading.Lock, abort: threading.Event,
+           errors: list, deaths: list) -> None:
+    """Serial driver over a lane's contiguous ranges, chunked by
+    block_rows. OOM shrinks and retries in place; lane death releases the
+    lane's remaining range into `pending` for survivors."""
+    for lo, hi in ranges:
+        start = lo
+        while start < hi and not abort.is_set():
+            k = min(lane.block_rows, hi - start)
             try:
-                result = lane.function(lane, start, block)
+                result = lane.function(lane, start, plans[start:start + k])
             except Exception as exception:
                 if not out_of_memory(exception):
                     errors.append(exception)
                     abort.set()
                     return
-                give_back(k)
-                if not shrink(lane) and not any(l.alive for l in lanes):
-                    errors.append(exception)
-                    abort.set()
+                if not _shrink(lane):
+                    deaths.append((lane.name, exception))
+                    with lock:
+                        pending.append((start, hi))
+                    return
                 continue
             try:
                 _store(lane, output, start, k, scen, result)
@@ -175,14 +177,42 @@ def run(lanes: list[Lane], plans: torch.Tensor,
                 errors.append(exception)
                 abort.set()
                 return
+            start += k
 
-    drivers = [threading.Thread(target=drive, args=(l,), daemon=True,
-                                name=f"nasa-farm-{l.name}")
-               for l in lanes if l.alive]
-    for t in drivers:
-        t.start()
-    for t in drivers:
-        t.join()
+
+def run(lanes: list[Lane], plans: torch.Tensor,
+        output: torch.Tensor, scen: int) -> None:
+    """Drive `lanes` over the rows of `plans`, writing each block's
+    metrics into ``output[start*s : end*s]``.
+
+    Rows split contiguously ∝ each lane's measured rate — identical rates
+    give an identical row→lane assignment, so reruns are bit-identical
+    (per-device float rounding aside). Lanes chunk their own range by
+    block_rows — uniform block *times* bound the tail straggler. When a
+    lane dies, its uncovered range is re-split among survivors; only when
+    every lane is dead does the original error raise.
+    """
+    lock = threading.Lock()
+    abort = threading.Event()
+    errors: list[BaseException] = []
+    deaths: list[tuple[str, BaseException]] = []
+    pending = [(0, plans.shape[0])]
+    while pending and not abort.is_set():
+        active = [l for l in lanes if l.alive]
+        if not active:
+            break
+        pending_next = pending
+        pending = []
+        drivers = [threading.Thread(
+            target=_drive,
+            args=(lane, parts, plans, output, scen,
+                  pending, lock, abort, errors, deaths),
+            daemon=True, name=f"nasa-farm-{lane.name}")
+            for lane, parts in _split(active, pending_next)]
+        for t in drivers:
+            t.start()
+        for t in drivers:
+            t.join()
     for lane in lanes:
         if lane.copy_s is not None:
             lane.copy_s.synchronize()
@@ -190,6 +220,9 @@ def run(lanes: list[Lane], plans: torch.Tensor,
             lane.comp_s.synchronize()
     if errors:
         raise errors[0]
+    if pending:
+        raise deaths[-1][1] if deaths else RuntimeError(
+            f"{pending} plan rows left unevaluated")
 
 
 def _store(lane: Lane, output: torch.Tensor, start: int, k: int,
