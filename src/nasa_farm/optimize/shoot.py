@@ -68,7 +68,7 @@ def shoot_fit(model, field: Field, forcing, actions,
     f = field
     with torch.no_grad():
         for t in range(days):
-            f, _ = model.step(f, actions.day(t), forcing.day(t))
+            f, _ = model.step(f, actions.day(t), forcing.day(t), t)
             if t in {b[0] - 1 for b in bounds[1:]}:
                 snap[t + 1] = torch.stack(
                     [_get_var(f.state, n)[0] for n in var_names])
@@ -89,7 +89,7 @@ def shoot_fit(model, field: Field, forcing, actions,
                 f = Field(state=st, soil=f.soil, lat=f.lat,
                           elev=f.elev, ctx=f.ctx)
             for t in range(t0, t1):
-                f, _ = model.step(f, actions.day(t), forcing.day(t))
+                f, _ = model.step(f, actions.day(t), forcing.day(t), t)
                 if t in obs_days:
                     row = t // every
                     pred = observables(f.state, channels)

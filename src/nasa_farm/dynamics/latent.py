@@ -43,8 +43,13 @@ class LatentDyn(nn.Module):
                 ctx: torch.Tensor | None = None,
                 gen: torch.Generator | None = None
                 ) -> tuple[torch.Tensor, torch.Tensor]:
-        x = torch.cat([feats, z] + ([] if self.ctx_dim == 0 else
-                                    [ctx.to(feats.dtype)]), dim=-1)
+        if self.ctx_dim:
+            c = ctx if ctx is not None else torch.zeros(
+                feats.shape[0], self.ctx_dim,
+                dtype=feats.dtype, device=feats.device)
+            x = torch.cat([feats, z, c.to(feats.dtype)], dim=-1)
+        else:
+            x = torch.cat([feats, z], dim=-1)
         if zh is None:
             zh = torch.zeros(feats.shape[0], self.h_dim,
                              dtype=feats.dtype, device=feats.device)
@@ -60,6 +65,11 @@ class LatentDyn(nn.Module):
                           dtype=mu.dtype, device=mu.device)
         self.kl = 0.5 * (mu.pow(2) + sig.pow(2) - logvar - 1.0).mean()
         return z + mu + sig * eps, zh
+
+    def seed(self, z: torch.Tensor) -> torch.Tensor:
+        """Obs embedding → initial latent state (identity for a flat
+        latent; HLatent overrides to pad upper levels)."""
+        return z
 
     def unroll(self, feats_seq: torch.Tensor, z: torch.Tensor,
                zh: torch.Tensor | None = None, ctx: torch.Tensor | None = None,
@@ -186,3 +196,64 @@ class PatchEncoder(nn.Module):
 
     def forward(self, patch: torch.Tensor) -> torch.Tensor:
         return self.net(patch)
+
+
+class TopKSAE(nn.Module):
+    """Top-k sparse autoencoder over latents — decomposes z into a sparse
+    dictionary of candidate factors (mechanistic interpretability):
+    `features(z)` exposes which sparse units are active, `recon` keeps the
+    decomposition lossless. Top-k activation gives a fixed activation
+    budget without an L1 knob to tune."""
+
+    def __init__(self, dim: int, n_feat: int, topk: int,
+                 seed: int | None = None) -> None:
+        super().__init__()
+        if seed is not None:
+            torch.manual_seed(seed)
+        self.topk = topk
+        self.enc = nn.Linear(dim, n_feat)
+        self.dec = nn.Linear(n_feat, dim, bias=False)
+        self.bias = nn.Parameter(torch.zeros(dim, dtype=torch.float64))
+        with torch.no_grad():
+            self.dec.weight.div_(
+                self.dec.weight.norm(dim=0, keepdim=True) + 1e-9)
+        self.to(torch.float64)
+
+    def features(self, z: torch.Tensor) -> torch.Tensor:
+        """Sparse activations (…, F): top-k ReLU units per row."""
+        a = self.enc(z - self.bias)
+        v, idx = a.topk(self.topk, dim=-1)
+        return torch.zeros_like(a).scatter_(-1, idx, v.clamp_min(0.0))
+
+    def forward(self, z: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+        f = self.features(z)
+        return f @ self.dec.weight.t() + self.bias, f
+
+
+def sae_fit(sae: TopKSAE, z_stream: torch.Tensor, epochs: int = 100,
+            lr: float = 1e-3, verbose: bool = False) -> dict:
+    """Adam fit of the dictionary on a (N, K) latent stream; returns the
+    final reconstruction error and per-unit firing rates — dead features
+    are visible directly in `rate`."""
+    zs = z_stream.reshape(-1, z_stream.shape[-1])
+    opt = torch.optim.Adam(sae.parameters(), lr=lr)
+    best, hist = float("inf"), []
+    for ep in range(1, epochs + 1):
+        opt.zero_grad(set_to_none=True)
+        recon, f = sae(zs)
+        loss = (recon - zs).pow(2).mean()
+        if not torch.isfinite(loss):
+            break
+        loss.backward()
+        opt.step()
+        with torch.no_grad():
+            sae.dec.weight.div_(
+                sae.dec.weight.norm(dim=0, keepdim=True) + 1e-9)
+        v = float(loss.detach())
+        hist.append(v)
+        best = min(best, v)
+        if verbose and ep % 25 == 0:
+            print(f"  epoch {ep}: sae {v:.5f}")
+    rate = (sae.features(zs) > 0).to(zs.dtype).mean(0)
+    return {"best_loss": round(best, 8), "history": hist,
+            "rate": rate.detach()}

@@ -58,7 +58,7 @@ def policy_actions(policy: PolicyNet, model, field: Field,
             u = policy(f)
             irr[:, t], fert[:, t] = u[:, 0], u[:, 1]
             ad = {**ad, "irrigation": u[:, 0], "n_fert": u[:, 1]}
-            fld, _ = model.step(fld, ad, forcing.day(t))
+            fld, _ = model.step(fld, ad, forcing.day(t), t)
     return Actions(sow=base.sow, irrigation=irr, n_fert=fert)
 
 
@@ -86,7 +86,7 @@ def distill(model, field: Field, forcing: Forcing, base: Actions,
             u = policy(f)
             loss = loss + ((u[:, 0] - teacher.irrigation[:, t]) ** 2
                            + (u[:, 1] - teacher.n_fert[:, t]) ** 2).mean()
-            f0, _ = model.step(f0, ad, forcing.day(t))
+            f0, _ = model.step(f0, ad, forcing.day(t), t)
         loss.backward()
         opt.step()
     return policy, teacher
@@ -127,7 +127,7 @@ def policy_grad(model, field: Field, forcing: Forcing, base: Actions,
             u = policy(_day_feats(model, fld.state, forcing.day(t), ad))
             ad = {**ad, "irrigation": u[:, 0] * u_scale,
                   "n_fert": u[:, 1] * u_scale}
-            fld, fl = model.step(fld, ad, forcing.day(t))
+            fld, fl = model.step(fld, ad, forcing.day(t), t)
             acc(t, fld.state, fl)
         m = acc.result().unsqueeze(1)                # (B, 1, H, M)
         reward = metric_reward(m, weights, risk, alpha).mean()
@@ -135,3 +135,79 @@ def policy_grad(model, field: Field, forcing: Forcing, base: Actions,
         torch.nn.utils.clip_grad_norm_(policy.parameters(), 1.0)
         opt.step()
     return policy
+
+
+class FlowPolicy(nn.Module):
+    """Conditional flow-matching action-chunk generator.
+
+    v(a_t, t | feats) over a whole H-day action chunk (2H dims): sampling
+    integrates the learned velocity field from noise to a full schedule
+    in a few Euler steps. Unlike PolicyNet's unimodal rates, a flow keeps
+    multimodal schedules alive (e.g. bimodal early-vs-late irrigation);
+    `flow_act` turns a draw into the `base_mu` warm start of mppi."""
+
+    def __init__(self, horizon: int, hidden: int = 128, depth: int = 3,
+                 seed: int | None = None) -> None:
+        super().__init__()
+        if seed is not None:
+            torch.manual_seed(seed)
+        self.horizon = horizon
+        d = 2 * horizon + N_FEATURES + 1
+        layers: list[nn.Module] = []
+        for _ in range(depth):
+            layers += [nn.Linear(d, hidden), nn.SiLU()]
+            d = hidden
+        layers += [nn.Linear(d, 2 * horizon)]
+        self.net = nn.Sequential(*layers)
+        self.to(torch.float64)
+
+    def forward(self, a: torch.Tensor, t: torch.Tensor,
+                feats: torch.Tensor) -> torch.Tensor:
+        return self.net(torch.cat(
+            [a, t.to(a.dtype).expand(a.shape[0], 1), feats], dim=-1))
+
+
+def fit_flow(policy: FlowPolicy, chunks: torch.Tensor,
+             feats: torch.Tensor, epochs: int = 200,
+             lr: float = 1e-3, seed: int = 0) -> dict:
+    """CFM on (state-feats, action-chunk) demonstrations.
+
+    chunks: (N, 2H) flattened schedules; feats: (N, N_FEATURES) state
+    features at chunk start. Target velocity v = a − ε."""
+    gen = torch.Generator().manual_seed(seed)
+    opt = torch.optim.Adam(policy.parameters(), lr=lr)
+    a1, f = chunks.to(DTYPE), feats.to(DTYPE)
+    n, hist = a1.shape[0], []
+    for _ in range(epochs):
+        i = torch.randint(0, n, (n,), generator=gen)
+        t = torch.rand(n, 1, generator=gen, dtype=DTYPE)
+        eps = torch.randn(a1.shape, generator=gen, dtype=DTYPE)
+        pred = policy((1.0 - t) * eps + t * a1[i], t, f[i])
+        loss = (pred - (a1[i] - eps)).pow(2).mean()
+        opt.zero_grad(set_to_none=True)
+        loss.backward()
+        opt.step()
+        hist.append(float(loss.detach()))
+    return {"best_loss": round(min(hist), 8), "history": hist}
+
+
+def flow_sample(policy: FlowPolicy, feats: torch.Tensor, n: int = 1,
+                steps: int = 8, seed: int = 0) -> torch.Tensor:
+    """feats (B, N_FEATURES) → (B·n, 2H) schedule chunks."""
+    gen = torch.Generator().manual_seed(seed)
+    b = feats.shape[0]
+    f = feats.repeat_interleave(n, dim=0).to(DTYPE)
+    a = torch.randn(b * n, 2 * policy.horizon, generator=gen, dtype=DTYPE)
+    for s in range(steps):
+        t = torch.full((b * n, 1), s / steps, dtype=DTYPE)
+        a = a + policy(a, t, f) / steps
+    return a.clamp(min=0.0)
+
+
+def flow_act(policy: FlowPolicy, model, field: Field,
+             forcing: Forcing, base: Actions,
+             seed: int = 0) -> torch.Tensor:
+    """Draw a schedule chunk and return it as mppi's (2, T) `base_mu`."""
+    f = _day_feats(model, field.state, forcing.day(0), base.day(0))
+    a = flow_sample(policy, f, n=1, seed=seed)[0]
+    return a.reshape(2, policy.horizon)

@@ -62,6 +62,8 @@ CHANNELS: dict[str, Callable[[FieldState], torch.Tensor]] = {
     "tb_h": lambda s: radiometer.tb(
         sm_vol(s), vwc(s), ts=s.tair + 273.15)[0],
     "et": lambda s: s.et,
+    "openet": lambda s: s.et,      # OpenET ensemble daily ET (field-scale)
+    "sme2": lambda s: sm_vol(s, 0),  # NISAR L3 SME2 ~ 0-5 cm VSM
     "tws": tws,
     "lst": lst,
     "n2o": lambda s: s.n2o,

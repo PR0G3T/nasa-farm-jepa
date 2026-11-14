@@ -10,7 +10,7 @@ from __future__ import annotations
 import datetime as dt
 from concurrent.futures import ThreadPoolExecutor
 
-import httpx
+import httpx2 as httpx
 import torch
 
 from nasa_farm.acquire.base import Temporal

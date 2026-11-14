@@ -7,7 +7,6 @@ enumeration → exact Pareto front + priority-weighted ranking.
 from __future__ import annotations
 
 import argparse
-import dataclasses
 import datetime as dt
 import json
 import sys
@@ -16,35 +15,28 @@ import tomllib
 import torch
 
 from nasa_farm import CropLibrary, Field, WorldModel, initial_state
-from nasa_farm.acquire.power import PowerClient
-from nasa_farm.acquire.soilgrids import SoilGridsClient
 from nasa_farm.constants import DTYPE
 from nasa_farm.control import mppi
 from nasa_farm.exp import Spec, experiments
 from nasa_farm.exp import run as exp_run
-from nasa_farm.forcing import (
-    augment, climatology_ensemble, synthetic_year, tile_to_horizon,
-)
+from nasa_farm.forcing import augment, synthetic_year, tile_to_horizon
 from nasa_farm.optimize.hpo import gradient_hpo
 from nasa_farm.optimize.nas import nas_search
 from nasa_farm.optimize.targets import (
     season_metrics, synthetic_observation, trajectory_loss,
 )
 from nasa_farm.optimize.trainer import fit, leaf
-from nasa_farm.plan import enumerate_rotations, evaluate, recommend
+from nasa_farm.service import SCENARIO_KEYS, PlanRequest, Point, plan
 from nasa_farm.state.crops import IDX
-from nasa_farm.state.soil import DEPTHS, SoilProfile
+from nasa_farm.state.soil import SoilProfile
+
+DEFAULT_CROPS_ARG = "maize,soybean,wheat,clover,fallow"
 
 
-def _build_parser() -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser(prog="nasa-farm")
-    sub = p.add_subparsers(dest="cmd", required=True)
-
-    pl = sub.add_parser("plan", help="rank rotations for a field")
-    pl.add_argument("--lat", type=float, required=True)
-    pl.add_argument("--lon", type=float, required=True)
+def _plan_flags(pl: argparse.ArgumentParser) -> None:
+    """Shared compute flags for `plan` and `export` — one definition."""
     pl.add_argument("--horizon", type=int, default=3, help="rotation length, years")
-    pl.add_argument("--crops", default="maize,soybean,wheat,clover,fallow")
+    pl.add_argument("--crops", default=DEFAULT_CROPS_ARG)
     pl.add_argument("--years", type=int, default=5, help="climatology depth")
     pl.add_argument("--delta-t", type=float, default=0.0, help="+°C scenario shift")
     pl.add_argument("--precip-scale", type=float, default=1.0)
@@ -66,6 +58,33 @@ def _build_parser() -> argparse.ArgumentParser:
     pl.add_argument("--co2", type=float, default=420.0, help="ppm scenario")
     pl.add_argument("--offline", action="store_true", help="synthetic forcing, no network")
     pl.add_argument("--no-residual", action="store_true")
+
+
+def _build_parser() -> argparse.ArgumentParser:
+    p = argparse.ArgumentParser(prog="nasa-farm")
+    sub = p.add_subparsers(dest="cmd", required=True)
+
+    pl = sub.add_parser("plan", help="rank rotations for a field")
+    _plan_flags(pl)
+    pl.add_argument("--lat", type=float, required=True)
+    pl.add_argument("--lon", type=float, required=True)
+
+    ex2 = sub.add_parser("export", help="batch plan → static JSON for the app")
+    _plan_flags(ex2)
+    ex2.add_argument("--fields", required=True,
+                     help="fields JSON path, or '-' for stdin")
+    ex2.add_argument("--out", required=True, help="output JSON path")
+    ex2.add_argument("--scenario", action="append", default=None,
+                     help="name[:k=v,...] — repeatable; k ∈ "
+                          + ",".join(sorted(SCENARIO_KEYS)))
+
+    sv = sub.add_parser("serve", help="HTTP API (granian + fastapi)")
+    sv.add_argument("--host", default="127.0.0.1")
+    sv.add_argument("--port", type=int, default=8000)
+    sv.add_argument("--workers", type=int, default=1,
+                    help="granian worker processes")
+    sv.add_argument("--tunnel", action="store_true",
+                    help="cloudflared quick tunnel → public URL")
 
     cal = sub.add_parser("calibrate", help="gradient HPO on a trait cell")
     cal.add_argument("--lat", type=float, required=True)
@@ -149,10 +168,10 @@ def _build_parser() -> argparse.ArgumentParser:
 def _argv_with_config(argv: list[str]) -> list[str]:
     """`--config file.toml` → flags injected after the subcommand, so any
     flag the user typed still wins (argparse takes the last occurrence).
-    Section = subcommand name (`[plan]`, `[calibrate]`, `[nas]`,
+    Section = subcommand name (`[plan]`, `[export]`, `[calibrate]`, `[nas]`,
     `[control]`, `[exp]`); flat keys also work."""
     if "--config" not in argv or not argv or argv[0] not in (
-            "plan", "calibrate", "nas", "control", "exp"):
+            "plan", "export", "calibrate", "nas", "control", "exp"):
         return argv
     i = argv.index("--config")
     with open(argv[i + 1], "rb") as fh:
@@ -168,65 +187,104 @@ def _argv_with_config(argv: list[str]) -> list[str]:
     return [argv[0], *flags, *argv[1:]]
 
 
-def _forcings(args) -> list:
-    if args.offline:
-        return [synthetic_year(args.lat, seed=y) for y in range(args.years)]
-    last = dt.date.today().year - 1
-    return PowerClient().forcing_years(
-        args.lat, args.lon, list(range(last - args.years + 1, last + 1)))
+def _req(args, points: list[Point], **over) -> PlanRequest:
+    kw = dict(horizon=args.horizon, crops=args.crops.split(","),
+              years=args.years, delta_t=args.delta_t,
+              precip_scale=args.precip_scale, irrig=args.irrig,
+              fert=args.fert, co2=args.co2, soil=args.soil,
+              residual=not args.no_residual, offline=args.offline,
+              top_k=args.top_k,
+              depths=([float(x) for x in args.depths.split(",")]
+                      if args.depths else None))
+    kw.update(over)
+    return PlanRequest(points=points, **kw)
 
 
 def cmd_plan(args) -> int:
-    crops = CropLibrary.default()
-    crop_idx = [crops.index(c) for c in args.crops.split(",")]
-    plans = enumerate_rotations(crop_idx, args.horizon)
-
-    ens = climatology_ensemble(_forcings(args), args.horizon,
-                               delta_t=args.delta_t,
-                               precip_scale=args.precip_scale)
-    ens = dataclasses.replace(
-        ens, co2=torch.full_like(ens.tmin, args.co2))
-
-    depths = (tuple(float(x) for x in args.depths.split(","))
-              if args.depths else DEPTHS)
-    if args.soil:
-        soil = SoilProfile.preset(args.soil, depths=depths)
-    elif args.offline:
-        soil = SoilProfile.preset("loam", depths=depths)
-    else:
-        soil = SoilGridsClient().profile(args.lat, args.lon)
-
-    field = Field(state=initial_state(1, soil), soil=soil,
-                  lat=torch.tensor([args.lat], dtype=DTYPE))
-
-    model = WorldModel(crops, residual=not args.no_residual)
-    ev = evaluate(model, field, plans, ens,
-                  irr_mm_day=args.irrig, n_fert_kg=args.fert,
-                  workers=args.workers, device=args.device,
-                  compile=args.compile)
-    rec = recommend(ev, top_k=min(args.top_k, plans.shape[0]))
-
-    out = {
-        "plans_evaluated": int(plans.shape[0]),
-        "scenarios": int(ens.batch),
-        "pareto": [
-            {"rotation": [crops.names[c] for c in plans[i].tolist()],
-             "rank": int((rec["ranking"] == i).nonzero().flatten()[0])
-             if (rec["ranking"] == i).any() else None,
-             **{k: round(float(v[i]), 2)
-                for k, v in rec["objectives"].items()}}
-            for i in rec["pareto_idx"].tolist()
-        ],
-        "top": [
-            {"rotation": [crops.names[c] for c in plans[i].tolist()],
-             "score": round(float(rec["scores"][i]), 4),
-             **{k: round(float(v[i]), 2)
-                for k, v in rec["objectives"].items()}}
-            for i in rec["ranking"].tolist()
-        ],
-    }
-    json.dump(out, sys.stdout, indent=2)
+    res = plan(_req(args, [Point(lat=args.lat, lon=args.lon)]),
+               workers=args.workers, device=args.device,
+               compile=args.compile).results[0]
+    if res.status != "ok":
+        sys.stderr.write(f"{res.detail}\n")
+        return 1
+    json.dump(res.model_dump(
+        include={"plans_evaluated", "scenarios", "pareto", "top"}),
+        sys.stdout, indent=2)
     sys.stdout.write("\n")
+    return 0
+
+
+def _scenarios(specs: list[str] | None) -> dict[str, dict[str, float]]:
+    """`name:k=v,...` specs → ordered {name: overrides}; bare name → {}."""
+    out: dict[str, dict[str, float]] = {"baseline": {}}
+    for spec in specs or ():
+        name, _, rest = spec.partition(":")
+        kv = dict((k, float(v)) for k, _, v in
+                  (p.partition("=") for p in rest.split(",") if p))
+        bad = set(kv) - SCENARIO_KEYS
+        if bad:
+            raise SystemExit(f"scenario {name!r}: keys {sorted(bad)} "
+                             f"∉ {sorted(SCENARIO_KEYS)}")
+        out[name] = kv
+    return out
+
+
+def cmd_export(args) -> int:
+    from pathlib import Path
+
+    from nasa_farm import __version__
+
+    src = (sys.stdin.read() if args.fields == "-"
+           else Path(args.fields).read_text())
+    raw = json.loads(src)
+    items = raw if isinstance(raw, list) else raw.get(
+        "fields", raw.get("points", []))
+    points = [Point(id=str(f["id"]), lat=f["lat"], lon=f["lon"])
+              for f in items]
+    meta = {str(f["id"]): {k: f[k] for k in ("name", "crop", "ha") if k in f}
+            for f in items}
+
+    scenarios = _scenarios(args.scenario)
+    out = {"version": __version__,
+           "generated": dt.datetime.now(dt.UTC).isoformat(timespec="seconds"),
+           "request": {"horizon": args.horizon, "crops": args.crops.split(","),
+                       "years": args.years, "irrig": args.irrig,
+                       "fert": args.fert, "co2": args.co2,
+                       "offline": args.offline},
+           "fields": meta, "scenarios": {}}
+    for name, over in scenarios.items():
+        res = plan(_req(args, points, **over),
+                   workers=args.workers, device=args.device,
+                   compile=args.compile)
+        fields = {}
+        for i, r in enumerate(res.results):
+            if r.point.id:
+                fields[r.point.id] = r.model_dump(exclude={"point"})
+            sys.stderr.write(
+                f"{name} [{i + 1}/{len(res.results)}] "
+                f"{r.point.id or r.point.lat} {r.status}"
+                f"{f' — {r.detail}' if r.detail else ''}\n")
+        out["scenarios"][name] = {"params": over, "fields": fields}
+    Path(args.out).write_text(json.dumps(out) + "\n")
+    sys.stderr.write(f"wrote {args.out}\n")
+    return 0
+
+
+def cmd_serve(args) -> int:
+    try:
+        from granian import Granian
+        from granian.constants import Interfaces
+    except ImportError:
+        sys.stderr.write("serve extra required: uv sync --extra serve\n")
+        return 2
+    from nasa_farm.server import tunnel
+    proc = tunnel(args.port) if args.tunnel else None
+    try:
+        Granian("nasa_farm.server:app", address=args.host, port=args.port,
+                interface=Interfaces.ASGI, workers=args.workers).serve()
+    finally:
+        if proc is not None:
+            proc.terminate()
     return 0
 
 
@@ -407,6 +465,10 @@ def main(argv: list[str] | None = None) -> int:
     match args.cmd:
         case "plan":
             return cmd_plan(args)
+        case "export":
+            return cmd_export(args)
+        case "serve":
+            return cmd_serve(args)
         case "calibrate":
             return cmd_calibrate(args)
         case "nas":

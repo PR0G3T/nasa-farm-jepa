@@ -6,7 +6,7 @@ Units returned are scaled integers (e.g. clay in g/kg → /10 for %).
 
 from __future__ import annotations
 
-import httpx
+import httpx2 as httpx
 import torch
 
 from nasa_farm.constants import DTYPE

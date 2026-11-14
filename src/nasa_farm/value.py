@@ -73,7 +73,7 @@ def fit_value(model, field: Field, forcing: Forcing, actions: Actions,
         for t in range(days):
             if t in grid:
                 snap[t] = f.state.clone()
-            f, _ = model.step(f, actions.day(t), forcing.day(t))
+            f, _ = model.step(f, actions.day(t), forcing.day(t), t)
 
     net = net or ValueNet()
     xs, ys = [], []

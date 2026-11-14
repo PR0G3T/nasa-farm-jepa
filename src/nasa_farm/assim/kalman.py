@@ -42,7 +42,7 @@ def _put_vars(state: FieldState, names: tuple[str, ...],
         if n == "sw0":
             sw[:, 0] = x[:, i]
         elif n == "swr" and state.n_layers > 1:
-            root = sw[:, 1:]
+            root = sw[:, 1:].clone()
             w = root / root.sum(-1, keepdim=True).clamp(min=1e-9)
             sw[:, 1:] = (root
                          + (x[:, i] - root.sum(-1)).unsqueeze(-1) * w).clamp(min=0.0)
@@ -141,5 +141,5 @@ def _replace_state(field: Field, state: FieldState) -> Field:
 def _slice_rollout(model, field: Field, forcing: Forcing, actions: Actions,
                    t0: int, t1: int) -> Field:
     for t in range(t0, t1):
-        field, _ = model.step(field, actions.day(t), forcing.day(t))
+        field, _ = model.step(field, actions.day(t), forcing.day(t), t)
     return field

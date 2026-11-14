@@ -127,7 +127,7 @@ def fit_filter(model, field: Field, forcing, actions,
     f = field
     with torch.inference_mode():
         for t in range(forcing.days):
-            f, _ = model.step(f, actions.day(t), forcing.day(t))
+            f, _ = model.step(f, actions.day(t), forcing.day(t), t)
             if t % every == every - 1:
                 truth = torch.stack(
                     [_get_var(f.state, n)[0] for n in var_names])

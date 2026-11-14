@@ -1,6 +1,6 @@
 """SoilGrids client — payload parsing into SoilProfile."""
 
-import httpx
+import httpx2 as httpx
 import pytest
 
 from nasa_farm.acquire.soilgrids import (

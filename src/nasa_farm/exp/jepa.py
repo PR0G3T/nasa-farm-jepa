@@ -68,19 +68,21 @@ def _obs_fit(model, field: Field, forcing, actions,
 
 
 def _eval(model, sc, spec: Spec, encoder=None,
-          w: torch.Tensor | None = None) -> dict:
-    """Held-out obs-space RMSE per channel; probe decoding when w given."""
+          w: torch.Tensor | None = None, field=None) -> dict:
+    """Held-out obs-space RMSE per channel; probe decoding when w given.
+    `field` overrides the scene field (adapted z0/ctx eval arms)."""
     out: dict[str, list[float]] = {}
     k = model.latent.dim if model.latent else 0
     with torch.inference_mode():
         for i in range(sc.forcing_t.batch):
             f_t = sc.realization(i)
             obs_true, _ = _trace(sc.truth, sc.field, f_t, sc.actions, spec)
-            field = sc.field
+            field_ = field if field is not None else sc.field
             if encoder is not None:
-                field = seeded(field, encoder(obs_true[:, 0]),
-                               model.latent.h_dim)
-            obs_pred, z_pred = _trace(model, field, f_t, sc.actions, spec, k)
+                field_ = seeded(field_, model.latent.seed(
+                    encoder(obs_true[:, 0])), model.latent.h_dim)
+            obs_pred, z_pred = _trace(model, field_, f_t, sc.actions,
+                                      spec, k)
             pred = (z_pred @ w if w is not None else obs_pred)[0]
             for j, ch in enumerate(spec.obs_channels):
                 out.setdefault(ch, []).append(
@@ -111,6 +113,19 @@ def run(spec: Spec) -> dict:
     w = _ridge(rep["z_pred"][:, 1:], obs_cal[:, 1:])
     ev_jep = _eval(m_j, sc, spec, encoder=enc, w=w)
 
+    # Hierarchical arm (optional): same protocol, HLatent dynamics
+    ev_hier = None
+    if spec.hier:
+        m_h = WorldModel(sc.crops, residual=True, latent_dim=k,
+                         latent_strides=spec.hier, seed=spec.seed)
+        enc_h = ObsEncoder(obs_dim=c, z_dim=k)
+        rep_h = jepa_fit(m_h, enc_h, sc.field, f0, a0, ch,
+                         every=spec.obs_every, ema=spec.ema,
+                         sig_weight=spec.sig_weight, epochs=spec.epochs,
+                         obs_tgt=obs_cal)
+        w_h = _ridge(rep_h["z_pred"][:, 1:], obs_cal[:, 1:])
+        ev_hier = _eval(m_h, sc, spec, encoder=enc_h, w=w_h)
+
     # Supervised arms, identical obs-fit budget; the hybrid arm's residual
     # is fitted on the z-seeded field so its ctx input is live.
     m_r = WorldModel(sc.crops, residual=True, seed=spec.seed)
@@ -133,9 +148,14 @@ def run(spec: Spec) -> dict:
 
     z_rmse = float((rep["z_pred"][:, 1:] - rep["z_tgt"][:, 1:]).pow(2)
                    .mean().sqrt())
-    return {"latent": {"dim": k, "sigreg_final": rep["sigreg_final"],
-                       "z_std_final": rep["z_std_final"],
-                       "best_loss": rep["best_loss"],
-                       "epochs_run": rep["epochs_run"]},
-            "z_pred_rmse": round(z_rmse, 6),
-            "channels": per_ch}
+    out = {"latent": {"dim": k, "sigreg_final": rep["sigreg_final"],
+                      "z_std_final": rep["z_std_final"],
+                      "best_loss": rep["best_loss"],
+                      "epochs_run": rep["epochs_run"]},
+           "z_pred_rmse": round(z_rmse, 6),
+           "channels": per_ch}
+    if ev_hier is not None:
+        out["hier"] = {"strides": list(spec.hier),
+                       "channels": ev_hier,
+                       "best_loss": rep_h["best_loss"]}
+    return out

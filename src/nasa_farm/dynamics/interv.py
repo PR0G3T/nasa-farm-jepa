@@ -152,7 +152,7 @@ def whatif(model, field: Field, forcing: Forcing, actions: Actions,
     """Counterfactual query: roll to `day`, apply the edit (+ optional
     learned response), roll to the end. Returns the final field."""
     for t in range(day):
-        field, fl = model.step(field, actions.day(t), forcing.day(t))
+        field, fl = model.step(field, actions.day(t), forcing.day(t), t)
         if observer is not None:
             observer(t, field.state, fl)
     s = edit_state(field.state, mask, vals, field.soil)
@@ -164,7 +164,7 @@ def whatif(model, field: Field, forcing: Forcing, actions: Actions,
     field = Field(state=s, soil=field.soil, lat=field.lat, elev=field.elev,
                   ctx=field.ctx)
     for t in range(day, forcing.days):
-        field, fl = model.step(field, actions.day(t), forcing.day(t))
+        field, fl = model.step(field, actions.day(t), forcing.day(t), t)
         if observer is not None:
             observer(t, field.state, fl)
     return field
@@ -190,7 +190,7 @@ def fit_response(model, resp: ResponseNet, field: Field, forcing: Forcing,
     f = field
     with torch.inference_mode():
         for t in range(forcing.days - 1):
-            f, _ = model.step(f, actions.day(t), forcing.day(t))
+            f, _ = model.step(f, actions.day(t), forcing.day(t), t)
             if t in cand:
                 snap[t] = (f.state.clone(), forcing.day(t), actions.day(t))
 
@@ -215,8 +215,8 @@ def fit_response(model, resp: ResponseNet, field: Field, forcing: Forcing,
                                elev=field.elev, ctx=field.ctx)
                     fb = Field(state=st, soil=field.soil, lat=field.lat,
                                elev=field.elev, ctx=field.ctx)
-                    d_t = get_vars(model.step(fs, ad, fd)[0].state) \
-                        - get_vars(model.step(fb, ad, fd)[0].state)
+                    d_t = get_vars(model.step(fs, ad, fd, t)[0].state) \
+                        - get_vars(model.step(fb, ad, fd, t)[0].state)
                 edited = torch.where(m, v, get_vars(st))
                 pred = resp(feats, edited, m, field.ctx)
                 total = total + (((pred - d_t) * (~m).to(DTYPE)) /

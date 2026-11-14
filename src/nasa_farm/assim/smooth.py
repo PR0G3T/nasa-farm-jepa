@@ -1,0 +1,132 @@
+"""Ensemble-subspace variational smoothing (LEVDA-flavored 4DEnVar).
+
+A 4D smoother needs gradients through the whole window — exactly what a
+differentiable surrogate provides. The unknowns (initial-state and trait
+perturbations) are parameterized in the low-rank subspace spanned by a
+prior ensemble's anomalies:
+
+    x = x̄ + A·c / √(E−1),   c ∈ R^E  (mean-removed)
+
+so the posterior search lives in ≪D dimensions, the prior regularizer is
+simply ½‖c‖², and no adjoint or tangent-linear model is needed — Adam on
+the rollout χ² does the integration in sequence space.
+"""
+
+from __future__ import annotations
+
+import math
+
+import torch
+
+from nasa_farm.assim.kalman import (
+    STATE_VARS, Observation, _get_var, _put_vars,
+)
+from nasa_farm.constants import DTYPE
+from nasa_farm.observe import observables
+from nasa_farm.state.crops import IDX
+from nasa_farm.state.field import Field
+from nasa_farm.types import Actions, Forcing
+
+
+def _prior_state_ens(state: FieldState, var_names: tuple[str, ...],
+                     ens: int, sigma: float,
+                     gen: torch.Generator) -> torch.Tensor:
+    """(E, V) prior draws: log-normal jitter of the editable initial state."""
+    x0 = torch.stack([_get_var(state, n) for n in var_names], -1)[0]
+    j = 1.0 + sigma * torch.randn(ens, x0.numel(), generator=gen,
+                                  dtype=DTYPE, device=x0.device)
+    return (x0.unsqueeze(0) * j).clamp(min=0.0)
+
+
+def esv_smooth(model, field: Field, forcing: Forcing, actions: Actions,
+               schedule: list[Observation],
+               var_names: tuple[str, ...] = STATE_VARS,
+               free_params: tuple[str, ...] = (), crop_idx: int = 0,
+               ens: int = 32, sigma: float = 0.05, epochs: int = 60,
+               lr: float = 0.05, seed: int = 0) -> tuple[Field, dict]:
+    """Joint state+trait smoother over the whole window.
+
+    The prior ensemble jitters the editable initial state (and the listed
+    trait cells log-normally); the analysis is the prior mean plus a
+    coefficient vector in the anomaly subspace, fit by minimizing the
+    schedule's obs χ² + ½‖c‖² through the differentiable rollout.
+    Returns the smoothed field and a report (χ², recovered coefficients).
+    """
+    gen = torch.Generator().manual_seed(seed)
+    sched = sorted(schedule, key=lambda o: o.t)
+
+    xs = _prior_state_ens(field.state, var_names, ens, sigma, gen)
+    x_bar = xs.mean(0)
+    ax = (xs - x_bar) / math.sqrt(ens - 1)                 # (E, V)
+
+    p_cols = torch.tensor([IDX[p] for p in free_params],
+                          dtype=torch.long) if free_params else None
+    if p_cols is not None:
+        base_p = model.crop_table[crop_idx, p_cols]
+        ps = base_p.log().unsqueeze(0) + sigma * torch.randn(
+            ens, p_cols.numel(), generator=gen, dtype=DTYPE)
+        p_bar = ps.mean(0)
+        ap = (ps - p_bar) / math.sqrt(ens - 1)             # (E, P)
+    else:
+        p_bar = torch.zeros(0, dtype=DTYPE)
+        ap = torch.zeros(ens, 0, dtype=DTYPE)
+
+    c_x = torch.zeros(ens, dtype=DTYPE, requires_grad=True)
+    c_p = torch.zeros(ens, dtype=DTYPE, requires_grad=True)
+    leaves = [c_x] + ([c_p] if p_cols is not None else [])
+    opt = torch.optim.Adam(leaves, lr=lr)
+    base_tbl = model.crop_table.detach().clone()
+    obs_t = {o.t: o for o in sched}
+
+    def chi2() -> torch.Tensor:
+        x = x_bar + (c_x - c_x.mean()) @ ax
+        if p_cols is not None:
+            tbl = base_tbl.clone()
+            tbl[crop_idx, p_cols] = (p_bar + (c_p - c_p.mean()) @ ap).exp()
+            model.crop_table = tbl
+        st = _put_vars(field.state, var_names, x.unsqueeze(0))
+        f = Field(state=st, soil=field.soil, lat=field.lat,
+                  elev=field.elev, ctx=field.ctx)
+        total = torch.zeros((), dtype=DTYPE)
+        with torch.enable_grad():
+            for t in range(forcing.days):
+                f, _ = model.step(f, actions.day(t), forcing.day(t), t)
+                if t in obs_t:
+                    o = obs_t[t]
+                    pred = observables(f.state, o.channels)[0]
+                    r = (pred - o.values.to(pred.dtype)) / \
+                        torch.as_tensor(o.std, dtype=pred.dtype)
+                    total = total + r.pow(2).sum()
+        return total
+
+    best, best_c, hist = float("inf"), None, []
+    for _ in range(epochs):
+        opt.zero_grad(set_to_none=True)
+        loss = chi2() + 0.5 * (c_x.pow(2).sum() + c_p.pow(2).sum())
+        if not torch.isfinite(loss):
+            break
+        loss.backward()
+        torch.nn.utils.clip_grad_norm_(leaves, 1.0)
+        opt.step()
+        hist.append(float(loss.detach()))
+        if hist[-1] < best:
+            best, best_c = hist[-1], (c_x.detach().clone(),
+                                      c_p.detach().clone())
+
+    model.crop_table = base_tbl
+    if best_c is None:
+        return field, {"chi2": float("nan"), "epochs_run": 0}
+    cx, cp = best_c
+    x_fin = x_bar + (cx - cx.mean()) @ ax
+    if p_cols is not None:
+        tbl = base_tbl.clone()
+        tbl[crop_idx, p_cols] = (p_bar + (cp - cp.mean()) @ ap).exp()
+        model.crop_table = tbl
+    st = _put_vars(field.state, var_names, x_fin.unsqueeze(0))
+    out = Field(state=st, soil=field.soil, lat=field.lat,
+                elev=field.elev, ctx=field.ctx)
+    fitted = ({p: float(model.crop_table[crop_idx, IDX[p]])
+               for p in free_params} if p_cols is not None else {})
+    return out, {"chi2": round(best, 6), "epochs_run": len(hist),
+                 "c_state_norm": round(float(cx.norm()), 4),
+                 "params": fitted}

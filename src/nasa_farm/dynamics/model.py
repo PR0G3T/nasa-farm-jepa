@@ -23,6 +23,7 @@ from nasa_farm.dynamics import water
 from nasa_farm.dynamics.atmosphere import (
     day_length, et0_penman_monteith, extraterrestrial_radiation,
 )
+from nasa_farm.dynamics.hjepa import HLatent
 from nasa_farm.dynamics.latent import LatentDyn
 from nasa_farm.dynamics.residual import RESIDUAL_VARS, ResidualNet, featurize
 from nasa_farm.state.crops import IDX, CropLibrary
@@ -40,6 +41,7 @@ class WorldModel(nn.Module):
     def __init__(self, crops: CropLibrary | None = None, residual: bool = True,
                  latent_dim: int = 0, latent_hidden: int = 64,
                  stochastic: bool = False, ctx_dim: int = 0,
+                 latent_strides: tuple[int, ...] = (),
                  diffusion: bool = False,
                  nn_dtype: torch.dtype = DTYPE,
                  seed: int | None = None) -> None:
@@ -47,15 +49,29 @@ class WorldModel(nn.Module):
         self.crops = crops or CropLibrary.default()
         self.register_buffer("crop_table", self.crops.table)
         self.nn_dtype = nn_dtype
+        # Variety embeddings (G×E): a learnable per-crop vector appended to
+        # the latent ctx each step, so cultivar identity conditions residual
+        # dynamics. Kept out of crop_table — it is a model parameter.
+        self.var_emb = (nn.Parameter(self.crops.var.clone())
+                        if self.crops.var is not None else None)
+        z_dim = latent_dim * max(len(latent_strides), 1)
+        lctx = ctx_dim + (self.var_emb.shape[1] if self.var_emb is not None
+                          else 0)
         # latent z conditions the residual: what the physics does not model
         # gets to correct the physics — the physics-anchored JEPA contract.
         # diffusion=True: the residual also emits process-noise variances,
         # sampled with self._gen — learned aleatoric model uncertainty on
         # top of forcing scenarios (neural-SDE layer).
-        self.residual = (ResidualNet(ctx_dim=latent_dim, diffusion=diffusion)
+        self.residual = (ResidualNet(ctx_dim=z_dim, diffusion=diffusion)
                          if residual else None)
-        self.latent = (LatentDyn(latent_dim, latent_hidden, stochastic, ctx_dim)
-                       if latent_dim else None)
+        self.latent = None
+        if latent_dim:
+            if len(latent_strides) > 1:
+                self.latent = HLatent(latent_dim, latent_hidden,
+                                      latent_strides, stochastic, lctx)
+            else:
+                self.latent = LatentDyn(latent_dim, latent_hidden,
+                                        stochastic, lctx)
         self._gen = (torch.Generator().manual_seed(seed)
                      if seed is not None else None)
         if nn_dtype != DTYPE:
@@ -125,7 +141,17 @@ class WorldModel(nn.Module):
             biomass=(state.biomass + upd["biomass"]).clamp(min=0.0),
         )
 
-    def step(self, field: Field, action: dict, forcing_d: dict) -> tuple[Field, dict]:
+    def _dctx(self, field: Field) -> torch.Tensor | None:
+        """Dynamic conditioning ctx = static site ctx + variety embedding
+        of the currently sown crop — cultivar/G×E identity reaches the
+        latent the day sowing changes crop."""
+        if self.var_emb is None:
+            return field.ctx
+        v = self.var_emb[field.state.crop.clamp(min=0)]
+        return v if field.ctx is None else torch.cat([field.ctx, v], -1)
+
+    def step(self, field: Field, action: dict, forcing_d: dict,
+             t: int = 0) -> tuple[Field, dict]:
         s = field.state
         fb = forcing_d["tmin"].shape[0]
         if s.batch == 1 and fb > 1:
@@ -238,8 +264,10 @@ class WorldModel(nn.Module):
             if self.residual is not None:
                 new_state = self._apply_residual(new_state, field.soil, feats)
             if self.latent is not None and z is not None:
+                hier = isinstance(self.latent, HLatent)
                 z2, zh2 = self._nn(self.latent, feats, new_state.z, zh,
-                                   field.ctx, self._gen)
+                                   self._dctx(field), self._gen,
+                                   *((t,) if hier else ()))
                 new_state = new_state.replace(z=z2, zh=zh2)
 
         fluxes = {**wflux, **nflux, **c2flux,
@@ -273,7 +301,8 @@ class WorldModel(nn.Module):
             ckpt = 0  # no backward possible → no activation-memory win
         if not ckpt:
             for t in range(forcing.days):
-                field, fluxes = self.step(field, actions.day(t), forcing.day(t))
+                field, fluxes = self.step(field, actions.day(t),
+                                          forcing.day(t), t)
                 if observer is not None:
                     observer(t, field.state, fluxes)
             return field
@@ -316,7 +345,7 @@ class WorldModel(nn.Module):
                 for t in range(_t1 - _t0):
                     fd = {k: e[j][:, t] for j, k in enumerate(FORCING_VARS)}
                     ad = {k: e[nf + j][:, t] for j, k in enumerate(avars)}
-                    f, fl = self.step(f, ad, fd)
+                    f, fl = self.step(f, ad, fd, _t0 + t)
                     if a is not None:
                         a = fold(a, _t0 + t, day_update(f.state, fl))
                 tail = () if a is None else (a,)

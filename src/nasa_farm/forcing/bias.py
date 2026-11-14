@@ -79,3 +79,64 @@ def apply_qmap(f: Forcing, qm: QMap) -> Forcing:
                    precip=out["precip"].clamp(min=0.0),
                    rh=out["rh"].clamp(0.0, 100.0),
                    u2=out["u2"].clamp(min=0.0), doy=f.doy, co2=f.co2)
+
+
+@dataclass(frozen=True, slots=True)
+class EnsBC:
+    """Probabilistic ensemble bias correction: per-(variable, window)
+    mean offset and spread scale for a forecast ensemble — the ensemble
+    analogue of `QMap` (calibrates the distribution, not each member
+    independently)."""
+
+    bias: torch.Tensor    # (V, W) — subtracted from every member
+    gamma: torch.Tensor   # (V, W) — anomaly (spread) rescale
+    windows: int
+
+
+def fit_ensbc(fcst: Forcing, ref: Forcing, windows: int = 12) -> EnsBC:
+    """fcst: (S, T) forecast ensemble; ref: (R, T) reference years on the
+    same doy axis. Learns per-(variable, window) mean offset of the
+    ensemble mean vs reference, and the spread ratio reference/ensemble
+    (spread-skill recalibration)."""
+    span = DAYS_PER_YEAR / windows
+    w = (fcst.doy[0] - 1).div(span).floor().long().clamp(0, windows - 1)
+    bias, gamma = [], []
+    for k in QMAP_VARS:
+        ens = getattr(fcst, k).to(DTYPE)              # (S, T)
+        rv = getattr(ref, k).to(DTYPE)                # (R, T)
+        eb = ens.mean(0)                              # ensemble mean (T,)
+        b_row, g_row = [], []
+        for wi in range(windows):
+            sel = w == wi
+            if not sel.any():
+                b_row.append(torch.zeros((), dtype=DTYPE))
+                g_row.append(torch.ones((), dtype=DTYPE))
+                continue
+            ref_sel = rv[:, sel].flatten()
+            b_row.append((eb[sel].mean() - ref_sel.mean()))
+            anom_ref = ref_sel - ref_sel.mean()
+            anom_ens = (ens[:, sel] - eb[sel]).flatten()
+            g_row.append(anom_ref.std() / anom_ens.std().clamp(min=1e-9))
+        bias.append(torch.stack(b_row))
+        gamma.append(torch.stack(g_row).clamp(0.25, 4.0))
+    return EnsBC(torch.stack(bias), torch.stack(gamma), windows)
+
+
+def apply_ensbc(f: Forcing, bc: EnsBC) -> Forcing:
+    """Apply to each member: x' = x̄ − δ + γ·(x − x̄) — recenter and
+    recalibrate spread, preserving member rank order (no re-sampling)."""
+    span = DAYS_PER_YEAR / bc.windows
+    w = (f.doy[0] - 1).div(span).floor().long().clamp(0, bc.windows - 1)
+    out = {}
+    for vi, k in enumerate(QMAP_VARS):
+        x = getattr(f, k).to(DTYPE)                    # (S, T)
+        xm = x.mean(0, keepdim=True)
+        d = bc.bias[vi][w].unsqueeze(0)
+        g = bc.gamma[vi][w].unsqueeze(0)
+        out[k] = xm - d + g * (x - xm)
+    return Forcing(tmin=out["tmin"],
+                   tmax=torch.maximum(out["tmax"], out["tmin"]),
+                   srad=out["srad"].clamp(min=0.5),
+                   precip=out["precip"].clamp(min=0.0),
+                   rh=out["rh"].clamp(0.0, 100.0),
+                   u2=out["u2"].clamp(min=0.0), doy=f.doy, co2=f.co2)

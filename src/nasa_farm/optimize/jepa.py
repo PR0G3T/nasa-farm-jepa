@@ -65,25 +65,31 @@ def jepa_fit(model, encoder, field: Field, forcing: Forcing,
     best_params = {n: p.detach().clone() for n, p in named}
 
     def unroll() -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-        """(z_pred (B,N,K), targets (B,N,C), online-embed source)."""
+        """(z_pred (B,N,K*), targets (B,N,C), online-embed source).
+        K* = K for a flat latent, L·K packed for a hierarchical one."""
         if obs_tgt is not None:
-            f = seeded(field, encoder(obs_tgt[:, 0]), h)
+            f = seeded(field, model.latent.seed(encoder(obs_tgt[:, 0])), h)
             tr = JEPATrace(forcing.days, k, channels, every=every)
             model.rollout(f, forcing, actions, observer=tr)
             _, z_pred = tr.result()
             return z_pred, obs_tgt, obs_tgt
-        f = seeded(field, encoder(observables(field.state, channels)), h)
+        f = seeded(field, model.latent.seed(
+            encoder(observables(field.state, channels))), h)
         tr = JEPATrace(forcing.days, k, channels, every=every)
         model.rollout(f, forcing, actions, observer=tr)
         obs, z_pred = tr.result()
         return z_pred, obs, obs
 
     def step_loss() -> torch.Tensor:
+        from nasa_farm.dynamics.hjepa import HLatent, hjepa_loss
         z_pred, targets, src = unroll()
-        pred = (z_pred[:, 1:] - tgt(targets)[:, 1:]).pow(2).mean()
+        pred = (hjepa_loss(z_pred, tgt(targets), model.latent, every)
+                if isinstance(model.latent, HLatent)
+                else (z_pred[:, 1:] - tgt(targets)[:, 1:]).pow(2).mean())
         kl = model.latent.kl if kl_weight else torch.zeros((), dtype=DTYPE)
+        enc = encoder(src)
         return pred + sig_weight * sigreg(
-            encoder(src).reshape(-1, k)) + kl_weight * kl
+            enc.reshape(-1, enc.shape[-1])) + kl_weight * kl
 
     for ep in range(1, epochs + 1):
         opt.zero_grad(set_to_none=True)
@@ -112,7 +118,8 @@ def jepa_fit(model, encoder, field: Field, forcing: Forcing,
         z_pred, targets, src = unroll()
         z_tgt = tgt(targets)
         z_std = float(encoder(src).std())
-        sig = float(sigreg(encoder(src).reshape(-1, k)))
+        enc = encoder(src)
+        sig = float(sigreg(enc.reshape(-1, enc.shape[-1])))
     return {"best_loss": round(best, 8), "history": history,
             "epochs_run": len(history), "tgt": tgt,
             "z_pred": z_pred.detach(), "z_tgt": z_tgt.detach(),

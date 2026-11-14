@@ -70,7 +70,7 @@ def _truth(sc, spec: Spec, forcing, obs_days: set[int],
     acc = SeasonAccumulator(1, spec.horizon)
     f = sc.field
     for t in range(forcing.days):
-        f, fl = sc.truth.step(f, sc.actions.day(t), forcing.day(t))
+        f, fl = sc.truth.step(f, sc.actions.day(t), forcing.day(t), t)
         acc(t, f.state, fl)
         if t in obs_days:
             o = observables(f.state, spec.obs_channels)[0]
@@ -130,7 +130,7 @@ def _variant(sc, spec: Spec, forcing_t, tr_obs: dict, tr_state: dict,
 
     with torch.inference_mode():
         for t in range(days):
-            fld, fl = model.step(fld, acts.day(t), forcing.day(t))
+            fld, fl = model.step(fld, acts.day(t), forcing.day(t), t)
             acc(t, fld.state, fl)
             if t not in tr_obs:
                 continue

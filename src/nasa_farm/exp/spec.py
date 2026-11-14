@@ -37,6 +37,7 @@ class Spec:
     """seasonal METRICS channels fitted and scored (heads.METRICS names)."""
     alphas: tuple[float, ...] = (0.1,)   # interval levels for PICP/scores
     latent_dim: int = 8                  # JEPA latent size (0 disables)
+    hier: tuple[int, ...] = ()           # latent strides; () = flat JEPA
     ema: float = 0.996                   # target-encoder momentum
     sig_weight: float = 1.0              # SIGReg strength
     epochs: int = 120

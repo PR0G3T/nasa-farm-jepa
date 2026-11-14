@@ -6,7 +6,7 @@ indexes it uniformly — adding a crop is a data change, never a code change.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 import torch
 
@@ -58,16 +58,30 @@ PERENNIAL = {"alfalfa", "clover"}  # gdd_sen/gdd_mat=1e9 → never matures in-se
 
 @dataclass(frozen=True, slots=True)
 class CropLibrary:
-    """Immutable crop trait table (C, P) plus name index."""
+    """Immutable crop trait table (C, P) plus name index.
+
+    `var`: optional (C, Dv) variety embedding table — the G×E axis.
+    Cultivar identity rides the latent's ctx input (WorldModel.var_emb)
+    so two cultivars of the same crop can learn different residuals and
+    dynamics without touching the physics traits."""
 
     table: torch.Tensor  # (C, P)
     names: tuple[str, ...]
+    var: torch.Tensor | None = None  # (C, Dv) variety embeddings
 
     @classmethod
     def default(cls) -> "CropLibrary":
         names = tuple(_LIBRARY)
         table = torch.tensor([_LIBRARY[n] for n in names], dtype=DTYPE)
         return cls(table=table, names=names)
+
+    def with_var(self, dim: int,
+                 seed: int | None = None) -> "CropLibrary":
+        """Attach a small learnable variety embedding per crop."""
+        g = torch.Generator().manual_seed(seed) if seed is not None else None
+        var = 0.02 * torch.randn(self.table.shape[0], dim,
+                                 generator=g, dtype=DTYPE)
+        return replace(self, var=var)
 
     def index(self, name: str) -> int:
         return self.names.index(name)
@@ -98,4 +112,7 @@ class CropLibrary:
         row = row.clone()
         row[IDX["sow_doy"]] = row[IDX["sow_doy"]].round()
         table = torch.cat([self.table, row.unsqueeze(0)], dim=0)
-        return CropLibrary(table=table, names=self.names + (name,))
+        var = None if self.var is None else torch.cat(
+            [self.var, (frac * self.var[i] + (1.0 - frac) * self.var[j])
+             .unsqueeze(0)], dim=0)
+        return CropLibrary(table=table, names=self.names + (name,), var=var)

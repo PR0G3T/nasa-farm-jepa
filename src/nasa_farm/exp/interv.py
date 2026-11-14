@@ -129,7 +129,7 @@ def run(spec: Spec) -> dict:
     def run_edit(mdl):
         f = sc.field
         for t in range(day):
-            f, _ = mdl.step(f, sc.actions.day(t), f_t.day(t))
+            f, _ = mdl.step(f, sc.actions.day(t), f_t.day(t), t)
         cur = f.state
         st_e = edit_state(cur, mask,
                           torch.full((1, e), 400.0, dtype=DTYPE), f.soil)
@@ -137,8 +137,8 @@ def run(spec: Spec) -> dict:
                    ctx=f.ctx)
         fa, fb = f, fe
         for t in range(day, f_t.days):
-            fa, _ = mdl.step(fa, sc.actions.day(t), f_t.day(t))
-            fb, _ = mdl.step(fb, sc.actions.day(t), f_t.day(t))
+            fa, _ = mdl.step(fa, sc.actions.day(t), f_t.day(t), t)
+            fb, _ = mdl.step(fb, sc.actions.day(t), f_t.day(t), t)
         return fb.state.biomass, fb.state.sw.sum(-1), fb.state.n_min
 
     resp = {}

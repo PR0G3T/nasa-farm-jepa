@@ -7,6 +7,8 @@ filter (FilterNet/fit_filter).
 `langevin`: physics-exact gradient-guided posterior on initial states.
 `design`: Bayesian experimental design — EIG ranking and ordered
 acquisition calendars.
+`smooth`: ensemble-subspace variational smoother (joint state+trait
+4DEnVar through the differentiable rollout).
 """
 
 from nasa_farm.assim.kalman import (
@@ -18,10 +20,11 @@ from nasa_farm.assim.latent import (
 )
 from nasa_farm.assim.langevin import ula_posterior
 from nasa_farm.assim.design import design_schedule, eig, plan_schedule
+from nasa_farm.assim.smooth import esv_smooth
 
 __all__ = [
     "FilterNet", "Observation", "STATE_VARS", "assimilate",
     "design_schedule", "eig", "enkf_update", "ensf_lr_update",
-    "ensf_update", "fit_filter", "net_update", "plan_schedule",
-    "ula_posterior",
+    "ensf_update", "esv_smooth", "fit_filter", "net_update",
+    "plan_schedule", "ula_posterior",
 ]

@@ -61,8 +61,8 @@ class JEPATrace:
             self.z = state.sw.new_zeros(state.batch, self.n, self.z_dim)
         i = t // self.every
         self.obs[:, i] = observables(state, self.channels)
-        if state.z is not None:
-            self.z[:, i] = state.z
+        if state.z is not None and self.z_dim:
+            self.z[:, i] = state.z[:, :self.z_dim]
 
     def result(self) -> tuple[torch.Tensor, torch.Tensor]:
         """(obs (B, N, C), z (B, N, K))."""
