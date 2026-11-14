@@ -357,11 +357,11 @@ class WorldModel(nn.Module):
                 f = cls(state=FieldState(**dict(zip(names, arguments[:off]))),
                         **static)
                 for t in range(_t1 - _t0):
-                    fd = {k: e[j][:, t] for j, k in enumerate(FORCING_VARS)}
+                    weather = {k: e[j][:, t] for j, k in enumerate(FORCING_VARS)}
                     action = {k: e[nf + j][:, t] for j, k in enumerate(avars)}
-                    f, fl = self.step(f, action, fd, _t0 + t)
+                    f, flows = self.step(f, action, weather, _t0 + t)
                     if a is not None:
-                        a = fold(a, _t0 + t, day_update(f.state, fl))
+                        a = fold(a, _t0 + t, day_update(f.state, flows))
                 tail = () if a is None else (a,)
                 return tuple(getattr(f.state, n) for n in names) + tail
 

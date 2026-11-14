@@ -50,8 +50,8 @@ class TestIntervalCoverage:
         y = torch.randn(400, 2, generator=g, dtype=DTYPE) \
             * torch.tensor([1.0, 5.0], dtype=DTYPE)
         cal, test = y[:200], y[200:]
-        sc = SplitConformal(alpha=0.1).fit(torch.zeros_like(cal), cal)
-        low, high = sc.bound(torch.zeros_like(test))
+        scenario = SplitConformal(alpha=0.1).fit(torch.zeros_like(cal), cal)
+        low, high = scenario.bound(torch.zeros_like(test))
         assert low.shape == test.shape
         for c in range(2):
             assert 0.85 <= coverage(test[:, c], low[:, c], high[:, c]) <= 0.97

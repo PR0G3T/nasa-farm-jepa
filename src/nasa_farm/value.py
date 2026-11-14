@@ -77,12 +77,12 @@ def fit_value(model, field: Field, forcing: Forcing, actions: Actions,
 
     net = net or Value()
     xs, ys = [], []
-    for t, st in snapshot.items():
-        f = Field(state=st, soil=field.soil, latitude=field.latitude,
+    for t, saved in snapshot.items():
+        f = Field(state=saved, soil=field.soil, latitude=field.latitude,
                   elevation=field.elevation, context=field.context)
         y = _suffix_reward(model, f, forcing, actions, t, weights, risk,
                            alpha)
-        features = model._features(st, forcing.day(min(t, days - 1)),
+        features = model._features(saved, forcing.day(min(t, days - 1)),
                                 actions.day(min(t, actions.days - 1)))
         xs.append(features)
         ys.append(y)

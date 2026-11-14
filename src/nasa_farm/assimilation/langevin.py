@@ -44,8 +44,8 @@ def langevin_posterior(model, field: Field, forcing, actions,
     chain: list[torch.Tensor] = []
 
     for it in range(steps):
-        st = _put_variables(field.state, names, logx.exp().unsqueeze(0))
-        f = Field(state=st, soil=field.soil, latitude=field.latitude,
+        updated = _put_variables(field.state, names, logx.exp().unsqueeze(0))
+        f = Field(state=updated, soil=field.soil, latitude=field.latitude,
                   elevation=field.elevation, context=field.context)
         predicted = series(model, f, forcing, actions, channels, every)
         logp = -series_loss(predicted, observed) \
@@ -62,7 +62,7 @@ def langevin_posterior(model, field: Field, forcing, actions,
     index = torch.linspace(0, len(chain) - 1, n_samples).long()
     output = []
     for i in index.tolist():
-        st = _put_variables(field.state, names, chain[i].exp().unsqueeze(0))
-        output.append(Field(state=st, soil=field.soil, latitude=field.latitude,
+        updated = _put_variables(field.state, names, chain[i].exp().unsqueeze(0))
+        output.append(Field(state=updated, soil=field.soil, latitude=field.latitude,
                          elevation=field.elevation, context=field.context))
     return output

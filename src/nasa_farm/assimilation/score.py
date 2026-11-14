@@ -60,12 +60,13 @@ def _likelihood_grad(z: torch.Tensor, state: FieldState,
     with torch.inference_mode(False):
         zz = z.detach().clone()
 
-        def h_one(xi):
-            st = _put_variables(state, names, xi.unsqueeze(0))
-            return observables(st, channels)[0]
+        def h_batch(xb):
+            updated = _put_variables(state, names, xb)
+            return observables(updated, channels)
 
-        h_z, jac = torch.func.vmap(
-            torch.func.value_and_grad(h_one))(zz)
+        full = torch.func.jacrev(h_batch)(zz)         # (B,C,B,V)
+        jac = full.diagonal(dim1=0, dim2=2).permute(2, 0, 1)  # (B,C,V)
+        h_z = h_batch(zz)
     return torch.einsum("bcv,bv->bv", jac, (y - h_z) @ r_inv)
 
 

@@ -219,17 +219,17 @@ def _accelerator_block(lane: schedule.Lane, start: int, block: torch.Tensor,
         k, h = block.shape
         s = lane.ensemble.batch
         plans_d = lane.stage.in_(block)
-        acts = _expand_ri(plans_d, lane.model.crop_table, s,
+        actions = _expand_ri(plans_d, lane.model.crop_table, s,
                           irr_mm_day, n_fert_kg)
-        acts_t = tuple(getattr(acts, n) for n in ACTION_VARS)
+        action_values = tuple(getattr(actions, n) for n in ACTION_VARS)
         if lane.use_graph and lane.graphs is not None \
                 and lane.field.batch == 1:
             rep = lane.graphs.get((k, s, lane.ensemble.days),
-                                  _graphed(lane, start, k, s, h), acts_t)
+                                  _graphed(lane, start, k, s, h), action_values)
             if rep is not None:
-                return rep(*acts_t)
+                return rep(*action_values)
         field, forcing, accumulate = _block_ctx(lane, start, k, s, h)
-        return _core(lane.model, field, forcing, acts, accumulate)
+        return _core(lane.model, field, forcing, actions, accumulate)
 
 
 def _processor_block(lane: schedule.Lane, start: int, block: torch.Tensor,
@@ -357,12 +357,12 @@ def _save_compile_cache() -> None:
 
 def _telemetry(lanes: list[schedule.Lane], mons: dict[str, Monitor],
                r: int, s: int, days: int) -> dict:
-    fd = r * s * days
+    forcing_day = r * s * days
     j = sum(m.joules() for m in mons.values())
     return {
-        "field_days": fd,
+        "field_days": forcing_day,
         "joules": j,
-        "j_per_field_day": j / fd if fd else 0.0,
+        "j_per_field_day": j / forcing_day if forcing_day else 0.0,
         "lanes": {l.name: {"rate_plans_s": l.rate,
                            "graph": l.use_graph, "alive": l.alive,
                            "block_rows": l.block_rows}

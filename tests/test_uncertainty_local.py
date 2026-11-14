@@ -24,9 +24,9 @@ class TestLocal:
         cal, test = slice(0, 300), slice(300, 400)
         z = torch.zeros(300, 1, dtype=DTYPE)
         lc = LocalConformal(alpha=0.1).fit(z, y[cal], x[cal])
-        sc = SplitConformal(alpha=0.1).fit(z, y[cal])
+        scenario = SplitConformal(alpha=0.1).fit(z, y[cal])
         lo_l, hi_l = lc.bound(torch.zeros(100, 1, dtype=DTYPE), x[test])
-        lo_s, hi_s = sc.bound(torch.zeros(100, 1, dtype=DTYPE))
+        lo_s, hi_s = scenario.bound(torch.zeros(100, 1, dtype=DTYPE))
         assert float((hi_l - lo_l).mean()) == pytest.approx(
             float((hi_s - lo_s).mean()), rel=0.35)
 
@@ -49,10 +49,10 @@ class TestLocal:
         cal, test = slice(0, 1500), slice(1500, 2000)
         z = torch.zeros(1500, dtype=DTYPE)
         lc = LocalConformal(alpha=0.1, bandwidth=0.3).fit(z, y[cal], x[cal])
-        sc = SplitConformal(alpha=0.1).fit(
+        scenario = SplitConformal(alpha=0.1).fit(
             torch.zeros(1500, 1, dtype=DTYPE), y[cal].unsqueeze(1))
         lo_l, hi_l = lc.bound(torch.zeros(500, dtype=DTYPE), x[test])
-        lo_s, hi_s = sc.bound(torch.zeros(500, 1, dtype=DTYPE))
+        lo_s, hi_s = scenario.bound(torch.zeros(500, 1, dtype=DTYPE))
         lo_s, hi_s = lo_s.squeeze(1), hi_s.squeeze(1)
         hard = x[test, 0].abs() > 0.8
         assert coverage(y[test][hard], lo_l[hard], hi_l[hard]) >= \

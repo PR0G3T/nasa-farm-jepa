@@ -68,9 +68,9 @@ def test_provider_dispatch(warm_year):
 def test_design_schedule_ranks(physics_model, field, warm_year):
     from nasa_farm.assimilation import design_schedule, eigen
     f = _short(warm_year, 40)
-    acts = Actions.idle(8, 40)
+    actions = Actions.idle(8, 40)
     field = field.repeat(8)
-    ranked = design_schedule(physics_model, field, f, acts,
+    ranked = design_schedule(physics_model, field, f, actions,
                              days=(10, 20, 30), channels=("sm", "ndvi"),
                              n_pick=4)
     assert len(ranked) == 4
@@ -228,9 +228,9 @@ def test_landscape_conserves_runoff(physics_model, soil):
                 f.srad.repeat(n, 1),
                 torch.full((n, 10), 80.0, dtype=DTYPE),  # saturated runoff
                 f.rh.repeat(n, 1), f.u2.repeat(n, 1), f.doy.repeat(n, 1))
-    acts = Actions.idle(n, 10)
+    actions = Actions.idle(n, 10)
     ls = Landscape(physics_model, FieldGraph.chain(n, fraction=0.5))
-    output = ls.rollout(field, f, acts)
+    output = ls.rollout(field, f, actions)
     assert output.state.sw.shape == (n, soil_n.n_layers)
     assert ls.pending is not None and float(ls.pending[1]) > 0
 

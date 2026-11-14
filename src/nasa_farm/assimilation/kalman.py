@@ -133,25 +133,25 @@ def assimilate(model, field: Field, forcing: Forcing, actions: Actions,
     generation = torch.Generator().manual_seed(seed)
     t0 = 0
     with torch.inference_mode():
-        for o in sorted(schedule, key=lambda x: x.t):
-            field = _slice_rollout(model, field, forcing, actions, t0, o.t,
+        for observation in sorted(schedule, key=lambda x: x.t):
+            field = _slice_rollout(model, field, forcing, actions, t0, observation.t,
                                    learned_q, generation)
-            predicted = observables(field.state, o.channels)
-            r = o.std ** 2
+            predicted = observables(field.state, observation.channels)
+            r = observation.std ** 2
             if adaptive:
-                r = inflate(o.values - predicted.mean(0), predicted.var(0), r)
-            keywords = {"r": r, "names": names, "channels": o.channels}
+                r = inflate(observation.values - predicted.mean(0), predicted.var(0), r)
+            keywords = {"r": r, "names": names, "channels": observation.channels}
             try:
-                st = update(field.state, predicted, o.values, **keywords,
+                updated = update(field.state, predicted, observation.values, **keywords,
                             perturb=perturb, generation=generation)
             except TypeError:
-                st = update(field.state, predicted, o.values, **keywords)
+                updated = update(field.state, predicted, observation.values, **keywords)
             if r_stat is not None:
-                d_bg = o.values - predicted.mean(0)
-                d_an = o.values - observables(st, o.channels).mean(0)
-                r_stat.update(d_bg, d_an)
-            field = _replace_state(field, st)
-            t0 = o.t
+                d_bg = observation.values - predicted.mean(0)
+                residual = observation.values - observables(updated, observation.channels).mean(0)
+                r_stat.update(d_bg, residual)
+            field = _replace_state(field, updated)
+            t0 = observation.t
         field = _slice_rollout(model, field, forcing, actions, t0,
                                forcing.days, learned_q, generation)
     return field

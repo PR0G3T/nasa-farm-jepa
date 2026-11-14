@@ -91,27 +91,27 @@ class TestExtra:
 
 class TestFactor:
     def test_identity_at_init(self):
-        fd = Factor(4, OPS)
+        forcing_day = Factor(4, OPS)
         features = torch.randn(2, N_FEATURES, dtype=DTYPE)
-        z = torch.randn(2, fd.dim, dtype=DTYPE)
-        z2, zh = fd(features, z, torch.randn(2, fd.hidden_dimension, dtype=DTYPE))
+        z = torch.randn(2, forcing_day.dim, dtype=DTYPE)
+        z2, zh = forcing_day(features, z, torch.randn(2, forcing_day.hidden_dimension, dtype=DTYPE))
         assert torch.equal(z2, z)
-        assert zh.shape == (2, fd.hidden_dimension)
+        assert zh.shape == (2, forcing_day.hidden_dimension)
 
     def test_intervention_selectivity(self):
         torch.manual_seed(0)
-        fd = Factor(2, {"water": OPS["water"], "bio": OPS["bio"]})
+        forcing_day = Factor(2, {"water": OPS["water"], "bio": OPS["bio"]})
         with torch.no_grad():
-            for h in fd.head.values():
+            for h in forcing_day.head.values():
                 h.weight.normal_(0, 0.5)
         features = torch.zeros(1, N_FEATURES, dtype=DTYPE)
-        z = torch.zeros(1, fd.dim, dtype=DTYPE)
-        zh = torch.zeros(1, fd.hidden_dimension, dtype=DTYPE)
+        z = torch.zeros(1, forcing_day.dim, dtype=DTYPE)
+        zh = torch.zeros(1, forcing_day.hidden_dimension, dtype=DTYPE)
         f_irrig = features.clone()
         f_irrig[:, 11] = 5.0          # irrigation column
-        z_a, _ = fd(features, z, zh)
-        z_b, _ = fd(f_irrig, z, zh)
-        w_i, w_d = 0, fd.part_dim     # water slot, bio slot
+        z_a, _ = forcing_day(features, z, zh)
+        z_b, _ = forcing_day(f_irrig, z, zh)
+        w_i, w_d = 0, forcing_day.part_dim     # water slot, bio slot
         d = (z_b - z_a).detach()
         assert float(d[:, w_i:w_i + w_d].abs().sum()) > 0
         assert float(d[:, w_d:].abs().sum()) == 0.0

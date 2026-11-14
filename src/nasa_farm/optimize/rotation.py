@@ -48,11 +48,11 @@ def _rotate_pair(J: torch.Tensor, R: torch.Tensor, i: int, j: int,
     cost = ((Ji.unsqueeze(-1) * c - Jj.unsqueeze(-1) * s).abs().sum((0, 1))
             + (Ji.unsqueeze(-1) * s + Jj.unsqueeze(-1) * c).abs().sum((0, 1)))
     t = th[cost.argmin()]
-    ct, st = t.cos(), t.sin()
-    Ji2, Jj2 = Ji * ct - Jj * st, Ji * st + Jj * ct
+    ct, state = t.cos(), t.sin()
+    Ji2, Jj2 = Ji * ct - Jj * state, Ji * state + Jj * ct
     J[:, :, i], J[:, :, j] = Ji2, Jj2
     Ri, Rj = R[:, i].clone(), R[:, j].clone()
-    R[:, i], R[:, j] = Ri * ct - Rj * st, Ri * st + Rj * ct
+    R[:, i], R[:, j] = Ri * ct - Rj * state, Ri * state + Rj * ct
 
 
 def rotation(h: torch.Tensor, x: torch.Tensor, k: int = 16,

@@ -9,7 +9,7 @@ import tracemalloc
 
 import numpy as numpy
 import pytest
-from hypothesis import given, settings, strategies as st
+from hypothesis import given, settings, strategies as state
 
 from nasa_farm.lake import Lake, migrate
 from nasa_farm.lake.calendar import to_ordinal, to_date
@@ -22,7 +22,7 @@ def _ymd(d: dt.date) -> int:
 
 class TestCal:
     @settings(max_examples=300)
-    @given(st.dates(min_value=dt.date(1200, 1, 1),
+    @given(state.dates(min_value=dt.date(1200, 1, 1),
                     max_value=dt.date(9999, 12, 30)))
     def test_matches_datetime(self, d):
         assert to_ordinal(numpy.array([_ymd(d)]))[0] == d.toordinal()
@@ -54,7 +54,7 @@ class TestSeries:
         d, v = merge(None, numpy.array([]), numpy.array([]))
         assert d.size == 0 and v.size == 0
 
-    @given(st.lists(st.integers(20200101, 20201231), max_size=64))
+    @given(state.lists(state.integers(20200101, 20201231), max_size=64))
     def test_idempotent(self, days):
         random = numpy.random.default_rng(0)
         d = numpy.array(days, numpy.int32)
@@ -63,8 +63,8 @@ class TestSeries:
         m2 = merge(m1, *m1)
         assert numpy.array_equal(m1[0], m2[0]) and numpy.array_equal(m1[1], m2[1])
 
-    @given(st.lists(st.integers(20200101, 20201231), min_size=1, max_size=48),
-           st.lists(st.integers(20200101, 20201231), min_size=1, max_size=48))
+    @given(state.lists(state.integers(20200101, 20201231), min_size=1, max_size=48),
+           state.lists(state.integers(20200101, 20201231), min_size=1, max_size=48))
     def test_merge_model(self, a, b):
         random = numpy.random.default_rng(0)
         data, database = numpy.array(a, numpy.int32), numpy.array(b, numpy.int32)
@@ -78,8 +78,8 @@ class TestSeries:
         assert numpy.array_equal(v, numpy.array(
             [model[k] for k in sorted(model)], numpy.float32))
 
-    @given(st.lists(
-        st.dates(min_value=dt.date(2020, 1, 1),
+    @given(state.lists(
+        state.dates(min_value=dt.date(2020, 1, 1),
                  max_value=dt.date(2020, 12, 31)),
         min_size=1, max_size=48, unique=True))
     def test_codec_roundtrip(self, days):

@@ -91,9 +91,9 @@ class TestPipe:
         assert streams.streams(torch.device("cpu")) == (None, None)
 
     def test_stage_cpu_passthrough(self):
-        st = streams.Stage(torch.device("cpu"), None, None)
+        saved = streams.Stage(torch.device("cpu"), None, None)
         x = torch.ones(4, 2)
-        assert torch.equal(st.in_(x), x)
+        assert torch.equal(saved.in_(x), x)
 
 
 class TestGraphs:
@@ -163,9 +163,9 @@ class TestThermo:
         m = Monitor(torch.device("cuda", 0), hz=200.0, sampler=fake)
         with m:
             time.sleep(0.05)
-        st = m.stats()
-        assert st["samples"] >= 1 and st["joules"] >= 0.0
-        assert st["temp_max_c"] == 50.0
+        saved = m.stats()
+        assert saved["samples"] >= 1 and saved["joules"] >= 0.0
+        assert saved["temp_max_c"] == 50.0
         assert not m.throttled.is_set()
 
     def test_throttle_flag(self):

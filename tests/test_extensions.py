@@ -91,8 +91,8 @@ def test_whatif_holds_edit_and_runs(physics_model, field, warm_year):
     mask[EDIT_VARS.index("n_min")] = True
     values = torch.zeros(1, len(EDIT_VARS), dtype=DTYPE)
     values[:, EDIT_VARS.index("n_min")] = 200.0
-    acts = Actions.idle(1, warm_year.days)
-    f2 = whatif(physics_model, field, warm_year, acts, 100, mask, values)
+    actions = Actions.idle(1, warm_year.days)
+    f2 = whatif(physics_model, field, warm_year, actions, 100, mask, values)
     assert torch.isfinite(f2.state.biomass).all()
 
 
@@ -167,8 +167,8 @@ def test_ensf_lr_updates_and_bounds(physics_model, field, warm_year):
     chans = ("ndvi", "sm1")
     observed_prediction = observables(f.state, chans)
     observed = observed_prediction.mean(0) * 1.05
-    st = score_langevin_update(f.state, observed_prediction, observed, 0.01, steps=3)
-    assert torch.isfinite(st.sw).all() and (st.n_min >= 0).all()
+    saved = score_langevin_update(f.state, observed_prediction, observed, 0.01, steps=3)
+    assert torch.isfinite(saved.sw).all() and (saved.n_min >= 0).all()
 
 
 def test_fit_filter_and_update(physics_model, field, warm_year):
@@ -181,8 +181,8 @@ def test_fit_filter_and_update(physics_model, field, warm_year):
     f = field.repeat(8)
     from nasa_farm.observe import observables
     predicted = observables(f.state, ("ndvi",))
-    st = update(f.state, predicted, predicted.mean(0), 0.01)
-    assert torch.isfinite(_get_variable(st, "sw0")).all()
+    saved = update(f.state, predicted, predicted.mean(0), 0.01)
+    assert torch.isfinite(_get_variable(saved, "sw0")).all()
 
 
 def test_ula_posterior_shapes(physics_model, field, warm_year):
@@ -190,11 +190,11 @@ def test_ula_posterior_shapes(physics_model, field, warm_year):
     from nasa_farm.optimize.targets import ObservedSeries, series
     from nasa_farm.types import FORCING_VARS, Forcing
     f60 = Forcing(*(getattr(warm_year, k)[:, :60] for k in FORCING_VARS))
-    acts = Actions.idle(1, 60)
+    actions = Actions.idle(1, 60)
     with torch.inference_mode():
-        predicted = series(physics_model, field, f60, acts, ("ndvi",), 15)
+        predicted = series(physics_model, field, f60, actions, ("ndvi",), 15)
     observed = ObservedSeries(values=predicted[0])
-    outs = langevin_posterior(physics_model, field, f60, acts, observed, ("ndvi",),
+    outs = langevin_posterior(physics_model, field, f60, actions, observed, ("ndvi",),
                          every=15, steps=6, burn=2, n_samples=3)
     assert len(outs) == 3
     assert all(torch.isfinite(o.state.sw).all() for o in outs)
@@ -234,10 +234,10 @@ def test_shoot_fit_runs(physics_model, field, warm_year):
     from nasa_farm.types import FORCING_VARS, Forcing
     assert shooting_bounds(100, 4) == [(0, 25), (25, 50), (50, 75), (75, 100)]
     f60 = Forcing(*(getattr(warm_year, k)[:, :60] for k in FORCING_VARS))
-    acts = Actions.idle(1, 60)
+    actions = Actions.idle(1, 60)
     with torch.inference_mode():
-        predicted = series(physics_model, field, f60, acts, ("ndvi",), 10)
-    rep = fit_shooting(physics_model, field, f60, acts,
+        predicted = series(physics_model, field, f60, actions, ("ndvi",), 10)
+    rep = fit_shooting(physics_model, field, f60, actions,
                     ObservedSeries(values=predicted[0]), ("ndvi",),
                     every=10, segments=3, epochs=3)
     assert rep["epochs_run"] > 0 and rep["boundary_offset"]
@@ -250,10 +250,10 @@ def test_fit_value_and_mppi_horizon(physics_model, field, warm_year):
     from nasa_farm.control import path_integral
     from nasa_farm.types import FORCING_VARS, Forcing
     f90 = Forcing(*(getattr(warm_year, k)[:, :90] for k in FORCING_VARS))
-    acts = Actions.idle(1, 90)
-    net = fit_value(physics_model, field, f90, acts, every=30, epochs=5)
+    actions = Actions.idle(1, 90)
+    net = fit_value(physics_model, field, f90, actions, every=30, epochs=5)
     assert isinstance(net, Value)
-    result = path_integral(physics_model, field, f90, acts, iterations=1, samples=8,
+    result = path_integral(physics_model, field, f90, actions, iterations=1, samples=8,
                horizon=45, value=net, seed=0)
     assert result.reward == result.reward and result.actions.days == 90
 

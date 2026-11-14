@@ -101,15 +101,15 @@ class TestAssimilate:
         bsw[:, 0] = (initial_state(1, soil).sw[0, 0] - 25.0
                      + torch.linspace(-8.0, 8.0, 16, dtype=DTYPE))
         biased = biased.replace(sw=bsw)
-        acts = Actions(sow.repeat(16, 1), a.irrigation.repeat(16, 1),
+        actions = Actions(sow.repeat(16, 1), a.irrigation.repeat(16, 1),
                        a.n_fert.repeat(16, 1))
         free = physics_model.rollout(
             Field(biased.clone(), soil,
-                  torch.tensor([42.0] * 16, dtype=DTYPE)), forcing, acts)
+                  torch.tensor([42.0] * 16, dtype=DTYPE)), forcing, actions)
         output = assimilate(physics_model,
                          Field(biased, soil,
                                torch.tensor([42.0] * 16, dtype=DTYPE)),
-                         forcing, acts, schedule, seed=0)
+                         forcing, actions, schedule, seed=0)
         err_free = float((free.state.cum_yield.mean()
                           - truth.state.cum_yield).abs())
         err_post = float((output.state.cum_yield.mean()

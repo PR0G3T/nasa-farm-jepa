@@ -1,0 +1,21 @@
+{
+ "experiment": "e5_throughput",
+ "argv": "plan --latitude 42.0 --longitude -93.6 --offline --horizon 3 --years 8 --members 8 --crops maize,soybean,wheat,clover,fallow --no-residual --device auto",
+ "plans": 125,
+ "scenarios": 8,
+ "days": 1095,
+ "field_days": 1095000,
+ "runs_s": [
+  4.343,
+  3.95,
+  4.175
+ ],
+ "best_s": 3.95,
+ "field_days_per_s": 277215,
+ "env": {
+  "python": "3.15.2",
+  "torch": "2.15.0+cu132",
+  "device": "cuda+cpu (auto lanes)",
+  "gpu": "NVIDIA GeForce RTX 4060 Laptop GPU"
+ }
+}

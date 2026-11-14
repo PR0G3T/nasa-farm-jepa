@@ -6,7 +6,7 @@ import math
 import pytest
 import torch
 from hypothesis import given, settings
-from hypothesis import strategies as st
+from hypothesis import strategies as state
 
 from nasa_farm import metrics as mx
 from nasa_farm.constants import DTYPE
@@ -114,7 +114,7 @@ def test_crps_matches_quadratic_form():
     assert mx.crps(e, o) == pytest.approx(float(brute), rel=1e-10)
 
 
-@given(st.integers(min_value=2, max_value=64))
+@given(state.integers(min_value=2, max_value=64))
 @settings(max_examples=16)
 def test_crps_nonnegative(m):
     g = torch.Generator().manual_seed(m)

@@ -24,30 +24,30 @@ from nasa_farm.types import Actions
 @register("cf")
 def run(specification: Specification) -> dict:
     torch.manual_seed(specification.seed)
-    sc = scene(specification)
-    f0, ch = sc.realization(next(iter(sc.held_indices()))), specification.observed_channels
+    scenario = scene(specification)
+    f0, ch = scenario.realization(next(iter(scenario.held_indices()))), specification.observed_channels
     generation = torch.Generator().manual_seed(specification.seed + 57)
 
     # factual obs of the truth realization (noisy, sparse cadence)
     traits = ObservationTrace(f0.days, ch, specification.cadence)
     with torch.inference_mode():
-        sc.truth.rollout(sc.field, f0, sc.actions, observer=traits)
+        scenario.truth.rollout(scenario.field, f0, scenario.actions, observer=traits)
     observed = traits.result() * (1.0 + specification.noise * torch.randn(
         traits.result().shape, generator=generation, dtype=traits.result().dtype))
 
     # alternative management: +15 mm irrigation every 10 days
     t = f0.days
     pulse = ((torch.arange(t) % 10) == 0).to(observed.dtype) * 15.0
-    alt = Actions(sow=sc.actions.sow,
-                  irrigation=sc.actions.irrigation + pulse,
-                  n_fert=sc.actions.n_fert)
+    alt = Actions(sow=scenario.actions.sow,
+                  irrigation=scenario.actions.irrigation + pulse,
+                  n_fert=scenario.actions.n_fert)
 
     tr_t = ObservationTrace(t, ch, specification.cadence)
     with torch.inference_mode():
-        sc.truth.rollout(sc.field, f0, alt, observer=tr_t)
+        scenario.truth.rollout(scenario.field, f0, alt, observer=tr_t)
     actual = tr_t.result()
 
-    cf, information = counterfactual(sc.prior, sc.field, f0, sc.actions, alt,
+    cf, information = counterfactual(scenario.prior, scenario.field, f0, scenario.actions, alt,
                                      observed, ch, every=specification.cadence)
     output = {}
     for j, c in enumerate(ch):

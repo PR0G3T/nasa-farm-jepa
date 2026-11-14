@@ -70,8 +70,8 @@ def fit_allocation(model, field: Field, forcing: Forcing, base: Actions,
             action = cap_budget({**action, "irrigation": u[:, 0],
                              "n_fert": u[:, 1]}, budget)
             used = used + action["irrigation"]
-            field, fl = model.step(field, action, forcing.day(t), t)
-            accumulate(t, field.state, fl)
+            field, fluxes = model.step(field, action, forcing.day(t), t)
+            accumulate(t, field.state, fluxes)
         m = accumulate.result().unsqueeze(1)            # (B, 1, H, M)
         r = metric_reward(m, weights) - price * used
         loss = -(r.mean() if cooperative else r.sum() / b)
@@ -112,8 +112,8 @@ def evaluate_policies(model, field: Field, forcing: Forcing, base: Actions,
             action = cap_budget({**action, "irrigation": u[:, 0],
                              "n_fert": u[:, 1]}, budget)
             used = used + action["irrigation"]
-            field, fl = model.step(field, action, forcing.day(t), t)
-            accumulate(t, field.state, fl)
+            field, fluxes = model.step(field, action, forcing.day(t), t)
+            accumulate(t, field.state, fluxes)
     m = accumulate.result().unsqueeze(1)
     return metric_reward(m, weights) - price * used, used
 

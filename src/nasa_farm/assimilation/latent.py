@@ -135,24 +135,24 @@ def fit_filter(model, field: Field, forcing, actions,
     history = []
     for _ in range(epochs):
         total = torch.zeros((), dtype=DTYPE)
-        for st, truth, o in snapshot:
-            x0 = torch.stack([_get_variable(st, n)[0] for n in names])
+        for updated, truth, o in snapshot:
+            x0 = torch.stack([_get_variable(updated, n)[0] for n in names])
             jitter = 1.0 + spread * torch.randn(
                 (members, x0.shape[0]), generator=generation, dtype=DTYPE)
             x = (x0 * jitter).clamp(min=0.0)
             ps = FieldState(
-                sw=st.sw.repeat(members, 1), n_min=st.n_min.repeat(members),
-                n_org=st.n_org.repeat(members), litter=st.litter.repeat(members),
-                soc_f=st.soc_f.repeat(members), soc_s=st.soc_s.repeat(members),
-                et=st.et.repeat(members), n2o=st.n2o.repeat(members),
-                tws=st.tws.repeat(members), gdd=st.gdd.repeat(members),
-                lai=st.lai.repeat(members), biomass=st.biomass.repeat(members),
-                season_yield=st.season_yield.repeat(members),
-                cum_yield=st.cum_yield.repeat(members),
-                crop=st.crop.repeat(members), growing=st.growing.repeat(members),
-                harvested=st.harvested.repeat(members),
-                vernalization=st.vernalization.repeat(members), heat_acc=st.heat_acc.repeat(members),
-                z=None, zh=None, depth=st.depth, tair=st.tair.repeat(members))
+                sw=updated.sw.repeat(members, 1), n_min=updated.n_min.repeat(members),
+                n_org=updated.n_org.repeat(members), litter=updated.litter.repeat(members),
+                soc_f=updated.soc_f.repeat(members), soc_s=updated.soc_s.repeat(members),
+                et=updated.et.repeat(members), n2o=updated.n2o.repeat(members),
+                tws=updated.tws.repeat(members), gdd=updated.gdd.repeat(members),
+                lai=updated.lai.repeat(members), biomass=updated.biomass.repeat(members),
+                season_yield=updated.season_yield.repeat(members),
+                cum_yield=updated.cum_yield.repeat(members),
+                crop=updated.crop.repeat(members), growing=updated.growing.repeat(members),
+                harvested=updated.harvested.repeat(members),
+                vernalization=updated.vernalization.repeat(members), heat_acc=updated.heat_acc.repeat(members),
+                z=None, zh=None, depth=updated.depth, tair=updated.tair.repeat(members))
             ps = _put_variables(ps, names, x)
             ypred = observables(ps, channels)
             std = (noise * o.abs()).clamp(min=1e-3)

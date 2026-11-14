@@ -125,9 +125,9 @@ class TestHeldOut:
 
     def test_scene_partitions_rows(self):
         from nasa_farm.experiments.scene import scene
-        sc = scene(specification(realizations=3))
-        assert list(sc.held_indices()) == [1, 2]
-        assert sc.held_out().batch == 2
+        scenario = scene(specification(realizations=3))
+        assert list(scenario.held_indices()) == [1, 2]
+        assert scenario.held_out().batch == 2
         solo = scene(specification(realizations=1))
         assert list(solo.held_indices()) == [0]
         assert solo.held_out().batch == 1

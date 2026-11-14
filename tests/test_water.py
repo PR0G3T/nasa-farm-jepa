@@ -2,7 +2,7 @@
 
 import pytest
 import torch
-from hypothesis import HealthCheck, given, settings, strategies as st
+from hypothesis import HealthCheck, given, settings, strategies as saved
 
 from nasa_farm.constants import DTYPE
 from nasa_farm.dynamics.water import (
@@ -49,8 +49,8 @@ class TestWaterBalance:
         assert torch.allclose(s.sum(-1) - sw.sum(-1), in_minus_out, atol=1e-12)
 
     @given(
-        st.floats(0, 400), st.floats(0, 15), st.floats(0, 15),
-        st.floats(0, 1), st.floats(0, 1),
+        saved.floats(0, 400), saved.floats(0, 15), saved.floats(0, 15),
+        saved.floats(0, 1), saved.floats(0, 1),
     )
     @settings(max_examples=200,
               suppress_health_check=[HealthCheck.function_scoped_fixture])

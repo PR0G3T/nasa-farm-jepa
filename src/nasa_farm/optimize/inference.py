@@ -48,7 +48,7 @@ class Flow(nn.Module):
         self.to(DTYPE)
 
     @property
-    def d_t(self) -> int:
+    def target(self) -> int:
         """Group-0 width (θ) — kept for the two-group posterior API."""
         return self.dims[0]
 
@@ -161,20 +161,20 @@ class Posterior:
                seed: int = 0) -> torch.Tensor:
         """θ | x → (n, Dθ). x: (Dx,) or (1, Dx)."""
         context = torch.zeros(sum(self.flow.dims), dtype=DTYPE)
-        context[self.flow.d_t:self.flow.d_t + self.flow.d_x] = \
+        context[self.flow.target:self.flow.target + self.flow.d_x] = \
             x.reshape(-1).to(DTYPE)
         z = flow_sample(self.flow, context, torch.tensor([0.0, 1.0]),
                         n, steps, seed)
-        return z[:, :self.flow.d_t]
+        return z[:, :self.flow.target]
 
     def likelihood(self, theta: torch.Tensor, n: int, steps: int = 4,
                    seed: int = 0) -> torch.Tensor:
         """x | θ → (n, Dx) — emulator rollout sampling."""
         context = torch.zeros(sum(self.flow.dims), dtype=DTYPE)
-        context[:self.flow.d_t] = theta.reshape(-1).to(DTYPE)
+        context[:self.flow.target] = theta.reshape(-1).to(DTYPE)
         z = flow_sample(self.flow, context, torch.tensor([1.0, 0.0]),
                         n, steps, seed)
-        return z[:, self.flow.d_t:self.flow.d_t + self.flow.d_x]
+        return z[:, self.flow.target:self.flow.target + self.flow.d_x]
 
 
 class GroupPosterior:

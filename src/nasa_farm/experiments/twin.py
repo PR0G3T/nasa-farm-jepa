@@ -18,28 +18,28 @@ from nasa_farm.metrics import score
 from nasa_farm.optimize.targets import season_metrics
 
 
-def _channel(model, sc, ch: str) -> torch.Tensor:
+def _channel(model, scenario, ch: str) -> torch.Tensor:
     """(R·H,) seasonal metric across held-out realizations only — the
     calibration row (row 0) is excluded from verification."""
     i = METRICS.index(ch)
-    f_held = sc.held_out()
+    f_held = scenario.held_out()
     r = f_held.batch
-    m = season_metrics(model, sc.field.repeat(r), f_held,
-                       sc.actions.repeat(r))
+    m = season_metrics(model, scenario.field.repeat(r), f_held,
+                       scenario.actions.repeat(r))
     return m[..., i].reshape(-1)
 
 
 @register("twin")
 def run(specification: Specification) -> dict:
-    sc = scene(specification)
-    observed = observe(specification, sc)
-    cal, rep = calibrate(specification, sc, observed)
+    scenario = scene(specification)
+    observed = observe(specification, scenario)
+    cal, rep = calibrate(specification, scenario, observed)
 
     output: dict = {"calibration": rep, "channels": {}}
     for ch in specification.channels:
-        t = _channel(sc.truth, sc, ch)
-        s_p = score(_channel(sc.prior, sc, ch), t)
-        s_c = score(_channel(cal, sc, ch), t)
+        t = _channel(scenario.truth, scenario, ch)
+        s_p = score(_channel(scenario.prior, scenario, ch), t)
+        s_c = score(_channel(cal, scenario, ch), t)
         red = (100.0 * (s_p["rmse"] - s_c["rmse"]) / s_p["rmse"]
                if s_p["rmse"] > 0 else 0.0)
         output["channels"][ch] = {"prior": s_p, "cal": s_c,

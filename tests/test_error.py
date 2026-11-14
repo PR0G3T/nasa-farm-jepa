@@ -103,13 +103,13 @@ class TestFullR:
         a = Actions.idle(8, forcing.days)
         sow = a.sow.clone()
         sow[:, 119] = crops.index("maize")
-        acts = Actions(sow, a.irrigation, a.n_fert)
+        actions = Actions(sow, a.irrigation, a.n_fert)
         statistic = Statistic()
         schedule = [Observation(200, ("vwc",), torch.tensor([0.4], dtype=DTYPE),
                             0.05),
                  Observation(250, ("vwc",), torch.tensor([0.6], dtype=DTYPE),
                              0.05)]
-        assimilate(physics_model, field, forcing, acts, schedule,
+        assimilate(physics_model, field, forcing, actions, schedule,
                    r_stat=statistic, seed=0)
         assert statistic.estimate is not None and statistic.estimate.shape == (1, 1)
         assert float(statistic.estimate[0, 0]) >= 0.0

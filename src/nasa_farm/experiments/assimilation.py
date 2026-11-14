@@ -48,46 +48,46 @@ def _ic_ensemble(field: Field, specification: Specification) -> Field:
     analysis is supposed to shrink."""
     f = field.repeat(specification.members)
     g = torch.Generator().manual_seed(specification.seed + 101)
-    st = f.state
+    saved = f.state
 
     def jit(x: torch.Tensor, relative: float) -> torch.Tensor:
         return x * (1.0 + relative * torch.randn(
             x.shape, generator=g, dtype=DTYPE))
 
-    sw = torch.minimum(torch.maximum(jit(st.sw, 0.15), f.soil.air),
+    sw = torch.minimum(torch.maximum(jit(saved.sw, 0.15), f.soil.air),
                        f.soil.sat)
-    n_min = jit(st.n_min, 0.30).clamp(min=0.0)
-    return Field(state=st.replace(sw=sw, n_min=n_min), soil=f.soil,
+    n_min = jit(saved.n_min, 0.30).clamp(min=0.0)
+    return Field(state=saved.replace(sw=sw, n_min=n_min), soil=f.soil,
                  latitude=f.latitude, elevation=f.elevation, context=f.context)
 
 
-def _truth(sc, specification: Specification, forcing, obs_days: set[int],
+def _truth(scenario, specification: Specification, forcing, obs_days: set[int],
            generation: torch.Generator) -> tuple[dict, dict, torch.Tensor]:
     """Truth rollout → at each obs day: noisy observables + obs std +
     the hidden state on every analysis variable."""
-    tr_obs: dict[int, tuple[torch.Tensor, torch.Tensor]] = {}
-    tr_state: dict[int, dict[str, torch.Tensor]] = {}
+    truth_obs: dict[int, tuple[torch.Tensor, torch.Tensor]] = {}
+    truth_state: dict[int, dict[str, torch.Tensor]] = {}
     accumulate = SeasonAccumulator(1, specification.horizon)
-    f = sc.field
+    f = scenario.field
     for t in range(forcing.days):
-        f, fl = sc.truth.step(f, sc.actions.day(t), forcing.day(t), t)
-        accumulate(t, f.state, fl)
+        f, fluxes = scenario.truth.step(f, scenario.actions.day(t), forcing.day(t), t)
+        accumulate(t, f.state, fluxes)
         if t in obs_days:
             o = observables(f.state, specification.observed_channels)[0]
             std = (specification.noise * o.abs()).clamp(min=_OBS_STD_FLOOR)
-            tr_obs[t] = (o + torch.randn(
+            truth_obs[t] = (o + torch.randn(
                 o.shape, generator=generation, dtype=DTYPE) * std, std)
-            tr_state[t] = {v: _get_variable(f.state, v)[0] for v in STATE_VARS}
-    return tr_obs, tr_state, accumulate.result()[0]
+            truth_state[t] = {v: _get_variable(f.state, v)[0] for v in STATE_VARS}
+    return truth_obs, truth_state, accumulate.result()[0]
 
 
-def _member_model(sc, specification: Specification) -> WorldModel:
+def _member_model(scenario, specification: Specification) -> WorldModel:
     """E-member parameter ensemble: one library row per member — spec.crop
     traits × U(0.9, 1.1) jitter (structural traits restored). Members sow
     their own row index, so a single batched rollout carries per-member
     physics with zero Python overhead."""
-    i_c = sc.crops.index(specification.crop)
-    base = sc.crops.table[i_c]
+    i_c = scenario.crops.index(specification.crop)
+    base = scenario.crops.table[i_c]
     g = torch.Generator().manual_seed(specification.seed + 131)
     table = base.unsqueeze(0).repeat(specification.members, 1)
     table = table * (0.9 + 0.2 * torch.rand(
@@ -108,52 +108,56 @@ def _member_actions(specification: Specification, base: torch.Tensor) -> Actions
     return a
 
 
-def _update(function, state, predicted, observed, r, generation):
-    """Dispatch: enkf takes perturb/gen; ensf's deterministic flow doesn't."""
+def _update(function, state, predicted, observed, r, generation,
+            channels):
+    """Dispatch analysis updates; tolerates update callables that accept a
+    narrower signature."""
     try:
-        return function(state, predicted, observed, r, perturb=True, generation=generation)
+        return function(state, predicted, observed, r, channels=channels,
+                        perturb=True, generation=generation)
     except TypeError:
         return function(state, predicted, observed, r)
 
 
-def _variant(sc, specification: Specification, forcing_time, tr_obs: dict, tr_state: dict,
-             tr_season: torch.Tensor, update) -> dict:
+def _variant(scenario, specification: Specification, forcing_time, truth_obs: dict, truth_state: dict,
+             truth_season: torch.Tensor, update) -> dict:
     e, days = specification.members, forcing_time.days
     generation = torch.Generator().manual_seed(specification.seed + 77)
-    model = _member_model(sc, specification)
-    acts = _member_actions(specification, sc.crops.table[sc.crops.index(specification.crop)])
-    field = _ic_ensemble(sc.field, specification)
+    model = _member_model(scenario, specification)
+    actions = _member_actions(specification, scenario.crops.table[scenario.crops.index(specification.crop)])
+    field = _ic_ensemble(scenario.field, specification)
     forcing = forcing_time.repeat(e)
     accumulate = SeasonAccumulator(e, specification.horizon)
-    errs, crs, spr = [], [], []
-    serrs: dict[str, list[float]] = {v: [] for v in STATE_VARS}
+    errors, scores, spread = [], [], []
+    state_errors: dict[str, list[float]] = {v: [] for v in STATE_VARS}
 
     with torch.inference_mode():
         for t in range(days):
-            field, fl = model.step(field, acts.day(t), forcing.day(t), t)
-            accumulate(t, field.state, fl)
-            if t not in tr_obs:
+            field, fluxes = model.step(field, actions.day(t), forcing.day(t), t)
+            accumulate(t, field.state, fluxes)
+            if t not in truth_obs:
                 continue
-            observed, std = tr_obs[t]
+            observed, std = truth_obs[t]
             predicted = observables(field.state, specification.observed_channels)   # (E, C)
-            errs.append(float(rmse(predicted.mean(0), observed)))
-            crs.append(float(crps(predicted.t(), observed)))
-            spr.append(float(predicted.std(0).mean()))
+            errors.append(float(rmse(predicted.mean(0), observed)))
+            scores.append(float(crps(predicted.t(), observed)))
+            spread.append(float(predicted.std(0).mean()))
             for v in STATE_VARS:
-                serrs[v].append(float(rmse(_get_variable(field.state, v),
-                                           tr_state[t][v])))
+                state_errors[v].append(float(rmse(_get_variable(field.state, v),
+                                           truth_state[t][v])))
             if update is None:
                 continue
-            st = _update(update, field.state, predicted, observed, std ** 2, generation)
-            field = Field(state=st, soil=field.soil, latitude=field.latitude,
+            saved = _update(update, field.state, predicted, observed, std ** 2,
+                         generation, specification.observed_channels)
+            field = Field(state=saved, soil=field.soil, latitude=field.latitude,
                         elevation=field.elevation, context=field.context)
 
     m = accumulate.result()                                    # (E, H, M)
     mean = lambda v: round(sum(v) / len(v), 6) if v else 0.0
-    return {"obs_rmse": mean(errs), "obs_crps": mean(crs),
-            "spread": mean(spr),
-            "state_rmse": {v: mean(s) for v, s in serrs.items()},
-            "ensemble": m, "truth": tr_season}
+    return {"obs_rmse": mean(errors), "obs_crps": mean(scores),
+            "spread": mean(spread),
+            "state_rmse": {v: mean(s) for v, s in state_errors.items()},
+            "ensemble": m, "truth": truth_season}
 
 
 def _delta(base: dict, new: dict) -> dict:
@@ -170,20 +174,20 @@ def _delta(base: dict, new: dict) -> dict:
 
 @register("assim")
 def run(specification: Specification) -> dict:
-    sc = scene(specification)
-    held = list(sc.held_indices())
+    scenario = scene(specification)
+    held = list(scenario.held_indices())
     pooled: dict[str, dict] = {}
     for i in held:
-        forcing_time = sc.realization(i)
+        forcing_time = scenario.realization(i)
         obs_days = set(range(specification.cadence, forcing_time.days,
                              specification.cadence))
         generation = torch.Generator().manual_seed(specification.seed + 55)
-        tr_obs, tr_state, tr_season = _truth(
-            sc, specification, forcing_time, obs_days, generation)
+        truth_obs, truth_state, truth_season = _truth(
+            scenario, specification, forcing_time, obs_days, generation)
         for name, update in (("open", None), ("enkf", kalman_update),
                              ("ensf", score_update)):
-            v = _variant(sc, specification, forcing_time, tr_obs, tr_state,
-                         tr_season, update)
+            v = _variant(scenario, specification, forcing_time, truth_obs, truth_state,
+                         truth_season, update)
             acc = pooled.setdefault(name, {"scalars": [], "m": [], "t": []})
             acc["scalars"].append({k: v[k] for k in
                                    ("obs_rmse", "obs_crps", "spread",

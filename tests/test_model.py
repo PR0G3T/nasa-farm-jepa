@@ -226,11 +226,11 @@ class TestCheckpointedRollout:
 
         def gradient(ckpt):
             tmin = forcing.tmin.detach().clone().requires_grad_(True)
-            fd = dataclasses.replace(forcing, tmin=tmin)
+            forcing_day = dataclasses.replace(forcing, tmin=tmin)
             accumulate = SeasonAccumulator(1, 1)
             hybrid_model.rollout(
                 Field(field.state.clone(), field.soil, field.latitude),
-                fd, actions, observer=accumulate, checkpoint_every=ckpt)
+                forcing_day, actions, observer=accumulate, checkpoint_every=ckpt)
             accumulate.result().sum().backward()
             return tmin.grad.clone()
 

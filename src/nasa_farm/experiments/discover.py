@@ -23,27 +23,27 @@ from nasa_farm.optimize.trainer import fit
 @register("discover")
 def run(specification: Specification) -> dict:
     torch.manual_seed(specification.seed)
-    sc = scene(specification)
-    f0, ch = sc.realization(0), specification.observed_channels
+    scenario = scene(specification)
+    f0, ch = scenario.realization(0), specification.observed_channels
     generation = torch.Generator().manual_seed(specification.seed + 63)
 
     traits = ObservationTrace(f0.days, ch, specification.cadence)
     with torch.inference_mode():
-        sc.truth.rollout(sc.field, f0, sc.actions, observer=traits)
+        scenario.truth.rollout(scenario.field, f0, scenario.actions, observer=traits)
     targets = traits.result() * (1.0 + specification.noise * torch.randn(
         traits.result().shape, generator=generation, dtype=traits.result().dtype))
 
-    m = WorldModel(sc.crops, residual=True, seed=specification.seed)
+    m = WorldModel(scenario.crops, residual=True, seed=specification.seed)
     parameters = {f"p{i}": p for i, p in enumerate(m.residual.parameters())}
     scale = targets.std(dim=1, keepdim=True).clamp(min=1e-6)
 
     def loss() -> torch.Tensor:
         tr2 = ObservationTrace(f0.days, ch, specification.cadence)
-        m.rollout(sc.field, f0, sc.actions, observer=tr2)
+        m.rollout(scenario.field, f0, scenario.actions, observer=tr2)
         return (((tr2.result() - targets) / scale) ** 2).mean()
 
     result = fit(loss, parameters, epochs=specification.epochs, rate=specification.rate)
-    rep = identify(m, sc.field, f0, sc.actions)
+    rep = identify(m, scenario.field, f0, scenario.actions)
     return {"fit_loss": round(result.best_loss, 8),
             "r2_symbolic": rep["r2"],
             "equations": rep["equations"],

@@ -27,8 +27,8 @@ class TestHLatent:
         assert isinstance(hierarchy.latent, Hierarchy)
         assert hierarchy.latent.dim == 12 and hierarchy.latent.hidden_dimension == 192
         z = torch.zeros(1, 12, dtype=DTYPE)
-        st = field.state.replace(z=z, zh=torch.zeros(1, 192, dtype=DTYPE))
-        f = Field(state=st, soil=field.soil, latitude=field.latitude)
+        saved = field.state.replace(z=z, zh=torch.zeros(1, 192, dtype=DTYPE))
+        f = Field(state=saved, soil=field.soil, latitude=field.latitude)
         f2 = hierarchy.rollout(f, _year30(warm_year), Actions.idle(1, 90))
         assert torch.isfinite(f2.state.biomass).all()
 
@@ -42,13 +42,13 @@ class TestHLatent:
             m.latent.levels[0].head.bias.fill_(0.01)
             m.latent.levels[1].head.bias.fill_(0.05)
         z = torch.zeros(1, 8, dtype=DTYPE)
-        st = field.state.replace(z=z, zh=torch.zeros(1, 128, dtype=DTYPE))
-        f = Field(state=st, soil=field.soil, latitude=field.latitude)
-        fd, action = _year30(warm_year).day(1), Actions.idle(1, 90).day(1)
-        f2, _ = m.step(f, action, fd, t=1)         # t=1: only level 0 fires
+        saved = field.state.replace(z=z, zh=torch.zeros(1, 128, dtype=DTYPE))
+        f = Field(state=saved, soil=field.soil, latitude=field.latitude)
+        forcing_day, action = _year30(warm_year).day(1), Actions.idle(1, 90).day(1)
+        f2, _ = m.step(f, action, forcing_day, t=1)         # t=1: only level 0 fires
         z1 = f2.state.z[0]
         assert z1[4:].abs().max() == 0.0       # upper level unchanged
-        f3, _ = m.step(f, action, fd, t=4)         # t=4: both fire
+        f3, _ = m.step(f, action, forcing_day, t=4)         # t=4: both fire
         assert f3.state.z[0, 4:].abs().max() > 0.0
 
     def test_hjepa_loss_scalar(self):
@@ -79,8 +79,8 @@ class TestVariety:
         crops = CropLibrary.default().with_var(4, seed=0)
         m = WorldModel(crops, residual=True, latent_dimension=4, seed=0)
         assert m.var_emb is not None and m.var_emb.shape == (crops.n_crops, 4)
-        st = field.state.replace(crop=torch.zeros(1, dtype=torch.long))
-        f = Field(state=st, soil=field.soil, latitude=field.latitude)
+        saved = field.state.replace(crop=torch.zeros(1, dtype=torch.long))
+        f = Field(state=saved, soil=field.soil, latitude=field.latitude)
         d = m._dctx(f)
         assert d.shape == (1, 4)
         st2 = field.state.replace(crop=torch.ones(1, dtype=torch.long))
@@ -91,8 +91,8 @@ class TestVariety:
         crops = CropLibrary.default().with_var(4, seed=0)
         m = WorldModel(crops, residual=False, latent_dimension=4, seed=0)
         z = torch.zeros(1, 4, dtype=DTYPE)
-        st = field.state.replace(z=z, zh=torch.zeros(1, 64, dtype=DTYPE))
-        f = Field(state=st, soil=field.soil, latitude=field.latitude)
+        saved = field.state.replace(z=z, zh=torch.zeros(1, 64, dtype=DTYPE))
+        f = Field(state=saved, soil=field.soil, latitude=field.latitude)
         f2 = m.rollout(f, _year30(warm_year), Actions.idle(1, 90))
         f2.state.z.sum().backward()
         assert m.var_emb.grad is not None
@@ -142,9 +142,9 @@ class TestMPPIExt:
         from nasa_farm.control import path_integral
         crops = CropLibrary.default()
         m = WorldModel(crops, residual=False, latent_dimension=4, seed=0)
-        st = field.state.replace(z=torch.zeros(1, 4, dtype=DTYPE),
+        saved = field.state.replace(z=torch.zeros(1, 4, dtype=DTYPE),
                                  zh=torch.zeros(1, 64, dtype=DTYPE))
-        f = Field(state=st, soil=field.soil, latitude=field.latitude)
+        f = Field(state=saved, soil=field.soil, latitude=field.latitude)
         f60 = _year30(warm_year)
         goal = torch.full((4,), 3.0, dtype=DTYPE)
         result = path_integral(m, f, f60, Actions.idle(1, 90), iterations=1, samples=8,
@@ -167,21 +167,21 @@ class TestSmooth:
         from nasa_farm.assimilation import Observation, ensemble_smooth
         from nasa_farm.observe import observables
         f90 = _year30(warm_year)
-        acts = Actions.idle(1, 90)
+        actions = Actions.idle(1, 90)
         # truth: wetter initial soil
-        st = field.state.replace(sw=field.state.sw * 1.3)
-        truth = Field(state=st, soil=field.soil, latitude=field.latitude)
+        saved = field.state.replace(sw=field.state.sw * 1.3)
+        truth = Field(state=saved, soil=field.soil, latitude=field.latitude)
         t = truth
         schedule = []
         with torch.inference_mode():
             for day in range(90):
-                t, _ = physics_model.step(t, acts.day(day), f90.day(day),
+                t, _ = physics_model.step(t, actions.day(day), f90.day(day),
                                           day)
                 if day in (30, 60):
                     schedule.append(Observation(
                         day, ("sm1",), observables(t.state, ("sm1",))[0],
                         0.02))
-        output, rep = ensemble_smooth(physics_model, field, f90, acts, schedule,
+        output, rep = ensemble_smooth(physics_model, field, f90, actions, schedule,
                               ensemble=8, epochs=8, rate=0.05, seed=0)
         assert rep["epochs_run"] > 0
         d0 = (field.state.sw.sum() - truth.state.sw.sum()).abs()
@@ -260,7 +260,7 @@ class TestAdapt:
             for p in model.latent.parameters():
                 p.uniform_(-0.05, 0.05)
         f60 = _year30(warm_year)
-        acts = Actions.idle(1, 90)
+        actions = Actions.idle(1, 90)
         ch = ("ndvi", "sm1")
         zt = torch.full((1, 4), 0.5, dtype=DTYPE)
         truth = Field(
@@ -269,18 +269,18 @@ class TestAdapt:
             soil=field.soil, latitude=field.latitude,
             context=torch.ones(1, 4, dtype=DTYPE))
         with torch.inference_mode():
-            values = series(model, truth, f60, acts, ch, every=15)[0]
+            values = series(model, truth, f60, actions, ch, every=15)[0]
         target = ObservedSeries(values=values)
 
         def obs_loss(f_):
             return series_loss(
-                series(model, f_, f60, acts, ch, every=15), target)
+                series(model, f_, f60, actions, ch, every=15), target)
 
         zed = field.state.replace(z=torch.zeros(1, 4, dtype=DTYPE),
                                   zh=torch.zeros(1, 64, dtype=DTYPE))
         f = Field(state=zed, soil=field.soil, latitude=field.latitude,
                   context=torch.zeros(1, 4, dtype=DTYPE))
-        output, rep = adapt(model, f, f60, acts, loss_fn=obs_loss,
+        output, rep = adapt(model, f, f60, actions, loss_fn=obs_loss,
                          z=True, context=True, epochs=6, rate=0.05)
         assert rep["epochs_run"] > 0
         assert rep["z0_shift"] > 0 or rep["ctx_shift"] > 0
@@ -324,8 +324,8 @@ class TestMarl:
         latitude = torch.tensor([42.0, 42.1], dtype=DTYPE)
         field = Field(initial_state(2, soil), soil, latitude)
         f60 = _year30(warm_year)
-        acts = Actions.idle(2, 90)
-        pols, rep = fit_allocation(physics_model, field, f60, acts,
+        actions = Actions.idle(2, 90)
+        pols, rep = fit_allocation(physics_model, field, f60, actions,
                              budget=5.0, epochs=3, rate=1e-3, seed=0)
         assert len(pols) == 2 and len(rep["agent_rewards"]) == 2
         assert rep["team_reward"] == round(rep["history"][-1], 4)

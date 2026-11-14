@@ -82,12 +82,12 @@ def adapt(model, field: Field, forcing: Forcing, actions: Actions,
         raise ValueError("nothing to adapt: no z state, no ctx, no state_vars")
 
     def loss() -> torch.Tensor:
-        st = field.state
+        updated = field.state
         if z0 is not None:
-            st = st.replace(z=z0)
+            updated = updated.replace(z=z0)
         if x0 is not None:
-            st = _put_variables(st, state_vars, x0)
-        f = Field(state=st, soil=field.soil, latitude=field.latitude,
+            updated = _put_variables(updated, state_vars, x0)
+        f = Field(state=updated, soil=field.soil, latitude=field.latitude,
                   elevation=field.elevation,
                   context=field.context + dctx if dctx is not None else field.context)
         l = loss_fn(f)
@@ -96,12 +96,12 @@ def adapt(model, field: Field, forcing: Forcing, actions: Actions,
         return l
 
     result = fit(loss, leaves, epochs=epochs, rate=rate)
-    st = field.state
+    updated = field.state
     if z0 is not None:
-        st = st.replace(z=leaves["z0"].detach())
+        updated = updated.replace(z=leaves["z0"].detach())
     if x0 is not None:
-        st = _put_variables(st, state_vars, leaves["x0"].detach())
-    output = Field(state=st, soil=field.soil, latitude=field.latitude, elevation=field.elevation,
+        updated = _put_variables(updated, state_vars, leaves["x0"].detach())
+    output = Field(state=updated, soil=field.soil, latitude=field.latitude, elevation=field.elevation,
                 context=(field.context + leaves["dctx"].detach())
                 if dctx is not None else field.context)
     rep = {"best_loss": round(result.best_loss, 8),

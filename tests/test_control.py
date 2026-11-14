@@ -67,10 +67,10 @@ class TestMPPI:
                    iterations=3, samples=24, seed=0)
         i = METRICS.index("yield_kg")
 
-        def y(acts):
+        def y(actions):
             accumulate = SeasonAccumulator(ensemble.batch, 1)
             physics_model.rollout(field.repeat(ensemble.batch), ensemble,
-                                  acts.repeat(ensemble.batch), observer=accumulate)
+                                  actions.repeat(ensemble.batch), observer=accumulate)
             return float(accumulate.result()[..., i].mean())
 
         with torch.inference_mode():

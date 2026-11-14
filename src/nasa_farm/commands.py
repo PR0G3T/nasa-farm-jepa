@@ -450,11 +450,11 @@ def cmd_control(arguments) -> int:
 
     index = {n: i for i, n in enumerate(METRICS)}
 
-    def _yield(acts) -> float:
+    def _yield(actions) -> float:
         accumulate = SeasonAccumulator(ensemble.batch, ensemble.days // 365)
         with torch.inference_mode():
             model.rollout(field.repeat(ensemble.batch), ensemble,
-                          acts.repeat(ensemble.batch), observer=accumulate)
+                          actions.repeat(ensemble.batch), observer=accumulate)
         return float(accumulate.result()[..., index["yield_kg"]].mean())
 
     y_opt, y_rf = _yield(result.actions), _yield(base)

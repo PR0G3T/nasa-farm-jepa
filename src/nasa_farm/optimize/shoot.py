@@ -84,9 +84,9 @@ def fit_shooting(model, field: Field, forcing, actions,
         for i, (t0, t1) in enumerate(bounds):
             f = field
             if i > 0:
-                st = _free_state(f.state,
+                updated = _free_state(f.state,
                                  leaves[f"b{i}"].unsqueeze(0), names)
-                f = Field(state=st, soil=f.soil, latitude=f.latitude,
+                f = Field(state=updated, soil=f.soil, latitude=f.latitude,
                           elevation=f.elevation, context=f.context)
             for t in range(t0, t1):
                 f, _ = model.step(f, actions.day(t), forcing.day(t), t)
@@ -94,9 +94,9 @@ def fit_shooting(model, field: Field, forcing, actions,
                     row = t // every
                     predicted = observables(f.state, channels)
                     m = torch.isfinite(observed.values[row])
-                    sc = observed.values[row][m].abs().mean().clamp(min=1.0)
+                    scenario = observed.values[row][m].abs().mean().clamp(min=1.0)
                     total = total + (((predicted[0] - torch.nan_to_num(
-                        observed.values[row])) / sc) * m).pow(2).mean()
+                        observed.values[row])) / scenario) * m).pow(2).mean()
             ends.append((f.state,))
         for i, (t0, _) in enumerate(bounds[1:], start=1):
             end = torch.stack([_get_variable(ends[i - 1][0], n)[0]

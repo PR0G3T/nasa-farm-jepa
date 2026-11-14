@@ -24,7 +24,7 @@ Extra = Callable[[FieldState, SoilProfile, dict, dict, dict], FieldState]
 
 
 def waterlog(s: FieldState, soil: SoilProfile, f: dict, a: dict,
-             fl: dict) -> FieldState:
+             flows: dict) -> FieldState:
     """Surface hypoxia: saturated topsoil suffocates the crop and denitrifies."""
     sat0 = soil.sat[:, 0]
     excess = torch.relu(s.sw[:, 0] - (soil.fc[:, 0] + 0.15 * (sat0 - soil.fc[:, 0]))) \
@@ -36,7 +36,7 @@ def waterlog(s: FieldState, soil: SoilProfile, f: dict, a: dict,
 
 
 def heat_shock(s: FieldState, soil: SoilProfile, f: dict, a: dict,
-               fl: dict) -> FieldState:
+               flows: dict) -> FieldState:
     """Heat-wave senescence: extreme tmax sheds leaf and biomass to litter."""
     excess = torch.relu(f["tmax"] - 34.0) / 6.0
     d_b = (0.05 * excess * s.biomass * s.growing).clamp(min=0.0)
@@ -46,7 +46,7 @@ def heat_shock(s: FieldState, soil: SoilProfile, f: dict, a: dict,
 
 
 def n_immob(s: FieldState, soil: SoilProfile, f: dict, a: dict,
-            fl: dict) -> FieldState:
+            flows: dict) -> FieldState:
     """Residue immobilization: heavy rain on litter locks mineral N organic."""
     rain = torch.relu(f["precip"] - 25.0) / 25.0
     d = (0.02 * rain * (s.litter / 5000.0).clamp(max=1.0) * s.n_min).clamp(min=0.0)
@@ -54,7 +54,7 @@ def n_immob(s: FieldState, soil: SoilProfile, f: dict, a: dict,
 
 
 def crust(s: FieldState, soil: SoilProfile, f: dict, a: dict,
-          fl: dict) -> FieldState:
+          flows: dict) -> FieldState:
     """Sealed surface: surplus water above field capacity bypasses to storage."""
     d = (0.25 * torch.relu(s.sw[:, 0] - soil.fc[:, 0])).clamp(min=0.0)
     sw = s.sw.clone()

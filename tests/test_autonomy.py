@@ -72,10 +72,10 @@ class TestLibrary:
         forcing = synthetic_year(42.0, seed=3)
         sow = torch.zeros(1, 365, dtype=torch.long)
         sow[:, 100] = crops.index("maize")
-        acts = Actions(sow=sow, irrigation=torch.zeros(1, 365, dtype=DTYPE),
+        actions = Actions(sow=sow, irrigation=torch.zeros(1, 365, dtype=DTYPE),
                        n_fert=torch.zeros(1, 365, dtype=DTYPE))
         lib = StateLibrary()
-        record(lib, physics_model, field, forcing, acts, every=30)
+        record(lib, physics_model, field, forcing, actions, every=30)
         assert len(lib) > 0
         goal = lib.rows[0]
         output = lib.nearest(goal)
@@ -134,15 +134,15 @@ class TestIdm:
                  self._demo(field, 10.0, crops, 3)]
         inverse = fit_inverse(physics_model, demos, goal_fn=gfn,
                       epochs=300, seed=0)
-        field, forcing, acts = demos[0]
+        field, forcing, actions = demos[0]
         for t in range(forcing.days):
             with torch.inference_mode():
-                field, _ = physics_model.step(field, acts.day(t), forcing.day(t), t)
+                field, _ = physics_model.step(field, actions.day(t), forcing.day(t), t)
         g_dry = gfn(field.state)
-        field, forcing, acts = demos[1]
+        field, forcing, actions = demos[1]
         for t in range(forcing.days):
             with torch.inference_mode():
-                field, _ = physics_model.step(field, acts.day(t), forcing.day(t), t)
+                field, _ = physics_model.step(field, actions.day(t), forcing.day(t), t)
         g_wet = gfn(field.state)
         assert float(g_wet - g_dry) > 0.0
         f0 = _day_feats(physics_model, field.state,
@@ -157,9 +157,9 @@ class TestIdm:
 
     def test_idm_actions_shape(self, physics_model, field, crops):
         from nasa_farm.policy import fit_inverse, inverse_actions
-        f_, forcing, acts = self._demo(field, 5.0, crops, 3)
-        inverse = fit_inverse(physics_model, [(f_, forcing, acts)], epochs=5, seed=0)
-        output = inverse_actions(inverse, physics_model, f_, forcing, acts,
+        f_, forcing, actions = self._demo(field, 5.0, crops, 3)
+        inverse = fit_inverse(physics_model, [(f_, forcing, actions)], epochs=5, seed=0)
+        output = inverse_actions(inverse, physics_model, f_, forcing, actions,
                           torch.zeros(inverse.goal_dim, dtype=DTYPE))
-        assert output.irrigation.shape == acts.irrigation.shape
+        assert output.irrigation.shape == actions.irrigation.shape
         assert (output.irrigation >= 0).all()

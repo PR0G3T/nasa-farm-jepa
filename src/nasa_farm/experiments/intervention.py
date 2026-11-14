@@ -56,16 +56,16 @@ def _perturbed(actions: Actions, channel: str, day: int, span: int,
     return Actions(**keywords)
 
 
-def _metrics(model, sc, forcing, actions) -> torch.Tensor:
-    return season_metrics(model, sc.field, forcing, actions)[0]  # (H, M)
+def _metrics(model, scenario, forcing, actions) -> torch.Tensor:
+    return season_metrics(model, scenario.field, forcing, actions)[0]  # (H, M)
 
 
 @register("interv")
 def run(specification: Specification) -> dict:
-    sc = scene(specification)
-    observed = observe(specification, sc)
-    cal, rep = calibrate(specification, sc, observed)
-    held = list(sc.held_indices())
+    scenario = scene(specification)
+    observed = observe(specification, scenario)
+    cal, rep = calibrate(specification, scenario, observed)
+    held = list(scenario.held_indices())
     index = {n: i for i, n in enumerate(METRICS)}
 
     # --- action-perturbation fidelity -------------------------------------
@@ -79,13 +79,13 @@ def run(specification: Specification) -> dict:
     chans = [c for c in chans if c in index]
     pert: dict = {}
     for name, ch, day, span, d in suite:
-        a2 = _perturbed(sc.actions, ch, day, span, d)
+        a2 = _perturbed(scenario.actions, ch, day, span, d)
         deltas: dict[str, torch.Tensor] = {}
-        for label, model in (("prior", sc.prior), ("cal", cal),
-                           ("oracle", sc.truth)):
+        for label, model in (("prior", scenario.prior), ("cal", cal),
+                           ("oracle", scenario.truth)):
             per_row = [
-                (_metrics(model, sc, sc.realization(i), a2)
-                 - _metrics(model, sc, sc.realization(i), sc.actions)).mean(0)
+                (_metrics(model, scenario, scenario.realization(i), a2)
+                 - _metrics(model, scenario, scenario.realization(i), scenario.actions)).mean(0)
                 for i in held]
             deltas[label] = torch.stack(per_row).mean(0)
         truth_d = deltas.pop("oracle")
@@ -98,24 +98,24 @@ def run(specification: Specification) -> dict:
                     "err": round(error, 4)}
 
     # --- plan-ranking fidelity ---------------------------------------------
-    i_c = sc.crops.index(specification.crop)
-    cands = [i_c, sc.crops.index("soybean"), sc.crops.index("wheat")]
+    i_c = scenario.crops.index(specification.crop)
+    cands = [i_c, scenario.crops.index("soybean"), scenario.crops.index("wheat")]
     hh = max(1, min(specification.horizon, 2))
     plans = enumerate_rotations(cands, hh)
-    if hh * 365 < sc.forcing_e.days:
+    if hh * 365 < scenario.forcing_e.days:
         from nasa_farm.types import FORCING_VARS, Forcing
-        ensemble = Forcing(*(getattr(sc.forcing_e, k)[:, :hh * 365]
+        ensemble = Forcing(*(getattr(scenario.forcing_e, k)[:, :hh * 365]
                         for k in FORCING_VARS))
     else:
-        ensemble = sc.forcing_e
+        ensemble = scenario.forcing_e
     taus = {}
     with torch.inference_mode():
-        ev_t = evaluate(sc.truth, sc.field, plans, ensemble)
+        ev_t = evaluate(scenario.truth, scenario.field, plans, ensemble)
         obj_t = scalarize(*objective_matrix(
             {k: v for k, v in ev_t.objectives.items()}), torch.ones(
             len(ev_t.objectives), dtype=DTYPE))
-        for label, model in (("prior", sc.prior), ("cal", cal)):
-            ev_m = evaluate(model, sc.field, plans, ensemble)
+        for label, model in (("prior", scenario.prior), ("cal", cal)):
+            ev_m = evaluate(model, scenario.field, plans, ensemble)
             obj_m = scalarize(*objective_matrix(
                 {k: v for k, v in ev_m.objectives.items()}),
                 torch.ones(len(ev_m.objectives), dtype=DTYPE))
@@ -128,9 +128,9 @@ def run(specification: Specification) -> dict:
 
     def run_edit(model, f_t):
         day = min(150, f_t.days - 60)
-        f = sc.field
+        f = scenario.field
         for t in range(day):
-            f, _ = model.step(f, sc.actions.day(t), f_t.day(t), t)
+            f, _ = model.step(f, scenario.actions.day(t), f_t.day(t), t)
         current = f.state
         st_e = edit_state(current, mask,
                           torch.full((1, e), 400.0, dtype=DTYPE), f.soil)
@@ -138,14 +138,14 @@ def run(specification: Specification) -> dict:
                    context=f.context)
         edited = fe
         for t in range(day, f_t.days):
-            edited, _ = model.step(edited, sc.actions.day(t), f_t.day(t), t)
+            edited, _ = model.step(edited, scenario.actions.day(t), f_t.day(t), t)
         return edited.state.biomass, edited.state.sw.sum(-1), edited.state.n_min
 
     response: dict = {}
     for i in held:
-        f_t = sc.realization(i)
-        b_t, w_t, n_t = run_edit(sc.truth, f_t)
-        for label, model in (("prior", sc.prior), ("cal", cal)):
+        f_t = scenario.realization(i)
+        b_t, w_t, n_t = run_edit(scenario.truth, f_t)
+        for label, model in (("prior", scenario.prior), ("cal", cal)):
             b_m, w_m, n_m = run_edit(model, f_t)
             row = {
                 "biomass_err": float(b_m - b_t),

@@ -126,8 +126,8 @@ def policy_gradient(model, field: Field, forcing: Forcing, base: Actions,
             u = policy(_day_feats(model, field.state, forcing.day(t), action))
             action = {**action, "irrigation": u[:, 0] * u_scale,
                   "n_fert": u[:, 1] * u_scale}
-            field, fl = model.step(field, action, forcing.day(t), t)
-            accumulate(t, field.state, fl)
+            field, fluxes = model.step(field, action, forcing.day(t), t)
+            accumulate(t, field.state, fluxes)
         m = accumulate.result().unsqueeze(1)                # (B, 1, H, M)
         reward = metric_reward(m, weights, risk, alpha).mean()
         (-reward).backward()
@@ -255,11 +255,11 @@ def fit_inverse(model, demos: list[tuple[Field, Forcing, Actions]],
     for field, forcing, actions in demos:
         field, rows, days = field, [], forcing.days
         for t in range(days):
-            fd, action = forcing.day(t), actions.day(t)
-            rows.append((_day_feats(model, field.state, fd, action).detach(),
+            weather, action = forcing.day(t), actions.day(t)
+            rows.append((_day_feats(model, field.state, weather, action).detach(),
                          torch.stack([action["irrigation"], action["n_fert"]], -1)
                          .to(DTYPE)))
-            field, _ = model.step(field, action, fd, t)
+            field, _ = model.step(field, action, weather, t)
         g = (goal_fn(field.state) if goal_fn
              else field.state.z if field.state.z is not None else rows[-1][0])
         for t, (f, u) in enumerate(rows):

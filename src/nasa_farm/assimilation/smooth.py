@@ -53,7 +53,7 @@ def ensemble_smooth(model, field: Field, forcing: Forcing, actions: Actions,
     Returns the smoothed field and a report (χ², recovered coefficients).
     """
     generation = torch.Generator().manual_seed(seed)
-    schedule = sorted(schedule, key=lambda o: o.t)
+    schedule = sorted(schedule, key=lambda observation: observation.t)
 
     xs = _prior_state_ens(field.state, names, ensemble, sigma, generation)
     x_bar = xs.mean(0)
@@ -76,7 +76,7 @@ def ensemble_smooth(model, field: Field, forcing: Forcing, actions: Actions,
     leaves = [c_x] + ([c_p] if p_cols is not None else [])
     opt = torch.optim.Adam(leaves, lr=rate)
     base_tbl = model.crop_table.detach().clone()
-    obs_t = {o.t: o for o in schedule}
+    by_day = {observation.t: observation for observation in schedule}
 
     def chi2() -> torch.Tensor:
         x = x_bar + (c_x - c_x.mean()) @ ax
@@ -84,18 +84,18 @@ def ensemble_smooth(model, field: Field, forcing: Forcing, actions: Actions,
             table = base_tbl.clone()
             table[crop_idx, p_cols] = (p_bar + (c_p - c_p.mean()) @ ap).exp()
             model.crop_table = table
-        st = _put_variables(field.state, names, x.unsqueeze(0))
-        f = Field(state=st, soil=field.soil, latitude=field.latitude,
+        updated = _put_variables(field.state, names, x.unsqueeze(0))
+        f = Field(state=updated, soil=field.soil, latitude=field.latitude,
                   elevation=field.elevation, context=field.context)
         total = torch.zeros((), dtype=DTYPE)
         with torch.enable_grad():
             for t in range(forcing.days):
                 f, _ = model.step(f, actions.day(t), forcing.day(t), t)
-                if t in obs_t:
-                    o = obs_t[t]
-                    predicted = observables(f.state, o.channels)[0]
-                    r = (predicted - o.values.to(predicted.dtype)) / \
-                        torch.as_tensor(o.std, dtype=predicted.dtype)
+                if t in by_day:
+                    observation = by_day[t]
+                    predicted = observables(f.state, observation.channels)[0]
+                    r = (predicted - observation.values.to(predicted.dtype)) / \
+                        torch.as_tensor(observation.std, dtype=predicted.dtype)
                     total = total + r.pow(2).sum()
         return total
 
@@ -122,8 +122,8 @@ def ensemble_smooth(model, field: Field, forcing: Forcing, actions: Actions,
         table = base_tbl.clone()
         table[crop_idx, p_cols] = (p_bar + (crop - crop.mean()) @ ap).exp()
         model.crop_table = table
-    st = _put_variables(field.state, names, x_fin.unsqueeze(0))
-    output = Field(state=st, soil=field.soil, latitude=field.latitude,
+    updated = _put_variables(field.state, names, x_fin.unsqueeze(0))
+    output = Field(state=updated, soil=field.soil, latitude=field.latitude,
                 elevation=field.elevation, context=field.context)
     fitted = ({p: float(model.crop_table[crop_idx, INDEX[p]])
                for p in free_params} if p_cols is not None else {})

@@ -27,21 +27,21 @@ PREDICTORS: tuple[str, ...] = ("prior", "cal", "oracle")
 
 @register("bench")
 def run(specification: Specification) -> dict:
-    sc = scene(specification)
-    observed = observe(specification, sc)
-    cal, rep = calibrate(specification, sc, observed)
+    scenario = scene(specification)
+    observed = observe(specification, scenario)
+    cal, rep = calibrate(specification, scenario, observed)
 
-    s, r = sc.forcing_e.batch, sc.held_out().batch
-    field, acts = sc.field.repeat(s), sc.actions.repeat(s)
+    s, r = scenario.forcing_e.batch, scenario.held_out().batch
+    field, actions = scenario.field.repeat(s), scenario.actions.repeat(s)
     index = {n: i for i, n in enumerate(METRICS)}
-    target = season_metrics(sc.truth, sc.field.repeat(r), sc.held_out(),
-                         sc.actions.repeat(r))           # (R, H, M)
+    target = season_metrics(scenario.truth, scenario.field.repeat(r), scenario.held_out(),
+                         scenario.actions.repeat(r))           # (R, H, M)
     generation = torch.Generator().manual_seed(specification.seed + 31)
 
     output: dict = {"calibration": rep, "channels": {}}
-    for name, model in (("prior", sc.prior), ("cal", cal),
-                        ("oracle", sc.truth)):
-        ensemble = season_metrics(model, field, sc.forcing_e, acts)  # (S, H, M)
+    for name, model in (("prior", scenario.prior), ("cal", cal),
+                        ("oracle", scenario.truth)):
+        ensemble = season_metrics(model, field, scenario.forcing_e, actions)  # (S, H, M)
         for ch in specification.channels:
             i = index[ch]
             # pair every realization-year with all members → (R·H, S)

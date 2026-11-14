@@ -49,9 +49,9 @@ def record(lib: StateLibrary, model, field: Field, forcing: Forcing,
     """Roll once, append realized states. `every` subsamples days."""
     with torch.inference_mode():
         for t in range(forcing.days):
-            fd, action = forcing.day(t), actions.day(t)
-            field, _ = model.step(field, action, fd, t)
+            forcing_day, action = forcing.day(t), actions.day(t)
+            field, _ = model.step(field, action, forcing_day, t)
             if (t + 1) % every == 0 or t == forcing.days - 1:
                 v = (field.state.z if field.state.z is not None
-                     else _day_feats(model, field.state, fd, action))
+                     else _day_feats(model, field.state, forcing_day, action))
                 lib.append(v)

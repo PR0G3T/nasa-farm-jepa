@@ -110,12 +110,12 @@ def scene(specification: Specification) -> Scene:
                  prior=WorldModel(crops, residual=False))
 
 
-def observe(specification: Specification, sc: Scene) -> ObservedTrajectory:
+def observe(specification: Specification, scenario: Scene) -> ObservedTrajectory:
     """Sparse noisy seasonal obs of the truth rollout on the calibration
     realization — the same `ObservedTrajectory` contract real
     yield/remote-sensing series fill."""
-    return synthetic_observation(sc.truth, sc.field, sc.realization(0),
-                                 sc.actions, specification.channels,
+    return synthetic_observation(scenario.truth, scenario.field, scenario.realization(0),
+                                 scenario.actions, specification.channels,
                                  noise=specification.noise, seed=specification.seed)
 
 
@@ -125,7 +125,7 @@ plausibility band around literature values keeps calibration physical
 (no harvest index > 1, no negative GDD)."""
 
 
-def calibrate(specification: Specification, sc: Scene,
+def calibrate(specification: Specification, scenario: Scene,
               observed: ObservedTrajectory) -> tuple[WorldModel, dict]:
     """Variational calibration: gradient-fit the perturbed trait cells of
     spec.crop through the rollout on the calibration realization. Returns
@@ -135,8 +135,8 @@ def calibrate(specification: Specification, sc: Scene,
     Parameters are optimized in an unconstrained logit space and mapped
     through a sigmoid into the factor-BOUND plausibility band, so the
     estimator can never leave physically meaningful ranges."""
-    candidate = WorldModel(sc.crops, residual=False)
-    i_c = sc.crops.index(specification.crop)
+    candidate = WorldModel(scenario.crops, residual=False)
+    i_c = scenario.crops.index(specification.crop)
     names = tuple(specification.perturb)
     if not names:
         return candidate, {"params": {}, "best_loss": 0.0, "epochs_run": 0}
@@ -145,14 +145,14 @@ def calibrate(specification: Specification, sc: Scene,
     low, high = base[i_c, cols] / _BOUND, base[i_c, cols] * _BOUND
     # sigmoid(−ln2) = 1/3 → fitted == prior exactly at init
     w = leaf(torch.full((len(names),), -math.log(2.0), dtype=DTYPE))
-    forcing_t0 = sc.realization(0)
+    forcing_t0 = scenario.realization(0)
 
     def loss() -> torch.Tensor:
         table = base.clone()
         table[i_c, cols] = low + (high - low) * torch.sigmoid(w)
         candidate.crop_table = table
         return trajectory_loss(
-            season_metrics(candidate, sc.field, forcing_t0, sc.actions), observed)
+            season_metrics(candidate, scenario.field, forcing_t0, scenario.actions), observed)
 
     result = fit(loss, {"w": w}, epochs=specification.epochs, rate=specification.rate)
     with torch.no_grad():
@@ -161,7 +161,7 @@ def calibrate(specification: Specification, sc: Scene,
         table[i_c, cols] = fitted
         candidate.crop_table = table
 
-    truth_tbl = sc.truth.crop_table
+    truth_tbl = scenario.truth.crop_table
     parameters = {}
     for j, p in enumerate(names):
         start, truth_v, fit_v = (float(base[i_c, cols[j]]),

@@ -203,14 +203,14 @@ def path_integral(model, field: Field, forcing: Forcing, base: Actions,
     n_shifts = len(sow_shifts)
     h = horizon if 0 < horizon < days else days
 
-    def bonus(field: Field, forcing: Forcing, acts: Actions) -> torch.Tensor:
+    def bonus(field: Field, forcing: Forcing, actions: Actions) -> torch.Tensor:
         """Terminal extras: value bootstrap + latent subgoal penalty."""
         b = torch.zeros(field.batch, dtype=DTYPE, device=field.state.sw.device)
         if value is not None:
             from nasa_farm.value import terminal_value
             b = b + terminal_value(model, value, field.state,
                                    forcing.day(min(h - 1, days - 1)),
-                                   acts.day(h - 1), gamma)
+                                   actions.day(h - 1), gamma)
         if goal is not None and field.state.z is not None:
             g = goal.to(field.state.z.dtype)
             b = b - goal_w * (field.state.z[:, :g.shape[0]] - g).pow(2).sum(-1)
@@ -220,22 +220,22 @@ def path_integral(model, field: Field, forcing: Forcing, base: Actions,
         """(2, S, T) candidates × (S, T) sow rows → (S,) scenario rewards."""
         s_n = candidate.shape[1]
         b = s_n * E
-        acts = Actions(
+        actions = Actions(
             sow=sows.repeat_interleave(E, dim=0),
             irrigation=candidate[0].repeat_interleave(E, dim=0),
             n_fert=candidate[1].repeat_interleave(E, dim=0))
         repeated = forcing.repeat(s_n)
         if h < days:
             repeated = Forcing(*(getattr(repeated, k)[:, :h] for k in FORCING_VARS))
-            acts = Actions(*(getattr(acts, k)[:, :h] for k in ACTION_VARS))
+            actions = Actions(*(getattr(actions, k)[:, :h] for k in ACTION_VARS))
         accumulator = SeasonAccumulator(b, max(1, -(-h // 365)),
                                 device=field.state.sw.device)
         with torch.inference_mode():
-            rolled = model.rollout(field.repeat(b), repeated, acts, observer=accumulator)
+            rolled = model.rollout(field.repeat(b), repeated, actions, observer=accumulator)
         m = accumulator.result().view(s_n, E, -1, accumulator.result().shape[-1])
         r = (reward(m) if reward is not None
              else metric_reward(m, weights, risk, alpha, margin))
-        return r.view(s_n, -1).mean(1) + bonus(rolled, repeated, acts) \
+        return r.view(s_n, -1).mean(1) + bonus(rolled, repeated, actions) \
             .view(s_n, E).mean(1)
 
     r_sig = 0.0
@@ -305,25 +305,25 @@ def path_integral(model, field: Field, forcing: Forcing, base: Actions,
         nf = best_mu[1].clone().requires_grad_(True)
 
         def polish() -> torch.Tensor:
-            acts = Actions(sow=best_sow.unsqueeze(0).expand(E, -1),
+            actions = Actions(sow=best_sow.unsqueeze(0).expand(E, -1),
                            irrigation=irrigation.clamp(*bounds[0]).unsqueeze(0)
                            .expand(E, -1),
                            n_fert=nf.clamp(*bounds[1]).unsqueeze(0)
                            .expand(E, -1))
-            fd = forcing
+            forcing_day = forcing
             if h < days:
-                fd = Forcing(*(getattr(fd, k)[:, :h]
+                forcing_day = Forcing(*(getattr(forcing_day, k)[:, :h]
                                for k in FORCING_VARS))
-                acts = Actions(*(getattr(acts, k)[:, :h]
+                actions = Actions(*(getattr(actions, k)[:, :h]
                                  for k in ACTION_VARS))
             accumulate = SeasonAccumulator(E, max(1, -(-h // 365)),
                                     device=field.state.sw.device)
-            rolled = model.rollout(field.repeat(E), fd, acts, observer=accumulate,
+            rolled = model.rollout(field.repeat(E), forcing_day, actions, observer=accumulate,
                                 checkpoint_every=24 if h > 64 else 0)
             m = accumulate.result().unsqueeze(0)              # (1, E, H, M)
             r = (reward(m) if reward is not None
                  else metric_reward(m, weights, risk, alpha, margin))
-            return -(r.mean() + bonus(rolled, fd, acts).mean())
+            return -(r.mean() + bonus(rolled, forcing_day, actions).mean())
 
         if refine_alg == "lbfgs":
             _quasi_newton(polish, [irrigation, nf], refine)
@@ -345,7 +345,7 @@ def path_integral(model, field: Field, forcing: Forcing, base: Actions,
         if float(r_new) > best_r:
             best_r, best_mu = float(r_new), refined
 
-    acts = Actions(sow=best_sow.unsqueeze(0),
+    actions = Actions(sow=best_sow.unsqueeze(0),
                    irrigation=best_mu[0].clamp(*bounds[0]).unsqueeze(0),
                    n_fert=best_mu[1].clamp(*bounds[1]).unsqueeze(0))
-    return ControlResult(acts, best_r, tuple(history))
+    return ControlResult(actions, best_r, tuple(history))
