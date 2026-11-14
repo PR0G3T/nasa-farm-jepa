@@ -1,0 +1,42 @@
+[project]
+name = "nasa-farm"
+version = "0.1.0"
+description = "Physics-informed latent world model for NASA-data-driven crop rotation decision support"
+requires-python = ">=3.14"
+dependencies = [
+    "earthaccess>=0.19.0",
+    "httpx>=0.28.1",
+    "pydantic>=2.14.3",
+    "pystac-client>=0.9.1",
+    "torch>=2.15.0",
+    "xarray>=2026.9.0",
+    "zarr>=3.4.2",
+]
+
+[project.scripts]
+nasa-farm = "nasa_farm.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/nasa_farm"]
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[tool.uv.sources]
+torch = { index = "pytorch-cpu" }
+
+[dependency-groups]
+dev = [
+    "hypothesis>=6.170.15",
+    "pytest>=9.2.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
