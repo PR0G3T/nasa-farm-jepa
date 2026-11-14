@@ -79,8 +79,8 @@ def identify(model, field: Field, forcing: Forcing, actions: Actions,
         nz = coef[:, j].abs() > 0
         eqs[v] = {names[i]: round(float(coef[i, j]), 6)
                   for i in torch.nonzero(nz).flatten().tolist()}
-    res = (Y / scale - phi @ coef).pow(2).sum()
-    tot = (Y / scale).pow(2).sum()
+    res = (Y / scale - phi @ coef).detach().pow(2).sum()
+    tot = (Y / scale).detach().pow(2).sum()
     r2 = 1.0 - float(res) / float(tot) if float(tot) > 1e-12 else 0.0
     return {"equations": eqs, "coef": coef, "names": names,
             "scale": scale, "r2": round(r2, 4)}
