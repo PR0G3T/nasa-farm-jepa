@@ -56,6 +56,9 @@ class Forcing:
     def repeat(self, n: int) -> "Forcing":
         return Forcing(*(getattr(self, k).repeat(n, 1) for k in FORCING_VARS))
 
+    def to(self, device: torch.device | str) -> "Forcing":
+        return Forcing(*(getattr(self, k).to(device) for k in FORCING_VARS))
+
     @classmethod
     def concat(cls, parts: list["Forcing"]) -> "Forcing":
         return cls(*(torch.cat([getattr(p, k) for p in parts], dim=0)
@@ -93,3 +96,7 @@ class Actions:
     def repeat(self, n: int) -> "Actions":
         return Actions(self.sow.repeat(n, 1), self.irrigation.repeat(n, 1),
                        self.n_fert.repeat(n, 1))
+
+    def to(self, device: torch.device | str) -> "Actions":
+        return Actions(self.sow.to(device), self.irrigation.to(device),
+                       self.n_fert.to(device))

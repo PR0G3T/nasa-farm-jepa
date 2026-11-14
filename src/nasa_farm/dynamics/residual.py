@@ -32,26 +32,58 @@ def featurize(state_fields: dict[str, torch.Tensor],
     scales = torch.tensor(
         [300.0, 500.0, 80.0, 6.0, 20_000.0, 2500.0, 1.0,
          30.0, 40.0, 30.0, 50.0, 20.0, 100.0, 6.0],
-        dtype=state_fields["sw1"].dtype,
+        dtype=state_fields["sw1"].dtype, device=state_fields["sw1"].device,
     )
     return torch.stack(cols, dim=-1) / scales
 
 
-class ResidualNet(nn.Module):
-    """MLP producing bounded per-variable deltas. Identity at init."""
+ACTS: dict[str, type[nn.Module]] = {
+    "silu": nn.SiLU, "gelu": nn.GELU, "elu": nn.ELU, "tanh": nn.Tanh,
+}
 
-    def __init__(self, hidden: int = 64) -> None:
+
+class ResidualNet(nn.Module):
+    """Configurable MLP producing bounded per-variable deltas.
+
+    Defaults reproduce the original head (2×64 SiLU hidden layers). The
+    output layer is zero-initialized ⇒ identity at init regardless of the
+    hidden architecture (verified by tests).
+    """
+
+    def __init__(self, hidden: int = 64, depth: int = 2,
+                 activation: str = "silu", layernorm: bool = False,
+                 skip: bool = False, zero_init: bool = True) -> None:
         super().__init__()
-        self.net = nn.Sequential(
-            nn.Linear(N_FEATURES, hidden), nn.SiLU(),
-            nn.Linear(hidden, hidden), nn.SiLU(),
-            nn.Linear(hidden, len(RESIDUAL_VARS)),
-        )
-        nn.init.zeros_(self.net[-1].weight)
-        nn.init.zeros_(self.net[-1].bias)
-        self.to(torch.float64)
-        scale = torch.tensor([BOUND_SCALE[v] for v in RESIDUAL_VARS], dtype=torch.float64)
+        act = ACTS[activation]
+        layers: list[nn.Module] = []
+        d = N_FEATURES
+        for _ in range(depth):
+            layers.append(nn.Linear(d, hidden))
+            if layernorm:
+                layers.append(nn.LayerNorm(hidden))
+            layers.append(act())
+            d = hidden
+        layers.append(nn.Linear(d, len(RESIDUAL_VARS)))
+        self.body = nn.Sequential(*layers[:-1])
+        self.head = layers[-1]
+        # input → last-hidden shortcut (real projection, dims differ)
+        self.short = (nn.Linear(N_FEATURES, hidden, bias=False)
+                      if skip else None)
+        if zero_init:
+            nn.init.zeros_(self.head.weight)
+            nn.init.zeros_(self.head.bias)
+        scale = torch.tensor([BOUND_SCALE[v] for v in RESIDUAL_VARS],
+                             dtype=torch.float64)
         self.register_buffer("scale", scale)
+        self.to(torch.float64)
+
+    @property
+    def net(self) -> nn.Sequential:
+        """Full Sequential view (kept for tests/tooling)."""
+        return nn.Sequential(*self.body, self.head)
 
     def forward(self, feats: torch.Tensor) -> torch.Tensor:
-        return torch.tanh(self.net(feats)) * self.scale
+        h = self.body(feats)
+        if self.short is not None:
+            h = h + self.short(feats)
+        return torch.tanh(self.head(h)) * self.scale

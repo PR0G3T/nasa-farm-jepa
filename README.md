@@ -71,7 +71,14 @@ src/nasa_farm/
 │   ├── power.py            NASA POWER agro API (no key)
 │   ├── earthdata.py        CMR via earthaccess (SMAP, IMERG, HLS, ECOSTRESS, GRACE)
 │   └── soilgrids.py        ISRIC SoilGrids → SoilProfile
-└── cli.py                  `nasa-farm plan` — fetch→evaluate→rank in one shot
+├── optimize/
+│   ├── space.py            Search space + Sobol sampler (torch.quasirandom)
+│   ├── targets.py          ObservedTrajectory + differentiable χ² loss
+│   ├── trainer.py          fit() — Adam/clip/early-stop on rollout gradients
+│   ├── hpo.py              gradient_hpo (variational) + blackbox (Sobol+ASHA,
+│   │                       Optuna TPE/NSGA-II via `hpo` extra)
+│   └── nas.py              zero-cost proxies (SynFlow/Jacobian-cov) + ASHA NAS
+└── cli.py                  `nasa-farm plan|calibrate|nas`
 ```
 
 ## Usage
@@ -115,20 +122,57 @@ rec = recommend(ev, weights={"yield_mean": 2.0, "soc_gain": 1.0})
 | SoilGrids v2 (`clay, sand, soc`, 0–30 cm) | pedotransfer → soil storages | REST, no key |
 | SMAP `SPL3SMP_E`, GPM `GPM_3IMERGDF`, HLS `HLSL30`, ECOSTRESS `ECO_L3T_JET`, GRACE-FO mascons | observation streams for assimilation into `s_t` / residual training | `earthaccess`, Earthdata login |
 
-## Performance
+## Performance — adaptive hardware engine
 
-- **Free-threaded CPython 3.15** (`.python-version` → `3.15+freethreaded`, GIL
-  off): `evaluate(workers=N)` shards the plan axis across threads — `step` is
-  pure, so scaling is real, not fake-async. `workers=0` auto-detects: CPU
-  count on no-GIL builds, 1 elsewhere. Rollouts are dispatch-bound, so
-  intra-op OMP is parked at 1 thread during parallel blocks.
-- **`model.enable_compile()`** fuses the daily step via `torch.compile`
-  (~2× on repeated rollouts; ~10 s graph-build on first call — opt-in via
-  CLI `--compile`, meant for sweeps, not one-shots). Compiled-vs-eager
-  parity is test-enforced.
-- ~1.2 M field-days/s single-core float64; POWER year fetches are
-  parallelized (I/O). Rollouts stay O(1) extra memory — seasonal metrics
-  accumulate online; nothing per-day is stored unless an observer asks.
+`evaluate()` auto-exploits everything the machine offers, with graceful
+degradation instead of crashes:
+
+- **Device probe** (`device="auto"`): a one-time ~1 s benchmark times the
+  real rollout on CPU vs GPU (cached per workload bucket) and keeps the
+  winner. Measured on an RTX 4060: CPU+threads wins below ~5k trajectory
+  rows (launch-bound kernels); CUDA wins beyond (≈1.9× at 13k rows).
+  Small runs skip the probe entirely. Universal PyPI torch wheel serves
+  both paths — no separate build to install.
+- **Threads** (`workers=0`): physical cores on no-GIL CPython (SMT siblings
+  excluded — measured, not `os.cpu_count()`), 1 on GIL builds and on GPU.
+  Shard results are bit-identical to serial (test-enforced).
+- **Memory budget**: plan blocks are sized against *currently free*
+  RAM/VRAM (`mem_budget` of it), so giant sweeps stream instead of OOMing.
+- **OOM ladder** (tested): block ÷ 2 → threads ÷ 2 → CUDA → CPU → raise.
+  Non-OOM errors always propagate — a bug is never masked by lower settings.
+- **`compile="auto"`**: `torch.compile` engages past ~30 M field-days
+  (dynamic shapes, ~2×). Note: inductor pulls triton, which currently
+  re-enables the GIL — compiled path therefore runs serially, where its
+  kernel fusion wins anyway.
+
+~1.2 M field-days/s single-core float64 · ~1.7× with auto threads on 8
+physical cores · ~1.9× further with CUDA on large sweeps. Rollouts stay
+O(1) extra memory — seasonal metrics accumulate online.
+
+## HPO & NAS (`optimize/`)
+
+Because the dynamics core is differentiable, continuous parameters optimize
+**through the rollout** — variational data assimilation, strictly stronger
+than black-box evaluation per unit of compute:
+
+- `gradient_hpo` + `trait_leaf(model)`: traits/soil/residual calibrated by
+  direct `d(loss)/d(param)` over the full trajectory. Proven on an
+  identifiability test: perturbing `rue` ×0.8 → fit recovers ≈99.9 %.
+- `blackbox_hpo`: Sobol coverage + ASHA for non-differentiable knobs;
+  Optuna TPE / NSGA-II kicks in automatically with `uv sync --extra hpo`.
+- `nas_search` (`nasa-farm nas`): two-stage search over residual
+  architectures — zero-cost proxies (SynFlow signal propagation, Jacobian
+  covariance, grad-norm) rank candidates before any fitting, then
+  successive halving spends fit budget only on contenders.
+- `ObservedTrajectory` is the loss contract real SMAP/HLS/yield series will
+  satisfy: same channels as `heads.METRICS`, NaN = unobserved, per-channel
+  χ² scaling. `synthetic_observation` fills it from a rollout meanwhile —
+  the whole pipeline is testable *today*, uncalibrated claims included.
+
+```bash
+uv run nasa-farm calibrate --lat 42 --lon -93.6 --param rue --scale 0.8
+uv run nasa-farm nas --candidates 24 --top-k 8 --rungs 10,30,90
+```
 
 ## Calibration notes (honest limits)
 
@@ -140,7 +184,8 @@ rec = recommend(ev, weights={"yield_mean": 2.0, "soc_gain": 1.0})
 
 ## Tests
 
-`uv run pytest` — 125 tests: conservation laws (Hypothesis property tests),
+`uv run pytest` — 148 tests: conservation laws (Hypothesis property tests),
 bounds, lifecycle events, legume economics, Pareto exactness, API parsing,
-differentiability, thread-sharded-vs-serial bit-parity, compiled-vs-eager
-parity, and a full offline pipeline + CLI integration test.
+differentiability, thread/streamed bit-parity, compiled-vs-eager parity,
+OOM-ladder recovery, device probing, HPO identifiability, space sampling,
+ASHA pruning, NAS proxies + search, and full offline pipeline + CLI tests.

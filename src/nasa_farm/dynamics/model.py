@@ -146,7 +146,8 @@ class WorldModel(nn.Module):
                   "et0": et0, "delta_b": cflux["delta_b"], "limiter": cflux["limiter"],
                   "water_fac": water_fac, "yield_event": yield_event,
                   "residue_in": residue_in}
-        return field.__class__(state=new_state, soil=field.soil, lat=field.lat), fluxes
+        return field.__class__(state=new_state, soil=field.soil, lat=field.lat,
+                               elev=field.elev), fluxes
 
     def rollout(
         self,

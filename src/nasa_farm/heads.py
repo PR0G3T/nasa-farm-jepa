@@ -27,9 +27,11 @@ METRICS: tuple[str, ...] = (
 class SeasonAccumulator:
     """observer(t, state, fluxes) → (B, H) metric tensor at the end."""
 
-    def __init__(self, batch: int, horizon_years: int) -> None:
+    def __init__(self, batch: int, horizon_years: int,
+                 device: torch.device | str | None = None) -> None:
         self.horizon = horizon_years
-        self.acc = torch.zeros(batch, horizon_years, len(METRICS), dtype=DTYPE)
+        self.acc = torch.zeros(batch, horizon_years, len(METRICS),
+                               dtype=DTYPE, device=device)
         self._i = {name: i for i, name in enumerate(METRICS)}
 
     def __call__(self, t: int, state: FieldState, fluxes: dict) -> None:

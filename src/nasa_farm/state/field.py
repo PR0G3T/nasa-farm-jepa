@@ -50,6 +50,12 @@ class FieldState:
             **{f: getattr(self, f).repeat(n) for f in self.__dataclass_fields__},
         )
 
+    def to(self, device: torch.device | str) -> "FieldState":
+        return replace(
+            self,
+            **{f: getattr(self, f).to(device) for f in self.__dataclass_fields__},
+        )
+
 
 @dataclass(frozen=True, slots=True)
 class Field:
@@ -76,6 +82,14 @@ class Field:
             soil=_repeat_soil(self.soil, n),
             lat=self.lat.repeat(n),
             elev=self.elev.repeat(n) if self.elev is not None else None,
+        )
+
+    def to(self, device: torch.device | str) -> "Field":
+        return Field(
+            state=self.state.to(device),
+            soil=self.soil.to(device),
+            lat=self.lat.to(device),
+            elev=self.elev.to(device) if self.elev is not None else None,
         )
 
 

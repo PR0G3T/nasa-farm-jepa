@@ -13,6 +13,9 @@ dependencies = [
     "zarr>=3.4.2",
 ]
 
+[project.optional-dependencies]
+hpo = ["optuna>=5.0.0"]
+
 [project.scripts]
 nasa-farm = "nasa_farm.cli:main"
 
@@ -29,7 +32,9 @@ url = "https://download.pytorch.org/whl/cpu"
 explicit = true
 
 [tool.uv.sources]
-torch = { index = "pytorch-cpu" }
+# PyPI torch = universal CUDA+CPU wheel (GPU auto-detected at runtime).
+# For a slim CPU-only env: uncomment the line below to pin the cpu index.
+# torch = { index = "pytorch-cpu" }
 
 [dependency-groups]
 dev = [

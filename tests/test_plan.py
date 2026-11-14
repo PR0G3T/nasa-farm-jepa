@@ -139,8 +139,10 @@ class TestWorkers:
         plans = enumerate_rotations(idx, 2)  # 9 plans
         ens = climatology_ensemble(
             [synthetic_year(42.0, seed=s) for s in range(3)], 2)
-        serial = evaluate(physics_model, field, plans, ens, workers=1)
-        sharded = evaluate(physics_model, field, plans, ens, workers=4)
+        serial = evaluate(physics_model, field, plans, ens, workers=1,
+                          device="cpu")
+        sharded = evaluate(physics_model, field, plans, ens, workers=4,
+                           device="cpu")
         assert torch.equal(serial.metrics, sharded.metrics)
         for k in serial.objectives:
             assert torch.equal(serial.objectives[k], sharded.objectives[k])
@@ -148,6 +150,77 @@ class TestWorkers:
     def test_workers_rejects_batched_field(self, physics_model, field, crops):
         plans = enumerate_rotations([crops.index("maize"), crops.index("soybean")], 1)
         ens = climatology_ensemble([synthetic_year(42.0, seed=1)], 1)
-        batched = field.repeat(3)
+        batched = field.repeat(2)  # batch == r*s → valid size, unshardable
         with pytest.raises(ValueError, match="workers"):
             evaluate(physics_model, batched, plans, ens, workers=2)
+
+    def test_workers_rejects_wrong_batch(self, physics_model, field, crops):
+        plans = enumerate_rotations([crops.index("maize"), crops.index("soybean")], 1)
+        ens = climatology_ensemble([synthetic_year(42.0, seed=1)], 1)
+        with pytest.raises(ValueError, match="matches neither"):
+            evaluate(physics_model, field.repeat(3), plans, ens)
+
+
+class TestAdaptiveHardware:
+    def test_streamed_blocks_bit_identical(self, physics_model, field, crops):
+        """mem_budget→0 forces plan-by-plan streaming; must equal one pass."""
+        idx = [crops.index(n) for n in ("maize", "soybean", "wheat")]
+        plans = enumerate_rotations(idx, 2)
+        ens = climatology_ensemble(
+            [synthetic_year(42.0, seed=s) for s in range(2)], 2)
+        full = evaluate(physics_model, field, plans, ens,
+                        workers=1, device="cpu", mem_budget=1.0)
+        streamed = evaluate(physics_model, field, plans, ens,
+                            workers=1, device="cpu", mem_budget=1e-9)
+        assert torch.equal(full.metrics, streamed.metrics)
+
+    def test_oom_ladder_retries_then_succeeds(self, physics_model, field, crops,
+                                            monkeypatch):
+        """A transient OOM halves the block and retries — never crashes."""
+        import nasa_farm.plan as plan_mod
+        orig = plan_mod._eval_block
+        calls = {"n": 0}
+
+        def flaky(*a, **kw):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                raise MemoryError("simulated transient OOM")
+            return orig(*a, **kw)
+
+        monkeypatch.setattr(plan_mod, "_eval_block", flaky)
+        idx = [crops.index(n) for n in ("maize", "soybean", "wheat")]
+        plans = enumerate_rotations(idx, 2)
+        ens = climatology_ensemble(
+            [synthetic_year(42.0, seed=s) for s in range(2)], 2)
+        ev = evaluate(physics_model, field, plans, ens,
+                      workers=1, device="cpu", mem_budget=1.0)
+        ref = evaluate(physics_model, field, plans, ens,
+                       workers=1, device="cpu", mem_budget=1.0)
+        assert calls["n"] >= 2 and torch.equal(ev.metrics, ref.metrics)
+
+    def test_non_oom_errors_propagate(self, physics_model, field, crops,
+                                     monkeypatch):
+        """Bugs are never masked: non-OOM failures raise immediately."""
+        import nasa_farm.plan as plan_mod
+
+        def broken(*a, **kw):
+            raise RuntimeError("a real bug, not OOM")
+
+        monkeypatch.setattr(plan_mod, "_eval_block", broken)
+        plans = enumerate_rotations([crops.index("maize")], 1)
+        ens = climatology_ensemble([synthetic_year(42.0, seed=1)], 1)
+        with pytest.raises(RuntimeError, match="a real bug"):
+            evaluate(physics_model, field, plans, ens, device="cpu")
+
+    def test_probe_short_circuits_small_workloads(self, physics_model, field,
+                                                  crops):
+        """<500k field-days: CPU directly, zero probe cost — deterministic."""
+        import nasa_farm.plan as plan_mod
+        plans = enumerate_rotations([crops.index("maize")], 1)
+        ens = climatology_ensemble([synthetic_year(42.0, seed=1)], 1)
+        dev = plan_mod._pick_device(physics_model, field, plans, ens, 1)
+        assert dev.type == "cpu"
+
+    def test_physical_cores_detected(self):
+        from nasa_farm.plan import _physical_cores
+        assert _physical_cores() >= 1
