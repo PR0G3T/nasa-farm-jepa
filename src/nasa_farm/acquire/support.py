@@ -21,15 +21,22 @@ import xarray as xr
 KM_PER_DEG = 111.195
 
 
+_COORD_NAMES = (("lat", "lon"), ("latitude", "longitude"),
+                ("cell_lat", "cell_lon"))
+
+
 def _coords(ds: xr.Dataset, var: str) -> tuple[np.ndarray, np.ndarray]:
     """(lat, lon) arrays broadcast onto the var's spatial grid."""
     da = ds[var]
-    lat, lon = ds["lat"].values, ds["lon"].values
-    if "lat" in da.dims and "lon" in da.dims:
-        lat, lon = np.meshgrid(lat, lon, indexing="ij")
-        if da.dims.index("lat") > da.dims.index("lon"):
-            lat, lon = lat.T, lon.T
-    return np.asarray(lat, np.float64), np.asarray(lon, np.float64)
+    for la, lo in _COORD_NAMES:
+        if la in ds and lo in ds:
+            lat, lon = ds[la].values, ds[lo].values
+            if lat.ndim == 1 and la in da.dims and lo in da.dims:
+                lat, lon = np.meshgrid(lat, lon, indexing="ij")
+                if da.dims.index(la) > da.dims.index(lo):
+                    lat, lon = lat.T, lon.T
+            return np.asarray(lat, np.float64), np.asarray(lon, np.float64)
+    raise KeyError(f"no lat/lon coords among {[v for v in ds][:12]}")
 
 
 def dist_km(glat: np.ndarray, glon: np.ndarray,
