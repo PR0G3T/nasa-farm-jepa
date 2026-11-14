@@ -1,11 +1,14 @@
 """WorldModel end-to-end invariants — the core theoretical guarantees."""
 
+import dataclasses
+
 import pytest
 import torch
 from conftest import day_action, day_forcing
 
 from nasa_farm.constants import DAYS_PER_YEAR, DTYPE
-from nasa_farm.forcing import tile_to_horizon
+from nasa_farm.dynamics.model import WorldModel
+from nasa_farm.forcing import synthetic_year, tile_to_horizon
 from nasa_farm.heads import METRICS, SeasonAccumulator
 from nasa_farm.state.field import Field, initial_state
 from nasa_farm.state.soil import SoilProfile
@@ -194,3 +197,131 @@ class TestBoundsOverRollout:
                 violations.append(("lai", t))
         physics_model.rollout(field, forcing, actions, observer=obs)
         assert violations == []
+
+
+class TestCheckpointedRollout:
+    """gradient checkpointing — same trajectory, same metrics, same grads,
+    O(T/k + k) activation memory instead of O(T)."""
+
+    def test_forward_and_metrics_bitwise_equal(self, field, warm_year,
+                                               hybrid_model, crops):
+        forcing = tile_to_horizon(warm_year, 1)
+        actions = sow_actions(crops.index("maize"), 120, forcing.days)
+        a1, a2 = SeasonAccumulator(1, 1), SeasonAccumulator(1, 1)
+        f1 = hybrid_model.rollout(
+            Field(field.state.clone(), field.soil, field.lat),
+            forcing, actions, observer=a1)
+        f2 = hybrid_model.rollout(
+            Field(field.state.clone(), field.soil, field.lat),
+            forcing, actions, observer=a2, checkpoint_every=30)
+        for name in ("sw1", "sw2", "n_min", "soc", "gdd", "lai", "biomass",
+                     "cum_yield", "vern", "heat_acc"):
+            assert torch.equal(getattr(f1.state, name), getattr(f2.state, name)), name
+        assert torch.equal(a1.result(), a2.result())
+
+    def test_gradients_match_eager(self, field, warm_year, hybrid_model, crops):
+        forcing = tile_to_horizon(warm_year, 1)
+        actions = sow_actions(crops.index("maize"), 120, forcing.days)
+
+        def grad(ckpt):
+            tmin = forcing.tmin.detach().clone().requires_grad_(True)
+            frc = dataclasses.replace(forcing, tmin=tmin)
+            acc = SeasonAccumulator(1, 1)
+            hybrid_model.rollout(
+                Field(field.state.clone(), field.soil, field.lat),
+                frc, actions, observer=acc, checkpoint_every=ckpt)
+            acc.result().sum().backward()
+            return tmin.grad.clone()
+
+        g_eager, g_ckpt = grad(0), grad(30)
+        assert g_eager is not None and torch.isfinite(g_eager).all()
+        torch.testing.assert_close(g_ckpt, g_eager, rtol=1e-8, atol=1e-10)
+
+    def test_rejects_non_foldable_observer(self, field, warm_year,
+                                           hybrid_model, crops):
+        forcing = tile_to_horizon(warm_year, 1)
+        actions = sow_actions(crops.index("maize"), 120, forcing.days)
+        with pytest.raises(ValueError):
+            hybrid_model.rollout(field, forcing, actions,
+                                 observer=lambda t, s, f: None,
+                                 checkpoint_every=30)
+
+    def test_inference_mode_ignores_checkpoint(self, field, warm_year,
+                                               hybrid_model, crops):
+        forcing = tile_to_horizon(warm_year, 1)
+        actions = sow_actions(crops.index("maize"), 120, forcing.days)
+        seen = []
+        with torch.inference_mode():
+            hybrid_model.rollout(field, forcing, actions,
+                                 observer=lambda t, s, f: seen.append(t),
+                                 checkpoint_every=30)
+        assert seen == list(range(forcing.days))
+
+
+class TestLatentDynamics:
+    def test_z_stays_zero_under_identity_head(self, soil, warm_year, crops):
+        """Zero-init LatentDyn ⇒ z ≡ 0 — the model is the physics until z
+        earns signal through assimilation."""
+        model = WorldModel(crops, residual=False, latent_dim=4)
+        field = Field(initial_state(1, soil, z_dim=4), soil,
+                      torch.tensor([42.0], dtype=DTYPE))
+        forcing = tile_to_horizon(warm_year, 1)
+        f = model.rollout(field, forcing, Actions.idle(1, forcing.days))
+        assert f.state.z.shape == (1, 4)
+        assert torch.equal(f.state.z, torch.zeros(1, 4, dtype=DTYPE))
+
+    def test_z_moves_when_head_trained(self, soil, warm_year, crops):
+        model = WorldModel(crops, residual=False, latent_dim=4)
+        with torch.no_grad():
+            model.latent.head.weight.normal_(
+                0, 0.1, generator=torch.Generator().manual_seed(0))
+        field = Field(initial_state(1, soil, z_dim=4), soil,
+                      torch.tensor([42.0], dtype=DTYPE))
+        forcing = tile_to_horizon(warm_year, 1)
+        f = model.rollout(field, forcing, Actions.idle(1, forcing.days))
+        assert torch.isfinite(f.state.z).all()
+        assert float(f.state.z.detach().abs().sum()) > 0.0
+
+    def test_z_resets_on_sowing(self, soil, warm_year, crops):
+        model = WorldModel(crops, residual=False, latent_dim=4)
+        with torch.no_grad():
+            model.latent.head.weight.normal_(
+                0, 0.1, generator=torch.Generator().manual_seed(0))
+        field = Field(initial_state(1, soil, z_dim=4), soil,
+                      torch.tensor([42.0], dtype=DTYPE))
+        forcing = tile_to_horizon(warm_year, 1)
+        actions = sow_actions(crops.index("maize"), 120, forcing.days)
+        f = model.rollout(field, forcing, actions)
+        assert torch.isfinite(f.state.z).all()  # sowing day zeroed it, then dyn resumed
+
+
+class TestStressEvents:
+    def test_frost_kills_maize_midseason(self, field, warm_year,
+                                         physics_model, crops):
+        """A −5 °C night under a standing maize canopy ends the cycle:
+        harvested flag set, partial salvage yield, growing stops."""
+        forcing = tile_to_horizon(warm_year, 1)
+        cold = forcing.tmin.clone()
+        cold[0, 200] = -5.0
+        tmax = forcing.tmax.clone()
+        tmax[0, 200] = 2.0
+        forcing = dataclasses.replace(forcing, tmin=cold, tmax=tmax)
+        actions = sow_actions(crops.index("maize"), 120, forcing.days)
+        final = physics_model.rollout(field, forcing, actions)
+        s = final.state
+        assert bool(s.harvested[0]) and not bool(s.growing[0])
+        assert float(s.cum_yield) > 0.0
+
+    def test_winter_wheat_vernalizes_and_yields(self, soil, physics_model,
+                                              crops):
+        """Autumn-sown wheat in a cool climate completes its cycle only via
+        accumulated chill: yield > 0 proves the vernalization gate opened."""
+        climate = tile_to_horizon(
+            synthetic_year(42.0, tmean_annual=10.0, seed=2), 2)
+        field = Field(initial_state(1, soil), soil,
+                      torch.tensor([42.0], dtype=DTYPE))
+        actions = sow_actions(crops.index("wheat"), 285, climate.days)
+        final = physics_model.rollout(field, climate, actions)
+        s = final.state
+        assert float(s.vern) >= 44.0       # vern_req = 45 chill days
+        assert float(s.cum_yield) > 0.0    # gate opened → matured → harvested

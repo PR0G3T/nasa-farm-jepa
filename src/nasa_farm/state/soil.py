@@ -39,6 +39,18 @@ def theta_sat(sand_pct: torch.Tensor, clay_pct: torch.Tensor) -> torch.Tensor:
     return torch.clamp(0.332 - 7.251e-4 * s_pct + 0.1276 * torch.log10(c_pct), min=0.25)
 
 
+def _layer(s: torch.Tensor, c: torch.Tensor, om: torch.Tensor,
+           depth_m: float) -> "SoilLayer":
+    """Texture (%) → hydraulic storages (mm) for one layer."""
+    sat = theta_sat(s, c) * depth_m * 1000.0
+    fc = theta_fc(s, c, om) * depth_m * 1000.0
+    wp = theta_wp(s, c, om) * depth_m * 1000.0
+    air = wp * 0.35  # air-dry ≈ 0.3–0.4 × wilting point
+    sat = torch.clamp(sat, min=fc + 5.0)
+    fc = torch.clamp(fc, min=wp + 2.0)
+    return SoilLayer(sat, fc, wp, air)
+
+
 @dataclass(frozen=True, slots=True)
 class SoilLayer:
     """Hydraulic parameters of one layer; storages in mm."""
@@ -82,21 +94,32 @@ class SoilProfile:
         """Same texture both layers. Percents; om defaults to 1.5 %."""
         if om_pct is None:
             om_pct = torch.full_like(sand_pct, 1.5)
-
-        def layer(s, c, om, depth_m):
-            sat = theta_sat(s, c) * depth_m * 1000.0
-            fc = theta_fc(s, c, om) * depth_m * 1000.0
-            wp = theta_wp(s, c, om) * depth_m * 1000.0
-            air = wp * 0.35  # air-dry ≈ 0.3–0.4 × wilting point
-            sat = torch.clamp(sat, min=fc + 5.0)
-            fc = torch.clamp(fc, min=wp + 2.0)
-            return SoilLayer(sat, fc, wp, air)
-
         return cls(
-            layer1=layer(sand_pct, clay_pct, om_pct, depth1_m),
-            layer2=layer(sand_pct, clay_pct, om_pct, depth2_m),
+            layer1=_layer(sand_pct, clay_pct, om_pct, depth1_m),
+            layer2=_layer(sand_pct, clay_pct, om_pct, depth2_m),
             sand1=sand_pct, clay1=clay_pct, om1=om_pct,
             sand2=sand_pct, clay2=clay_pct, om2=om_pct,
+        )
+
+    @classmethod
+    def sample(cls, lo: "SoilProfile", hi: "SoilProfile", n: int,
+               seed: int = 0) -> "SoilProfile":
+        """Parameter-uncertainty ensemble: n profiles whose textures are
+        uniform draws inside [lo, hi] per layer (e.g. SoilGrids Q05/Q95),
+        hydraulics recomputed so every member stays self-consistent."""
+        g = torch.Generator().manual_seed(seed)
+
+        def u(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
+            a, b = a.reshape(-1), b.reshape(-1)
+            r = torch.rand(n, *a.shape, generator=g, dtype=DTYPE)
+            return (a + (b - a) * r).reshape(-1)
+
+        s1, c1, o1 = u(lo.sand1, hi.sand1), u(lo.clay1, hi.clay1), u(lo.om1, hi.om1)
+        s2, c2, o2 = u(lo.sand2, hi.sand2), u(lo.clay2, hi.clay2), u(lo.om2, hi.om2)
+        return cls(
+            layer1=_layer(s1, c1, o1, LAYER1_DEPTH_M),
+            layer2=_layer(s2, c2, o2, LAYER2_DEPTH_M),
+            sand1=s1, clay1=c1, om1=o1, sand2=s2, clay2=c2, om2=o2,
         )
 
     @classmethod

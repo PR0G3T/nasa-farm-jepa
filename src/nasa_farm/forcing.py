@@ -22,6 +22,7 @@ def synthetic_year(
     srad_mean: float = 15.0,
     precip_mean: float = 2.2,
     wet_prob: float = 0.32,
+    co2_ppm: float = 420.0,
     seed: int = 0,
 ) -> Forcing:
     """Deterministic seasonal climatology + seeded daily noise. (B=1, T=365.)
@@ -58,7 +59,36 @@ def synthetic_year(
         tmin.unsqueeze(0), tmax.unsqueeze(0),
         srad.unsqueeze(0), precip.unsqueeze(0),
         rh.unsqueeze(0), u2.unsqueeze(0), doy.unsqueeze(0),
+        torch.full((1, DAYS_PER_YEAR), co2_ppm, dtype=DTYPE),
     )
+
+
+def augment(f: Forcing, n: int, rho: float = 0.6,
+            seed: int = 0) -> Forcing:
+    """AR(1)-correlated weather perturbations → n extra members per base row.
+
+    Returns the original batch followed by n perturbed members each, so a
+    single deterministic forcing becomes an (B·(n+1), T) scenario ensemble —
+    cheap probabilistic forcing for risk metrics and robust control.
+    """
+    from nasa_farm.control import ou_noise
+    B, T = f.batch, f.days
+    g = torch.Generator().manual_seed(seed)
+    e = [ou_noise(B * n, T, rho, g) for _ in range(5)]
+
+    def rep(v: torch.Tensor) -> torch.Tensor:
+        return v.repeat_interleave(n, dim=0)
+
+    tmin = rep(f.tmin) + 1.5 * e[0]
+    tmax = torch.maximum(rep(f.tmax) + 1.5 * e[0], tmin + 0.5)
+    return Forcing.concat([f, Forcing(
+        tmin=tmin, tmax=tmax,
+        srad=(rep(f.srad) * torch.exp(0.08 * e[1])).clamp(min=0.5),
+        precip=rep(f.precip) * torch.exp(0.35 * e[2]),
+        rh=(rep(f.rh) + 4.0 * e[3]).clamp(5.0, 100.0),
+        u2=(rep(f.u2) * torch.exp(0.12 * e[4])).clamp(min=0.1),
+        doy=rep(f.doy), co2=rep(f.co2),
+    )])
 
 
 def ensemble_of(years: list[Forcing]) -> Forcing:

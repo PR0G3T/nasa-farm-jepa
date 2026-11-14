@@ -7,6 +7,7 @@ enumeration → exact Pareto front + priority-weighted ranking.
 from __future__ import annotations
 
 import argparse
+import dataclasses
 import datetime as dt
 import json
 import sys
@@ -18,7 +19,10 @@ from nasa_farm import CropLibrary, Field, WorldModel, initial_state
 from nasa_farm.acquire.power import PowerClient
 from nasa_farm.acquire.soilgrids import SoilGridsClient
 from nasa_farm.constants import DTYPE
-from nasa_farm.forcing import climatology_ensemble, synthetic_year, tile_to_horizon
+from nasa_farm.control import mppi
+from nasa_farm.forcing import (
+    augment, climatology_ensemble, synthetic_year, tile_to_horizon,
+)
 from nasa_farm.optimize.hpo import gradient_hpo
 from nasa_farm.optimize.nas import nas_search
 from nasa_farm.optimize.targets import (
@@ -55,6 +59,7 @@ def _build_parser() -> argparse.ArgumentParser:
                     help="torch.compile the step; auto engages on large sweeps")
     pl.add_argument("--config", default=None,
                     help="TOML file; CLI flags override config values")
+    pl.add_argument("--co2", type=float, default=420.0, help="ppm scenario")
     pl.add_argument("--offline", action="store_true", help="synthetic forcing, no network")
     pl.add_argument("--no-residual", action="store_true")
 
@@ -76,16 +81,27 @@ def _build_parser() -> argparse.ArgumentParser:
     nas.add_argument("--top-k", type=int, default=8)
     nas.add_argument("--rungs", default="10,30,90", help="fit budgets, comma-sep")
     nas.add_argument("--seed", type=int, default=0)
+
+    ct = sub.add_parser("control", help="MPPI irrigation/N scheduling")
+    ct.add_argument("--lat", type=float, default=42.0)
+    ct.add_argument("--crop", default="maize")
+    ct.add_argument("--scenarios", type=int, default=8,
+                    help="forcing ensemble size")
+    ct.add_argument("--samples", type=int, default=64)
+    ct.add_argument("--iters", type=int, default=6)
+    ct.add_argument("--weights", default=None,
+                    help="reward mix, e.g. yield_kg=1.0,n_leached=-0.5")
+    ct.add_argument("--seed", type=int, default=0)
     return p
 
 
 def _argv_with_config(argv: list[str]) -> list[str]:
     """`--config file.toml` → flags injected after the subcommand, so any
     flag the user typed still wins (argparse takes the last occurrence).
-    Section = subcommand name (`[plan]`, `[calibrate]`, `[nas]`); flat keys
-    also work."""
+    Section = subcommand name (`[plan]`, `[calibrate]`, `[nas]`,
+    `[control]`); flat keys also work."""
     if "--config" not in argv or not argv or argv[0] not in (
-            "plan", "calibrate", "nas"):
+            "plan", "calibrate", "nas", "control"):
         return argv
     i = argv.index("--config")
     with open(argv[i + 1], "rb") as fh:
@@ -117,6 +133,8 @@ def cmd_plan(args) -> int:
     ens = climatology_ensemble(_forcings(args), args.horizon,
                                delta_t=args.delta_t,
                                precip_scale=args.precip_scale)
+    ens = dataclasses.replace(
+        ens, co2=torch.full_like(ens.tmin, args.co2))
 
     if args.soil:
         soil = SoilProfile.preset(args.soil)
@@ -159,7 +177,7 @@ def cmd_plan(args) -> int:
     return 0
 
 
-def _maize_actions(crops, days: int, crop: str = "maize"):
+def _demo_actions(crops, days: int, crop: str = "maize"):
     """One sow event at the crop's default DOY — synthetic demo driver."""
     from nasa_farm.types import Actions
     a = Actions.idle(1, days)
@@ -183,7 +201,7 @@ def cmd_calibrate(args) -> int:
     field = Field(initial_state(1, soil), soil,
                   torch.tensor([args.lat], dtype=DTYPE))
     forcing = tile_to_horizon(synthetic_year(args.lat, seed=0), 1)
-    actions = _maize_actions(crops, forcing.days, args.crop)
+    actions = _demo_actions(crops, forcing.days, args.crop)
     obs = synthetic_observation(truth, field, forcing, actions, (args.channel,))
 
     cand = WorldModel(crops, residual=False)
@@ -221,7 +239,7 @@ def cmd_nas(args) -> int:
     field = Field(initial_state(1, soil), soil,
                   torch.tensor([args.lat], dtype=DTYPE))
     forcing = tile_to_horizon(synthetic_year(args.lat, seed=0), 1)
-    actions = _maize_actions(crops, forcing.days)
+    actions = _demo_actions(crops, forcing.days)
 
     ref = WorldModel(crops, residual=True)
     with torch.no_grad():
@@ -255,6 +273,50 @@ def cmd_nas(args) -> int:
     return 0
 
 
+def cmd_control(args) -> int:
+    """Scenario-robust MPPI: optimize daily irrigation/N against a forcing
+    ensemble; report the schedule and its yield uplift vs rainfed."""
+    from nasa_farm.heads import METRICS, SeasonAccumulator
+
+    crops = CropLibrary.default()
+    soil = SoilProfile.preset("silt_loam")
+    field = Field(initial_state(1, soil), soil,
+                  torch.tensor([args.lat], dtype=DTYPE))
+    ens = augment(synthetic_year(args.lat, seed=args.seed),
+                  args.scenarios - 1, seed=args.seed)
+    base = _demo_actions(crops, ens.days, args.crop)
+    model = WorldModel(crops)
+    weights = (None if args.weights is None else
+               {k: float(v) for k, v in
+                (w.split("=") for w in args.weights.split(","))})
+    res = mppi(model, field, ens, base, iters=args.iters,
+               samples=args.samples, weights=weights, seed=args.seed)
+
+    idx = {n: i for i, n in enumerate(METRICS)}
+
+    def _yield(acts) -> float:
+        acc = SeasonAccumulator(ens.batch, ens.days // 365)
+        with torch.inference_mode():
+            model.rollout(field.repeat(ens.batch), ens,
+                          acts.repeat(ens.batch), observer=acc)
+        return float(acc.result()[..., idx["yield_kg"]].mean())
+
+    y_opt, y_rf = _yield(res.actions), _yield(base)
+    out = {
+        "crop": args.crop, "scenarios": ens.batch,
+        "reward": round(res.reward, 2),
+        "reward_history": [round(h, 2) for h in res.history],
+        "irrig_total_mm": round(float(res.actions.irrigation.sum()), 1),
+        "fert_total_kg": round(float(res.actions.n_fert.sum()), 1),
+        "yield_kg_mean": round(y_opt, 0),
+        "yield_vs_rainfed_pct": round(100 * (y_opt - y_rf)
+                                      / max(abs(y_rf), 1e-9), 1),
+    }
+    json.dump(out, sys.stdout, indent=2)
+    sys.stdout.write("\n")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     argv = _argv_with_config(list(sys.argv[1:] if argv is None else argv))
     args = _build_parser().parse_args(argv)
@@ -265,6 +327,8 @@ def main(argv: list[str] | None = None) -> int:
             return cmd_calibrate(args)
         case "nas":
             return cmd_nas(args)
+        case "control":
+            return cmd_control(args)
         case _:
             return 2
 

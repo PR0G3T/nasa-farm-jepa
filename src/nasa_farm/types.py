@@ -12,7 +12,11 @@ import torch
 
 from nasa_farm.constants import DTYPE
 
-FORCING_VARS: tuple[str, ...] = ("tmin", "tmax", "srad", "precip", "rh", "u2", "doy")
+FORCING_VARS: tuple[str, ...] = (
+    "tmin", "tmax", "srad", "precip", "rh", "u2", "doy", "co2")
+
+CO2_REF_PPM = 420.0
+"""Reference atmospheric CO2 at which crop `co2_resp` traits are calibrated."""
 
 type DayDict = dict[str, torch.Tensor]
 
@@ -22,7 +26,8 @@ class Forcing:
     """Daily exogenous drivers, (B, T).
 
     rh: mean relative humidity (%); u2: wind speed at 2 m (m/s) — both feed
-    FAO-56 Penman–Monteith ET0.
+    FAO-56 Penman–Monteith ET0. co2: atmospheric CO2 (ppm); None → CO2_REF_PPM,
+    so climate-scenario forcings stay a one-knob override.
     """
 
     tmin: torch.Tensor
@@ -32,6 +37,15 @@ class Forcing:
     rh: torch.Tensor     # %
     u2: torch.Tensor     # m/s
     doy: torch.Tensor    # 1..365
+    co2: torch.Tensor | None = None  # ppm
+
+    def __post_init__(self) -> None:
+        if self.co2 is None:
+            object.__setattr__(self, "co2",
+                               torch.full_like(self.tmin, CO2_REF_PPM))
+        elif not isinstance(self.co2, torch.Tensor):
+            object.__setattr__(self, "co2",
+                               torch.full_like(self.tmin, float(self.co2)))
 
     @property
     def batch(self) -> int:
@@ -50,7 +64,7 @@ class Forcing:
         return Forcing(
             tmin=self.tmin + delta_t, tmax=self.tmax + delta_t,
             srad=self.srad * srad_scale, precip=self.precip * precip_scale,
-            rh=self.rh, u2=self.u2, doy=self.doy,
+            rh=self.rh, u2=self.u2, doy=self.doy, co2=self.co2,
         )
 
     def repeat(self, n: int) -> "Forcing":

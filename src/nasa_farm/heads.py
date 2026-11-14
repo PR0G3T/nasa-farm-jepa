@@ -21,32 +21,70 @@ METRICS: tuple[str, ...] = (
     "biomass_end",   # kg/ha standing biomass at year end
     "n_min_end",     # kg/ha mineral N at year end
     "soc_end",       # kg/ha SOC at year end
+    "heat_dd",       # °C·d reproductive heat load in year h
+    "frost_days",    # d with a lethal-frost event in year h
 )
+
+_END: tuple[str, ...] = ("biomass_end", "n_min_end", "soc_end")
+"""Absolute-write metrics (last-day value), all others accumulate."""
+
+SUM_I = [i for i, n in enumerate(METRICS) if n not in _END]
+END_I = [i for i, n in enumerate(METRICS) if n in _END]
+
+
+def day_update(state: FieldState, fluxes: dict) -> torch.Tensor:
+    """(B, M) daily metric update — SUM channels carry increments, _END
+    channels carry the absolute value to write. Pure and differentiable, so
+    the checkpointed rollout can fold it inside segments."""
+    g = state.growing.to(DTYPE)
+    cols = {
+        "yield_kg": fluxes["yield_event"],
+        "water_used": fluxes["es"] + fluxes["t1"] + fluxes["t2"],
+        "water_lost": fluxes["runoff"] + fluxes["deep"],
+        "n_leached": fluxes["leached"],
+        "stress_days": ((fluxes["water_fac"] < 0.5) & state.growing).to(DTYPE),
+        "cover_days": g,
+        "biomass_end": state.biomass,
+        "n_min_end": state.n_min,
+        "soc_end": state.soc,
+        "heat_dd": fluxes["heat_dd"],
+        "frost_days": fluxes["frost"].to(DTYPE),
+    }
+    return torch.stack([cols[n] for n in METRICS], dim=-1)
+
+
+def fold(acc: torch.Tensor, t: int, update: torch.Tensor) -> torch.Tensor:
+    """acc' = acc with one daily update folded in — out-of-place, autograd-safe
+    equivalent of `acc[:, h, SUM] += u` + `acc[:, h, END] = u`."""
+    h = min(t // DAYS_PER_YEAR, acc.shape[1] - 1)
+    m = acc.shape[-1]
+    sel = (torch.arange(acc.shape[1], device=acc.device) == h).to(acc.dtype)
+    end_mask = torch.zeros(m, dtype=torch.bool, device=acc.device)
+    end_mask[END_I] = True
+    sum_mask = ~end_mask
+    u = update.unsqueeze(1)
+    acc = acc + sel.view(1, -1, 1) * u * sum_mask.to(u.dtype)
+    acc = torch.where(
+        sel.view(1, -1, 1).bool() & end_mask.view(1, 1, -1),
+        u.expand(-1, acc.shape[1], -1), acc)
+    return acc
 
 
 class SeasonAccumulator:
-    """observer(t, state, fluxes) → (B, H) metric tensor at the end."""
+    """observer(t, state, fluxes) → (B, H, M) metric tensor at the end."""
 
     def __init__(self, batch: int, horizon_years: int,
                  device: torch.device | str | None = None) -> None:
         self.horizon = horizon_years
         self.acc = torch.zeros(batch, horizon_years, len(METRICS),
                                dtype=DTYPE, device=device)
-        self._i = {name: i for i, name in enumerate(METRICS)}
 
     def __call__(self, t: int, state: FieldState, fluxes: dict) -> None:
         h = min(t // DAYS_PER_YEAR, self.horizon - 1)
-        acc, i = self.acc[:, h], self._i
-        acc[:, i["yield_kg"]] += fluxes["yield_event"]
-        acc[:, i["water_used"]] += fluxes["es"] + fluxes["t1"] + fluxes["t2"]
-        acc[:, i["water_lost"]] += fluxes["runoff"] + fluxes["deep"]
-        acc[:, i["n_leached"]] += fluxes["leached"]
-        stress = (fluxes["water_fac"] < 0.5) & state.growing
-        acc[:, i["stress_days"]] += stress.to(DTYPE)
-        acc[:, i["cover_days"]] += state.growing.to(DTYPE)
-        acc[:, i["biomass_end"]] = state.biomass
-        acc[:, i["n_min_end"]] = state.n_min
-        acc[:, i["soc_end"]] = state.soc
+        u = day_update(state, fluxes)
+        acc = self.acc[:, h]
+        acc[:, SUM_I] += u[:, SUM_I]
+        acc[:, END_I] = u[:, END_I]
 
     def result(self) -> torch.Tensor:
         """(B, H, M)."""
@@ -68,6 +106,8 @@ def objectives(season_metrics: torch.Tensor, n_plans: int, n_scen: int,
     lost = m[..., i["water_lost"]].sum(-1)
     leach = m[..., i["n_leached"]].sum(-1)
     stress = m[..., i["stress_days"]].mean(-1)
+    heat = m[..., i["heat_dd"]].sum(-1)
+    frost = m[..., i["frost_days"]].sum(-1)
     soc_gain = m[..., -1, i["soc_end"]] - m[..., 0, i["soc_end"]]
     nmin_end = m[..., -1, i["n_min_end"]]
 
@@ -80,6 +120,8 @@ def objectives(season_metrics: torch.Tensor, n_plans: int, n_scen: int,
         "water_used": mu(water + lost),      # total water consumed/lost
         "n_leached": mu(leach),
         "stress_days": mu(stress),
+        "heat_dd": mu(heat),                 # reproductive heat load
+        "frost_days": mu(frost),             # lethal-frost frequency
         "soc_gain": mu(soc_gain),
         "n_min_end": mu(nmin_end),
     }
@@ -87,5 +129,6 @@ def objectives(season_metrics: torch.Tensor, n_plans: int, n_scen: int,
 
 OBJECTIVE_DIRECTION: dict[str, int] = {
     "yield_mean": +1, "yield_risk": +1, "water_used": -1,
-    "n_leached": -1, "stress_days": -1, "soc_gain": +1, "n_min_end": +1,
+    "n_leached": -1, "stress_days": -1, "heat_dd": -1, "frost_days": -1,
+    "soc_gain": +1, "n_min_end": +1,
 }

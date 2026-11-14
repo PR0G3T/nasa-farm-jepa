@@ -16,7 +16,8 @@ from nasa_farm.optimize.nas import (
 )
 from nasa_farm.optimize.space import Param, Space
 from nasa_farm.optimize.targets import (
-    ObservedTrajectory, season_metrics, synthetic_observation, trajectory_loss,
+    ObservedSeries, ObservedTrajectory, obs_series, season_metrics,
+    series_loss, synthetic_observation, trajectory_loss,
 )
 from nasa_farm.optimize.trainer import fit, leaf, trait_leaf
 from nasa_farm.state.crops import IDX
@@ -90,6 +91,36 @@ class TestTargets:
             Actions(sow, a.irrigation, a.n_fert), ("yield_kg",))
         mask = obs.observed_mask()
         assert mask.sum() == obs.values.shape[0]  # one channel, H rows
+
+
+class TestObservedSeries:
+    def test_obs_series_shapes_and_zero_loss(self, physics_model, field):
+        forcing = tile_to_horizon(synthetic_year(42.0, seed=1), 1)
+        pred = obs_series(physics_model, field, forcing,
+                          Actions.idle(1, forcing.days),
+                          ("ndvi", "sm1"), every=30)
+        assert pred.shape == (1, 13, 2)
+        obs = ObservedSeries(values=pred[0].clone())
+        assert float(series_loss(pred, obs)) == pytest.approx(0.0)
+
+    def test_series_loss_counts_only_observed(self, physics_model, field):
+        forcing = tile_to_horizon(synthetic_year(42.0, seed=1), 1)
+        pred = obs_series(physics_model, field, forcing,
+                          Actions.idle(1, forcing.days), ("ndvi",), every=30)
+        moved = pred[0].clone()
+        moved[:, 0] += 1.0
+        moved[3:] = float("nan")      # unobserved cells excluded
+        l = series_loss(pred, ObservedSeries(values=moved))
+        assert float(l) > 0.0
+
+    def test_series_grads_reach_residual(self, hybrid_model, field):
+        forcing = tile_to_horizon(synthetic_year(42.0, seed=1), 1)
+        pred = obs_series(hybrid_model, field, forcing,
+                          Actions.idle(1, forcing.days), ("sm1",), every=15)
+        pred.sum().backward()
+        grads = [p.grad for p in hybrid_model.residual.parameters()
+                 if p.grad is not None]
+        assert grads and all(torch.isfinite(g).all() for g in grads)
 
 
 class TestTrainer:

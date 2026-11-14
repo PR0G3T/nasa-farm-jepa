@@ -15,6 +15,12 @@ from nasa_farm.state.crops import IDX
 PAR_FRACTION = 0.47
 """Photosynthetically active fraction of shortwave radiation."""
 
+FROST_SALVAGE = 0.3
+"""Fraction of harvest index recovered when a lethal frost ends the cycle."""
+
+VERN_T_LO, VERN_T_HI = -4.0, 8.0
+"""Effective chilling window (°C tmean) for vernalization."""
+
 
 def traits(table: torch.Tensor, crop_idx: torch.Tensor) -> torch.Tensor:
     """(B, P) trait rows for active crops; bare fields get row 0 (masked out)."""
@@ -35,40 +41,109 @@ def intercepted_fraction(lai: torch.Tensor, k_ext: torch.Tensor) -> torch.Tensor
     return 1.0 - torch.exp(-k_ext * lai)
 
 
+def photoperiod_factor(daylen: torch.Tensor, tr: torch.Tensor) -> torch.Tensor:
+    """Development rate scalar ∈ (0,1] — DSSAT-style: day length past the
+    critical photoperiod delays progress proportionally to `pp_sens`."""
+    delay = tr[:, IDX["pp_sens"]] * torch.relu(daylen - tr[:, IDX["crit_daylen"]])
+    return 1.0 / (1.0 + delay)
+
+
+def co2_factor(co2_ppm: torch.Tensor, tr: torch.Tensor, ref_ppm: float = 420.0) -> torch.Tensor:
+    """RUE multiplier from atmospheric CO2 — power response `(co2/ref)^resp`.
+
+    C4 crops saturate early (resp ≈ 0.05), C3 keep responding (≈ 0.2), the
+    FACE-experiment elasticity range.
+    """
+    return torch.pow(torch.clamp(co2_ppm / ref_ppm, min=1e-3), tr[:, IDX["co2_resp"]])
+
+
+def _vern_update(vern: torch.Tensor, tmean: torch.Tensor,
+                 tr: torch.Tensor, growing: torch.Tensor) -> torch.Tensor:
+    """Chill-day accumulation while growing; state preserved when fallow."""
+    eff = ((tmean > VERN_T_LO) & (tmean < VERN_T_HI)).to(vern.dtype)
+    return torch.where(growing, vern + eff, vern)
+
+
+def _heat_update(heat: torch.Tensor, tmax: torch.Tensor, gdd_new: torch.Tensor,
+                 tr: torch.Tensor, growing: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+    """Reproductive-window heat degree-days → (heat_acc', daily increment)."""
+    win_lo = tr[:, IDX["gdd_fl"]] * tr[:, IDX["gdd_mat"]]
+    in_win = (gdd_new >= win_lo) & (gdd_new < tr[:, IDX["gdd_mat"]]) & growing
+    inc = torch.relu(tmax - tr[:, IDX["heat_t"]]) * in_win.to(heat.dtype)
+    return heat + inc, inc
+
+
 def canopy_step(
     gdd: torch.Tensor,
+    vern: torch.Tensor,
+    heat_acc: torch.Tensor,
     biomass: torch.Tensor,
     tr: torch.Tensor,
     tmin: torch.Tensor,
     tmax: torch.Tensor,
     srad: torch.Tensor,
+    daylen: torch.Tensor | None,
+    co2: torch.Tensor | None,
     water_fac: torch.Tensor,
     nitrogen_fac: torch.Tensor,
     growing: torch.Tensor,
     lai: torch.Tensor,
 ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, dict[str, torch.Tensor]]:
-    """Advance phenology + biomass one day. Returns (gdd', lai', biomass', fluxes)."""
+    """Advance phenology + biomass one day. Returns (gdd', lai', biomass', fluxes).
+
+    fluxes carries the updated cycle trackers (`vern_new`, `heat_new`) plus
+    the event masks `mature` (natural) and `frost` (lethal cold kill).
+    `daylen`/`co2` = None neutralize photoperiod / CO2 response respectively.
+    """
     active = growing.to(gdd.dtype)
-    gdd_new = gdd + growing_degree_days(tmin, tmax, tr[:, IDX["tbase"]]) * active
+    tmean = 0.5 * (tmin + tmax)
+
+    vern_new = _vern_update(vern, tmean, tr, growing)
+    pp = 1.0 if daylen is None else photoperiod_factor(daylen, tr)
+    gdd_new = gdd + growing_degree_days(tmin, tmax, tr[:, IDX["tbase"]]) * pp * active
+
+    # Unvernalized crops stall at the reproductive threshold (winter cereals).
+    req = tr[:, IDX["vern_req"]]
+    gate = (req > 0) & (vern_new < req)
+    gdd_new = torch.where(
+        gate, torch.minimum(gdd_new, tr[:, IDX["gdd_fl"]] * tr[:, IDX["gdd_mat"]]),
+        gdd_new)
+
     lai_new = leaf_area_index(gdd_new, tr) * active
+    heat_new, heat_inc = _heat_update(heat_acc, tmax, gdd_new, tr, growing)
 
     fpar = intercepted_fraction(lai_new, tr[:, IDX["k_ext"]])
     tf = temperature_factor(tmin, tmax, tr[:, IDX["tbase"]], tr[:, IDX["topt"]])
     # WOFOST-style: N limits canopy expansion, only ~40 % of it limits daily
     # assimilation directly.
     n_growth = 0.6 + 0.4 * nitrogen_fac
+    co2f = 1.0 if co2 is None else co2_factor(co2, tr)
     limiter = torch.minimum(tf, torch.minimum(water_fac, n_growth))
-    delta_b = tr[:, IDX["rue"]] * (PAR_FRACTION * srad) * fpar * limiter * active
+    delta_b = tr[:, IDX["rue"]] * (PAR_FRACTION * srad) * fpar * limiter * co2f * active
 
     biomass_new = biomass + delta_b
-    mature = (gdd_new >= tr[:, IDX["gdd_mat"]]) & growing
-    fluxes = {"delta_b": delta_b, "fpar": fpar, "limiter": limiter, "mature": mature}
+    frost = growing & (tmin < tr[:, IDX["t_kill"]])
+    mature = ((gdd_new >= tr[:, IDX["gdd_mat"]]) | frost) & growing
+    fluxes = {"delta_b": delta_b, "fpar": fpar, "limiter": limiter, "mature": mature,
+              "frost": frost, "heat_dd": heat_inc,
+              "vern_new": vern_new, "heat_new": heat_new}
     return gdd_new, lai_new, biomass_new, fluxes
 
 
-def harvest(biomass: torch.Tensor, tr: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
-    """Split standing biomass into yield and retained residue."""
-    yield_kg = biomass * tr[:, IDX["harvest_index"]]
+def harvest(biomass: torch.Tensor, tr: torch.Tensor,
+            heat_acc: torch.Tensor | None = None,
+            frost: torch.Tensor | None = None) -> tuple[torch.Tensor, torch.Tensor]:
+    """Split standing biomass into yield and retained residue.
+
+    Reproductive heat degrades the harvest index exponentially
+    (`heat_sus` per °C·d); lethal frost salvages only FROST_SALVAGE of it.
+    """
+    hi = tr[:, IDX["harvest_index"]]
+    if heat_acc is not None:
+        hi = hi * torch.exp(-tr[:, IDX["heat_sus"]] * heat_acc)
+    if frost is not None:
+        hi = torch.where(frost, hi * FROST_SALVAGE, hi)
+    yield_kg = biomass * hi
     residue = (biomass - yield_kg) * tr[:, IDX["residue_frac"]]
     return yield_kg, residue
 

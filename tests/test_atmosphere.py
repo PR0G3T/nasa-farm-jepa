@@ -3,9 +3,9 @@ import torch
 
 from nasa_farm.constants import DTYPE
 from nasa_farm.dynamics.atmosphere import (
-    et0_hargreaves, et0_penman_monteith, extraterrestrial_radiation,
-    growing_degree_days, psychrometric_constant, saturation_vapor_pressure,
-    svp_slope, temperature_factor,
+    day_length, et0_hargreaves, et0_penman_monteith,
+    extraterrestrial_radiation, growing_degree_days, psychrometric_constant,
+    saturation_vapor_pressure, svp_slope, temperature_factor,
 )
 
 
@@ -114,6 +114,21 @@ class TestGDD:
 
     def test_above_base(self):
         assert float(growing_degree_days(t(10.0), t(20.0), t(8.0))) == 7.0
+
+
+class TestDayLength:
+    def test_equator_twelve_hours(self):
+        assert float(day_length(t(0.0), t(80.0))) == pytest.approx(12.0, abs=0.3)
+
+    def test_nh_summer_longer_than_winter(self):
+        assert day_length(t(45.0), t(172.0)) > day_length(t(45.0), t(355.0))
+
+    def test_polar_day_and_night(self):
+        assert float(day_length(t(80.0), t(172.0))) == pytest.approx(24.0)
+        assert float(day_length(t(80.0), t(355.0))) == pytest.approx(0.0)
+
+    def test_southern_inverted(self):
+        assert day_length(t(-45.0), t(355.0)) > day_length(t(-45.0), t(172.0))
 
 
 class TestTemperatureFactor:

@@ -33,28 +33,31 @@ class FieldState:
     crop: torch.Tensor       # long — index into CropLibrary, −1 = bare
     growing: torch.Tensor    # bool — crop in the ground
     harvested: torch.Tensor  # bool — current crop already terminated
+    vern: torch.Tensor       # d — chilling days accumulated this crop cycle
+    heat_acc: torch.Tensor   # °C·d — reproductive heat load this crop cycle
+    z: torch.Tensor | None = None  # (B, K) free latent dims (JEPA layer); None = off
 
     @property
     def batch(self) -> int:
         return self.sw1.shape[0]
 
+    def _map(self, fn) -> "FieldState":
+        """Apply fn to every tensor field, preserving None channels."""
+        return replace(self, **{
+            f: (v if (v := getattr(self, f)) is None else fn(v))
+            for f in self.__dataclass_fields__})
+
     def replace(self, **kw) -> "FieldState":
         return replace(self, **kw)
 
     def clone(self) -> "FieldState":
-        return replace(self, **{f: getattr(self, f).clone() for f in self.__dataclass_fields__})
+        return self._map(lambda v: v.clone())
 
     def repeat(self, n: int) -> "FieldState":
-        return replace(
-            self,
-            **{f: getattr(self, f).repeat(n) for f in self.__dataclass_fields__},
-        )
+        return self._map(lambda v: v.repeat(n) if v.dim() == 1 else v.repeat(n, 1))
 
     def to(self, device: torch.device | str) -> "FieldState":
-        return replace(
-            self,
-            **{f: getattr(self, f).to(device) for f in self.__dataclass_fields__},
-        )
+        return self._map(lambda v: v.to(device))
 
 
 @dataclass(frozen=True, slots=True)
@@ -113,14 +116,19 @@ def initial_state(
     soc0: float | None = None,
     litter0: float = 500.0,
     fill_frac: float = 0.85,
+    z_dim: int = 0,
 ) -> FieldState:
     """FieldState at simulation start, soils filled to `fill_frac` of available water."""
     def t(v): return torch.full((batch,), float(v), dtype=DTYPE)
 
-    avail1 = soil.layer1.theta_wp + fill_frac * (soil.layer1.theta_fc - soil.layer1.theta_wp)
-    avail2 = soil.layer2.theta_wp + fill_frac * (soil.layer2.theta_fc - soil.layer2.theta_wp)
+    avail1 = (soil.layer1.theta_wp
+              + fill_frac * (soil.layer1.theta_fc - soil.layer1.theta_wp)
+              ).expand(batch)
+    avail2 = (soil.layer2.theta_wp
+              + fill_frac * (soil.layer2.theta_fc - soil.layer2.theta_wp)
+              ).expand(batch)
     if soc0 is None:
-        soc0_v = 14_000.0 * soil.om1  # ≈ OM × C fraction, topsoil-scaled
+        soc0_v = (14_000.0 * soil.om1).expand(batch)  # ≈ OM × C fraction, topsoil
     else:
         soc0_v = torch.full((batch,), soc0, dtype=DTYPE)
     return FieldState(
@@ -131,4 +139,6 @@ def initial_state(
         crop=torch.full((batch,), -1, dtype=torch.long),
         growing=torch.zeros(batch, dtype=torch.bool),
         harvested=torch.zeros(batch, dtype=torch.bool),
+        vern=t(0.0), heat_acc=t(0.0),
+        z=torch.zeros(batch, z_dim, dtype=DTYPE) if z_dim else None,
     )

@@ -49,3 +49,34 @@ class TestProfile:
     def test_to_device(self):
         p = SoilProfile.preset("loam").to(torch.device("cpu"))
         assert p.layer1.theta_fc.device.type == "cpu"
+
+
+class TestUncertaintySample:
+    def test_bounds_and_internal_consistency(self):
+        lo, hi = SoilProfile.preset("sandy_loam"), SoilProfile.preset("clay_loam")
+        s = SoilProfile.sample(lo, hi, 16, seed=0)
+        assert s.batch == 16
+        for name, a, b in (("sand1", lo.sand1, hi.sand1),
+                           ("clay1", lo.clay1, hi.clay1),
+                           ("sand2", lo.sand2, hi.sand2),
+                           ("clay2", lo.clay2, hi.clay2)):
+            v = getattr(s, name)
+            assert (v >= torch.minimum(a, b) - 1e-9).all()
+            assert (v <= torch.maximum(a, b) + 1e-9).all()
+        for l in (s.layer1, s.layer2):
+            assert (l.theta_wp < l.theta_fc).all()
+            assert (l.theta_fc < l.theta_sat).all()
+            assert (l.theta_air < l.theta_wp).all()
+
+    def test_deterministic_given_seed(self):
+        lo, hi = SoilProfile.preset("loam"), SoilProfile.preset("clay_loam")
+        a, b = SoilProfile.sample(lo, hi, 8, seed=3), \
+            SoilProfile.sample(lo, hi, 8, seed=3)
+        assert torch.equal(a.layer1.theta_fc, b.layer1.theta_fc)
+
+    def test_multi_field_expands(self):
+        """B bound rows × n draws → B·n members, field-major order."""
+        lo = SoilProfile.preset("sandy_loam", batch=2)
+        hi = SoilProfile.preset("clay_loam", batch=2)
+        s = SoilProfile.sample(lo, hi, 4, seed=0)
+        assert s.batch == 8

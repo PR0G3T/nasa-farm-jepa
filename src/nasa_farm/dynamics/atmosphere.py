@@ -84,6 +84,14 @@ def et0_hargreaves(tmin: torch.Tensor, tmax: torch.Tensor, ra: torch.Tensor) -> 
     return torch.clamp(0.0023 * (tmean + 17.8) * torch.sqrt(trange) * ra, min=0.0)
 
 
+def day_length(lat_deg: torch.Tensor, doy: torch.Tensor) -> torch.Tensor:
+    """Photoperiod N (h), FAO-56 eq 34. Clamped to [0, 24] at the poles."""
+    lat = torch.deg2rad(lat_deg)
+    decl = 0.409 * torch.sin(2.0 * math.pi * doy / DAYS_PER_YEAR - 1.39)
+    ws = torch.acos(torch.clamp(-torch.tan(lat) * torch.tan(decl), -1.0, 1.0))
+    return torch.clamp(24.0 / math.pi * ws, 0.0, 24.0)
+
+
 def growing_degree_days(tmin: torch.Tensor, tmax: torch.Tensor, tbase: torch.Tensor) -> torch.Tensor:
     """Daily GDD contribution (°C·d)."""
     tmean = 0.5 * (tmin + tmax)
