@@ -23,7 +23,10 @@ import xarray as xr
 def _smap_conf(flag: np.ndarray) -> np.ndarray:
     """bit0 recommended, bit1 attempted, bit2 successful → {1.0, 0.4, 0.0}."""
     f = np.asarray(flag, np.int64)
-    out = np.where((f & 7) == 0, 1.0, np.where((f & 2) == 0, 0.4, 0.0))
+    # bit0=0 recommended → 1.0; attempted (bit1=0) AND successful (bit2=0)
+    # but not recommended → 0.4; anything else → 0.
+    out = np.where((f & 7) == 0, 1.0,
+                   np.where((f & 6) == 0, 0.4, 0.0))
     return np.where((f >= 0) & (f < 256), out, 0.0)
 
 
@@ -55,4 +58,15 @@ SMAP_QC = QcSpec(
 """SPL3SMP_E: recommended 0/8 → 1.0, attempted-uncertain → 0.4, skip → 0."""
 
 FLAG_QC = QcSpec(vars=("QC", "qc", "quality_flag", "mask"))
-"""Generic single-band QA (ECOSTRESS, NISAR): clean → 1.0, flagged → 0.4."""
+"""Generic single-band QA (NISAR): clean → 1.0, flagged → 0.4.
+Not valid for bit-packed bands (ECOSTRESS `QC`): use CLOUD_QC there."""
+
+
+def _cloud_conf(flag: np.ndarray) -> np.ndarray:
+    """Binary cloud mask: 0 clear → 1.0; cloud or missing → 0."""
+    f = np.asarray(flag, np.float64)
+    return np.where(f == 0, 1.0, 0.0)
+
+
+CLOUD_QC = QcSpec(vars=("cloud",), to_conf=_cloud_conf)
+"""ECOSTRESS v002 tiles: `_cloud.tif` asset (0 clear / 1 cloud)."""

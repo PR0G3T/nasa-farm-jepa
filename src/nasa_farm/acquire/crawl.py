@@ -4,8 +4,9 @@ Two regimes, one sink:
 - point APIs (POWER, SoilGrids): per-field fetches, raw dumps land under
   `forcing/` (+ `obs/smg` for GWETROOT — a model proxy, not a retrieval)
   and `soil`/`soil_lo`/`soil_hi` attrs for profile-uncertainty sampling;
-- granule products (SMAP, NISAR, ECOSTRESS, NLDAS-3): searched once over
-  the union bbox, each file downloaded once, every field extracted by
+- granule products (SMAP, NISAR, ECOSTRESS): searched once over the
+  union bbox, only the needed asset files fetched (HDF5 streamed in place
+  when `Spec.stream`), every field extracted by
   footprint-weighted sampling under the product's QA confidence map —
   O(fields) extraction per O(1) download — then marked so re-runs skip
   them. Each obs lands with a `{var}_w` coverage weight. Files are
@@ -23,6 +24,7 @@ from __future__ import annotations
 
 import dataclasses
 import datetime as dt
+import re
 import tempfile
 from concurrent.futures import ThreadPoolExecutor
 from itertools import groupby
@@ -33,9 +35,13 @@ import numpy as np
 import xarray as xr
 
 from nasa_farm.acquire.base import BBox, Temporal
-from nasa_farm.acquire.earthdata import granule_day, granule_id
+from nasa_farm.acquire.earthdata import (
+    granule_day, granule_id, login, umm_day,
+)
 from nasa_farm.acquire.power import CANON, PowerClient
-from nasa_farm.acquire.products import SPECS as GRANULE_SPECS, Spec
+from nasa_farm.acquire.products import (
+    ALIASES, SPECS as GRANULE_SPECS, Spec,
+)
 from nasa_farm.acquire.soilgrid import SoilGridClient
 from nasa_farm.lake import Lake
 
@@ -112,10 +118,11 @@ def _nldas(fields: list[dict], lake: Lake, years: list[int], log) -> None:
                 continue
             di = int(day.strftime("%Y%m%d"))
             with ds:
+                rate = nldas.rain_is_rate(ds)
                 for f in na:
                     raw = {v: nldas.sample(ds, v, f["lat"], f["lon"])
                            for v in nldas.VARS if v in ds}
-                    for var, val in nldas.convert(raw).items():
+                    for var, val in nldas.convert(raw, rate).items():
                         slot = pend[f["id"]].setdefault(var, ([], []))
                         slot[0].append(di)
                         slot[1].append(val)
@@ -132,26 +139,83 @@ def _nldas(fields: list[dict], lake: Lake, years: list[int], log) -> None:
         log(f"nldas {y}-{m:02d} ok")
 
 
+def _open_h5(src, spec: Spec) -> xr.Dataset:
+    """`src`: local path or file-like (streamed granule). SMAP HDF5 has no
+    dimension scales → phony dims; L4 keeps lat/lon in the root group."""
+    g = spec.source.group
+    ds = xr.open_dataset(src, engine="h5netcdf", phony_dims="access",
+                         **({"group": g} if g else {}))
+    if spec.root_coords:
+        var = spec.var(ds) or next(iter(ds.data_vars))
+        with xr.open_dataset(src, engine="h5netcdf",
+                             phony_dims="access") as root:
+            for c in spec.root_coords:
+                ds[c] = (ds[var].dims, root[c].values)
+    return ds
+
+
+def _open_cog(paths: list[str]) -> xr.Dataset:
+    """One GeoTIFF per variable on the same tile grid → Dataset with 2-D
+    lat/lon, so `support.sample` works unchanged. Var name = file suffix
+    (`…_LST.tif` → `LST`)."""
+    import rioxarray  # noqa: F401  (registers .rio)
+    from pyproj import Transformer
+    arrays = {Path(p).stem.rsplit("_", 1)[-1]:
+              rioxarray.open_rasterio(p, masked=True).squeeze("band", drop=True)
+              for p in paths}
+    ref = next(iter(arrays.values()))
+    xx, yy = np.meshgrid(ref.x.values, ref.y.values)
+    lon, lat = Transformer.from_crs(ref.rio.crs, 4326,
+                                    always_xy=True).transform(xx, yy)
+    ds = xr.Dataset({k: (("y", "x"), np.asarray(a.values, np.float64))
+                     for k, a in arrays.items()})
+    ds["lat"], ds["lon"] = (("y", "x"), lat), (("y", "x"), lon)
+    return ds
+
+
+def _links(res, spec: Spec) -> list[str]:
+    """Data URLs of the granule restricted to the assets the spec reads."""
+    try:
+        urls = res.data_links()
+    except (AttributeError, TypeError):
+        return []
+    return [u for u in urls if u.endswith(spec.assets)]
+
+
 def _granule(res, spec: Spec, fields: list[dict], tmp: str
-             ) -> tuple[int, dict[str, tuple[float, float]]] | None:
-    """Download + extract one granule → {fid: (v, w)}. Pure I/O — the
-    caller serializes lake writes."""
+             ) -> tuple[int, dict[str, tuple[float, float]]] | str:
+    """Fetch + extract one granule → (day, {fid: (v, w)}), or a skip
+    reason. Pure I/O — the caller serializes lake writes."""
     import earthaccess
     gid = granule_id(res)
+    day = granule_day(gid) or umm_day(res)
+    urls = _links(res, spec)
+    if day is None or not urls:
+        return f"date={day}, files={len(urls)}"
+    paths: list[str] = []
+    try:
+        if spec.stream and spec.reader == "h5":
+            ds = _open_h5((earthaccess.open(urls) or [None])[0], spec)
+        else:
+            paths = [str(p) for p in earthaccess.download(urls, tmp) or []]
+            if not paths:
+                return "download failed"
+            ds = _open_cog(paths) if spec.reader == "cog" \
+                else _open_h5(paths[0], spec)
+    except (OSError, ValueError, KeyError, TypeError) as e:
+        return f"read: {e}"
     out = {}
-    for path in earthaccess.download([res], tmp) or []:
-        day = granule_day(gid)
-        kw = {"group": spec.source.group} if spec.source.group else {}
-        with xr.open_dataset(path, engine="h5netcdf",
-                             phony_dims="access", **kw) as ds:
-            if spec.var(ds) is None:
-                return None
-            for f in fields:
-                v = spec.read(ds, f["lat"], f["lon"])
-                w = spec.coverage(ds, f["lat"], f["lon"])
-                if np.isfinite(v) and w > 0.0:
-                    out[f["id"]] = (v, w)
-        Path(path).unlink(missing_ok=True)
+    with ds:
+        if spec.var(ds) is None:
+            return f"no var {spec.vars}"
+        for f in fields:
+            v = spec.read(ds, f["lat"], f["lon"])
+            w = spec.coverage(ds, f["lat"], f["lon"]) \
+                if spec.radius_km > 0 else float(np.isfinite(v))
+            if np.isfinite(v) and w > 0.0:
+                out[f["id"]] = (v, w)
+    for p in paths:
+        Path(p).unlink(missing_ok=True)
     return day, out
 
 
@@ -159,12 +223,13 @@ def _granules(spec: Spec, fields: list[dict], lake: Lake,
               temporal: Temporal, log, workers: int = 4) -> None:
     """Satellite granules → obs series + coverage weights — one tx per
     granule (all field puts + the mark), so re-crawl never re-downloads."""
-    import earthaccess
-    earthaccess.login(strategy="environment")
+    login()
     aoi = BBox(min(f["lon"] for f in fields), min(f["lat"] for f in fields),
                max(f["lon"] for f in fields), max(f["lat"] for f in fields))
+    pick = re.compile(spec.pick) if spec.pick else None
     results = [r for r in spec.source.fetch(aoi, temporal, count=spec.limit)
-               if not lake.has_granule(granule_id(r))]
+               if not lake.has_granule(gid := granule_id(r))
+               and (pick is None or pick.search(gid))]
     log(f"{spec.obs}: {len(results)} granules to fetch")
     if not results:
         return
@@ -175,8 +240,8 @@ def _granules(spec: Spec, fields: list[dict], lake: Lake,
 
     with ThreadPoolExecutor(max_workers=workers) as pool:
         for gid, got in pool.map(work, results):
-            if got is None:
-                log(f"{spec.obs} {gid} skip (no var)")
+            if isinstance(got, str):
+                log(f"{spec.obs} {gid} skip ({got})")
                 continue
             day, vals = got
             di = np.array([day], np.int32)
@@ -210,6 +275,7 @@ def crawl(fields: Iterable[dict], root: Path | str, years: list[int],
             _soil(fields, lake, log, soil)
         if "nldas" in sources:
             _nldas(fields, lake, years, log)
+        wanted = {ALIASES.get(s, s) for s in sources}
         for name, spec in GRANULE_SPECS.items():
-            if name in sources:
+            if name in wanted:
                 _granules(spec, fields, lake, temporal, log)

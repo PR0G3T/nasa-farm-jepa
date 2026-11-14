@@ -16,6 +16,10 @@ class TestSmapConf:
         """bit0 set, bit1 clear → retrieved, uncertain → 0.4."""
         assert _smap_conf(np.array([[1.0, 9.0]])).tolist() == [[0.4, 0.4]]
 
+    def test_attempted_but_failed_is_zero(self):
+        """bit2 set → retrieval unsuccessful → unusable (was 0.4)."""
+        assert _smap_conf(np.array([[5.0, 13.0]])).tolist() == [[0.0, 0.0]]
+
     def test_skipped_is_zero(self):
         """bit1 set → retrieval skipped → unusable."""
         assert _smap_conf(np.array([[2.0, 3.0, 7.0]])).tolist() == \

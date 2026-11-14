@@ -2,7 +2,11 @@
 
 Endpoint: https://rest.isric.org/soilgrids/v2.0/properties/query
 Values are scaled integers; one request fetches the full prediction
-distribution (mean / Q0.05 / Q0.50 / Q0.95). `sample` flattens it into
+distribution (mean / Q0.05 / Q0.50 / Q0.95). Depths must be standard
+intervals: "0-30cm" exists only for `ocs` — for clay/sand/bdod/soc/phh2o
+it returns `"layers": []` (checked live 2026-11-14), which used to fall
+through to DEFAULTS silently. The topsoil value is therefore the
+thickness-weighted mean of 0-5, 5-15 and 15-30 cm. `sample` flattens it into
 the dict the lake stores per field — median texture + 90 % prediction
 bounds on clay/sand/bd — and `profile` maps the same dict to a
 SoilProfile, so live serving and lake attrs can never diverge.
@@ -10,13 +14,18 @@ SoilProfile, so live serving and lake attrs can never diverge.
 
 from __future__ import annotations
 
+import logging
+
 import httpx2 as httpx
 import torch
 
 from nasa_farm.constants import DTYPE
 from nasa_farm.state.soil import SoilProfile
 
+log = logging.getLogger(__name__)
+
 BASE_URL = "https://rest.isric.org/soilgrids/v2.0/properties/query"
+DEPTHS = ("0-5cm", "5-15cm", "15-30cm")
 PROPERTIES = ("clay", "sand", "bdod", "soc", "phh2o")
 STATS = ("mean", "Q0.05", "Q0.5", "Q0.95")
 UNIT = {"clay": 10.0, "sand": 10.0, "bdod": 100.0,
@@ -28,25 +37,41 @@ DEFAULTS = {"clay": 22.0, "sand": 42.0, "bd": 1.35,
             "soc": 15.0, "ph": 6.5, "depth": 30.0}
 
 
-def request_params(lat: float, lon: float, depth: str = "0-30cm",
+def request_params(lat: float, lon: float,
+                   depths: tuple[str, ...] | str = DEPTHS,
                    values: tuple[str, ...] = ("mean",)) -> list[tuple[str, str]]:
-    params: list[tuple[str, str]] = [("lon", str(lon)), ("lat", str(lat)),
-                                     ("depth", depth)]
+    if isinstance(depths, str):
+        depths = (depths,)
+    params: list[tuple[str, str]] = [("lon", str(lon)), ("lat", str(lat))]
+    params += [("depth", d) for d in depths]
     params += [("value", v) for v in values]
     params += [("property", p) for p in PROPERTIES]
     return params
 
 
+def _thickness(d: dict) -> float:
+    r = d.get("range") or {}
+    try:
+        return float(r["bottom_depth"]) - float(r["top_depth"])
+    except (KeyError, TypeError, ValueError):
+        return 1.0
+
+
 def parse(payload: dict) -> dict[str, dict[str, float]]:
-    """{prop: {mean, Q0.05, Q0.5, Q0.95}} at requested depth, unit-scaled."""
+    """{stat: {prop: value}} unit-scaled, thickness-weighted over the
+    returned depths. Averaging quantiles across depths approximates the
+    quantile of the 0–30 cm mean (slightly too wide)."""
     out = {s: {} for s in STATS}
     for layer in payload["properties"]["layers"]:
         name = layer["name"]
-        for d in layer["depths"]:
-            for s in STATS:
+        for s in STATS:
+            num = den = 0.0
+            for d in layer["depths"]:
                 if (v := d["values"].get(s)) is not None:
-                    out[s][name] = v / UNIT[name]
-            break
+                    t = _thickness(d)
+                    num, den = num + v * t, den + t
+            if den > 0:
+                out[s][name] = num / den / UNIT[name]
     return out
 
 
@@ -71,10 +96,10 @@ class SoilGridClient:
         self._client = client or httpx.Client(timeout=timeout)
 
     def dist(self, lat: float, lon: float,
-             depth: str = "0-30cm") -> dict[str, dict[str, float]]:
+             depths: tuple[str, ...] = DEPTHS) -> dict[str, dict[str, float]]:
         """Full prediction distribution in one request."""
         resp = self._client.get(
-            BASE_URL, params=request_params(lat, lon, depth, STATS))
+            BASE_URL, params=request_params(lat, lon, depths, STATS))
         resp.raise_for_status()
         return parse(resp.json())
 
@@ -82,6 +107,9 @@ class SoilGridClient:
         """Flat field dict: median texture + Q05/Q95 bounds (lake attrs)."""
         try:
             d = self.dist(lat, lon)
+            if not d["Q0.5"] and not d["mean"]:
+                log.warning("SoilGrids returned no layers at (%s, %s) → "
+                            "DEFAULTS", lat, lon)
             q = lambda s, p: d[s].get(p)
             med = lambda p: q("Q0.5", p) if q("Q0.5", p) is not None \
                 else d["mean"].get(p)
@@ -96,7 +124,9 @@ class SoilGridClient:
                 out[f"{key}_lo"] = q("Q0.05", p) or out[key] * 0.7
                 out[f"{key}_hi"] = q("Q0.95", p) or out[key] * 1.3
             return out
-        except (httpx.HTTPError, KeyError, TypeError):
+        except (httpx.HTTPError, KeyError, TypeError) as e:
+            log.warning("SoilGrids failed at (%s, %s): %r → DEFAULTS",
+                        lat, lon, e)
             lo = dict(DEFAULTS, clay_lo=DEFAULTS["clay"] * 0.7,
                       sand_lo=DEFAULTS["sand"] * 0.7,
                       bd_lo=DEFAULTS["bd"] * 0.8,

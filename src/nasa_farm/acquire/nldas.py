@@ -6,7 +6,13 @@ day costs a few metadata reads and each variable×point is one more range
 read — kilobytes, not gigabytes. One open serves every field.
 
 Vars (daily collection): Tair, Tair_min/max (K), Qair (kg/kg), PSurf (Pa),
-Wind_E/N (m/s, 10 m), LWdown/SWdown (W/m²), Rainf (kg/m²/day).
+Wind_E/N (m/s, 10 m), LWdown/SWdown (W/m²), Rainf (daily *total*, kg/m²).
+
+Chunks are (time=1, lat=500, lon=900) per variable (README of
+NASAWaterInsight/NLDAS-3): one point read pulls a full 5°×9° chunk — MBs,
+not KBs — but every field inside that chunk is served by the same read.
+Beta caveats (known_issues.md): a few negative SWdown values leak into the
+daily means; a non-beta release is announced → VERSION is a constant.
 """
 
 from __future__ import annotations
@@ -26,11 +32,12 @@ from nasa_farm.acquire.power import vars_to_forcing
 from nasa_farm.constants import DTYPE
 from nasa_farm.types import Forcing
 
-DOMAIN = BBox(-170.0, 10.0, -50.0, 75.0)
-"""NLDAS-3 domain: CONUS + AK + HI + PR + Central America."""
+DOMAIN = BBox(-169.0, 7.0, -52.0, 72.0)
+"""NLDAS-3 grid: 7–72 °N, 169–52 °W (README, 6,500 × 11,700 points)."""
 
 BASE = "https://nasa-waterinsight.s3.amazonaws.com/NLDAS3/forcing/daily"
-KEY = "{base}/{ym}/NLDAS_FOR0010_D.A{day}.030.beta.nc"
+VERSION = "030.beta"
+KEY = "{base}/{ym}/NLDAS_FOR0010_D.A{day}.{ver}.nc"
 VARS = ("Tair", "Tair_min", "Tair_max", "Qair", "PSurf",
         "Wind_E", "Wind_N", "SWdown", "Rainf")
 
@@ -41,7 +48,7 @@ def covers(lat: float, lon: float) -> bool:
 
 def day_url(day: dt.date) -> str:
     return KEY.format(base=BASE, ym=day.strftime("%Y%m"),
-                      day=day.strftime("%Y%m%d"))
+                      day=day.strftime("%Y%m%d"), ver=VERSION)
 
 
 def open_day(day: dt.date, fs=None) -> xr.Dataset:
@@ -61,18 +68,26 @@ def _rh(qair: float, tair_k: float, psurf_pa: float) -> float:
     return float(np.clip(100.0 * qair / max(ws, 1e-9), 1.0, 100.0))
 
 
-def convert(vals: dict[str, float]) -> dict[str, float]:
+def rain_is_rate(ds: xr.Dataset) -> bool:
+    """True when Rainf is a flux (kg m-2 s-1) rather than a daily total.
+    Decided from the units attribute — never from the value itself."""
+    u = str(ds["Rainf"].attrs.get("units", "")) if "Rainf" in ds else ""
+    return "s-1" in u or "/s" in u
+
+
+def convert(vals: dict[str, float], rain_rate: bool = False
+            ) -> dict[str, float]:
     """NLDAS-3 units → canonical forcing vars."""
     tmin = vals.get("Tair_min", np.nan) - 273.15
     tmax = vals.get("Tair_max", np.nan) - 273.15
     tair = vals.get("Tair", (tmin + tmax) / 2 + 273.15)
     wind = math.hypot(vals.get("Wind_E", 0.0), vals.get("Wind_N", 0.0))
     rainf = float(vals.get("Rainf", np.nan))
-    if rainf < 0.01:  # rate kg m-2 s-1 → mm/day (daily files are accum.)
+    if rain_rate:  # kg m-2 s-1 → mm/day; daily totals are already mm
         rainf *= 86400.0
     return {
         "tmin": tmin, "tmax": tmax,
-        "srad": vals.get("SWdown", np.nan) * 0.0864,  # W/m² → MJ/m²/day
+        "srad": max(vals.get("SWdown", np.nan), 0.0) * 0.0864,  # W/m² → MJ/m²/day
         "precip": rainf,
         "rh": _rh(vals.get("Qair", np.nan), tair, vals.get("PSurf", 101325.0)),
         "u2": wind * 0.748,  # FAO-56: 10 m → 2 m
@@ -83,7 +98,8 @@ def day_point(fs, day: dt.date, lat: float, lon: float) -> dict[str, float]:
     """One day, one point → canonical forcing values."""
     with open_day(day, fs) as ds:
         vals = {v: sample(ds, v, lat, lon) for v in VARS if v in ds}
-    return convert(vals)
+        rate = rain_is_rate(ds)
+    return convert(vals, rate)
 
 
 def year_point(lat: float, lon: float, year: int) -> Forcing:

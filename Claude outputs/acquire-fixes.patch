@@ -1,0 +1,1076 @@
+diff -ruN a2/pyproject.toml b2/pyproject.toml
+--- a2/pyproject.toml	2026-11-14 21:15:10.971502364 +0100
++++ b2/pyproject.toml	2026-11-14 21:18:11.705119437 +0100
+@@ -17,6 +17,8 @@
+ [project.optional-dependencies]
+ hpo = ["optuna>=5.0.0"]
+ gee = ["earthengine-api>=1.5.26"]
++# COG tiles (ECOSTRESS, HLS), Planetary Computer signing, NLDAS-3 S3 reads
++acquire = ["rioxarray", "pyproj", "planetary-computer", "s3fs"]
+ serve = ["fastapi>=0.162.0", "granian>=2.8.5"]
+ 
+ [project.scripts]
+diff -ruN a2/src/nasa_farm/acquire/__init__.py b2/src/nasa_farm/acquire/__init__.py
+--- a2/src/nasa_farm/acquire/__init__.py	2026-11-14 21:15:10.946965162 +0100
++++ b2/src/nasa_farm/acquire/__init__.py	2026-11-14 21:18:11.704688767 +0100
+@@ -1,18 +1,18 @@
+ from nasa_farm.acquire.base import BBox, DataSource, Temporal
+ from nasa_farm.acquire.earthdata import (
+-    ECOSTRESS_ET, GPM_IMERG_DAILY, GRACE_MASCON, HLS_L30, NISAR_GCOV,
+-    NISAR_SME, SMAP_L4, EarthdataSource,
++    ECOSTRESS_ET, ECOSTRESS_LST, GPM_IMERG_DAILY, GRACE_MASCON, HLS_L30,
++    NISAR_GCOV, NISAR_SME, PRODUCTS, SMAP_L3, SMAP_L4, EarthdataSource,
+ )
+ from nasa_farm.acquire.power import PowerClient
+ from nasa_farm.acquire.products import (
+-    ALPHA_EARTH, FTW, WORLDCEREAL, GeeSource, OpenETClient,
++    ALPHA_EARTH, FTW, WORLDCEREAL, GeeSource, OpenETClient, StacSource,
+ )
+ from nasa_farm.acquire.soilgrid import SoilGridClient
+ 
+ __all__ = [
+-    "ALPHA_EARTH", "BBox", "DataSource", "ECOSTRESS_ET", "EarthdataSource",
+-    "FTW", "GPM_IMERG_DAILY", "GRACE_MASCON", "GeeSource", "HLS_L30",
+-    "NISAR_GCOV", "NISAR_SME", "OpenETClient", "PowerClient", "SMAP_L4",
+-    "SoilGridClient",
++    "ALPHA_EARTH", "BBox", "DataSource", "ECOSTRESS_ET", "ECOSTRESS_LST",
++    "EarthdataSource", "FTW", "GPM_IMERG_DAILY", "GRACE_MASCON", "GeeSource",
++    "HLS_L30", "NISAR_GCOV", "NISAR_SME", "OpenETClient", "PRODUCTS",
++    "PowerClient", "SMAP_L3", "SMAP_L4", "SoilGridClient", "StacSource",
+     "Temporal", "WORLDCEREAL",
+ ]
+diff -ruN a2/src/nasa_farm/acquire/crawl.py b2/src/nasa_farm/acquire/crawl.py
+--- a2/src/nasa_farm/acquire/crawl.py	2026-11-14 21:15:10.949548771 +0100
++++ b2/src/nasa_farm/acquire/crawl.py	2026-11-14 21:17:28.924538259 +0100
+@@ -4,8 +4,9 @@
+ - point APIs (POWER, SoilGrids): per-field fetches, raw dumps land under
+   `forcing/` (+ `obs/smg` for GWETROOT — a model proxy, not a retrieval)
+   and `soil`/`soil_lo`/`soil_hi` attrs for profile-uncertainty sampling;
+-- granule products (SMAP, NISAR, ECOSTRESS, NLDAS-3): searched once over
+-  the union bbox, each file downloaded once, every field extracted by
++- granule products (SMAP, NISAR, ECOSTRESS): searched once over the
++  union bbox, only the needed asset files fetched (HDF5 streamed in place
++  when `Spec.stream`), every field extracted by
+   footprint-weighted sampling under the product's QA confidence map —
+   O(fields) extraction per O(1) download — then marked so re-runs skip
+   them. Each obs lands with a `{var}_w` coverage weight. Files are
+@@ -23,6 +24,7 @@
+ 
+ import dataclasses
+ import datetime as dt
++import re
+ import tempfile
+ from concurrent.futures import ThreadPoolExecutor
+ from itertools import groupby
+@@ -33,9 +35,13 @@
+ import xarray as xr
+ 
+ from nasa_farm.acquire.base import BBox, Temporal
+-from nasa_farm.acquire.earthdata import granule_day, granule_id
++from nasa_farm.acquire.earthdata import (
++    granule_day, granule_id, login, umm_day,
++)
+ from nasa_farm.acquire.power import CANON, PowerClient
+-from nasa_farm.acquire.products import SPECS as GRANULE_SPECS, Spec
++from nasa_farm.acquire.products import (
++    ALIASES, SPECS as GRANULE_SPECS, Spec,
++)
+ from nasa_farm.acquire.soilgrid import SoilGridClient
+ from nasa_farm.lake import Lake
+ 
+@@ -112,10 +118,11 @@
+                 continue
+             di = int(day.strftime("%Y%m%d"))
+             with ds:
++                rate = nldas.rain_is_rate(ds)
+                 for f in na:
+                     raw = {v: nldas.sample(ds, v, f["lat"], f["lon"])
+                            for v in nldas.VARS if v in ds}
+-                    for var, val in nldas.convert(raw).items():
++                    for var, val in nldas.convert(raw, rate).items():
+                         slot = pend[f["id"]].setdefault(var, ([], []))
+                         slot[0].append(di)
+                         slot[1].append(val)
+@@ -132,26 +139,83 @@
+         log(f"nldas {y}-{m:02d} ok")
+ 
+ 
++def _open_h5(src, spec: Spec) -> xr.Dataset:
++    """`src`: local path or file-like (streamed granule). SMAP HDF5 has no
++    dimension scales → phony dims; L4 keeps lat/lon in the root group."""
++    g = spec.source.group
++    ds = xr.open_dataset(src, engine="h5netcdf", phony_dims="access",
++                         **({"group": g} if g else {}))
++    if spec.root_coords:
++        var = spec.var(ds) or next(iter(ds.data_vars))
++        with xr.open_dataset(src, engine="h5netcdf",
++                             phony_dims="access") as root:
++            for c in spec.root_coords:
++                ds[c] = (ds[var].dims, root[c].values)
++    return ds
++
++
++def _open_cog(paths: list[str]) -> xr.Dataset:
++    """One GeoTIFF per variable on the same tile grid → Dataset with 2-D
++    lat/lon, so `support.sample` works unchanged. Var name = file suffix
++    (`…_LST.tif` → `LST`)."""
++    import rioxarray  # noqa: F401  (registers .rio)
++    from pyproj import Transformer
++    arrays = {Path(p).stem.rsplit("_", 1)[-1]:
++              rioxarray.open_rasterio(p, masked=True).squeeze("band", drop=True)
++              for p in paths}
++    ref = next(iter(arrays.values()))
++    xx, yy = np.meshgrid(ref.x.values, ref.y.values)
++    lon, lat = Transformer.from_crs(ref.rio.crs, 4326,
++                                    always_xy=True).transform(xx, yy)
++    ds = xr.Dataset({k: (("y", "x"), np.asarray(a.values, np.float64))
++                     for k, a in arrays.items()})
++    ds["lat"], ds["lon"] = (("y", "x"), lat), (("y", "x"), lon)
++    return ds
++
++
++def _links(res, spec: Spec) -> list[str]:
++    """Data URLs of the granule restricted to the assets the spec reads."""
++    try:
++        urls = res.data_links()
++    except (AttributeError, TypeError):
++        return []
++    return [u for u in urls if u.endswith(spec.assets)]
++
++
+ def _granule(res, spec: Spec, fields: list[dict], tmp: str
+-             ) -> tuple[int, dict[str, tuple[float, float]]] | None:
+-    """Download + extract one granule → {fid: (v, w)}. Pure I/O — the
+-    caller serializes lake writes."""
++             ) -> tuple[int, dict[str, tuple[float, float]]] | str:
++    """Fetch + extract one granule → (day, {fid: (v, w)}), or a skip
++    reason. Pure I/O — the caller serializes lake writes."""
+     import earthaccess
+     gid = granule_id(res)
++    day = granule_day(gid) or umm_day(res)
++    urls = _links(res, spec)
++    if day is None or not urls:
++        return f"date={day}, files={len(urls)}"
++    paths: list[str] = []
++    try:
++        if spec.stream and spec.reader == "h5":
++            ds = _open_h5((earthaccess.open(urls) or [None])[0], spec)
++        else:
++            paths = [str(p) for p in earthaccess.download(urls, tmp) or []]
++            if not paths:
++                return "download failed"
++            ds = _open_cog(paths) if spec.reader == "cog" \
++                else _open_h5(paths[0], spec)
++    except (OSError, ValueError, KeyError, TypeError) as e:
++        return f"read: {e}"
+     out = {}
+-    for path in earthaccess.download([res], tmp) or []:
+-        day = granule_day(gid)
+-        kw = {"group": spec.source.group} if spec.source.group else {}
+-        with xr.open_dataset(path, engine="h5netcdf",
+-                             phony_dims="access", **kw) as ds:
+-            if spec.var(ds) is None:
+-                return None
+-            for f in fields:
+-                v = spec.read(ds, f["lat"], f["lon"])
+-                w = spec.coverage(ds, f["lat"], f["lon"])
+-                if np.isfinite(v) and w > 0.0:
+-                    out[f["id"]] = (v, w)
+-        Path(path).unlink(missing_ok=True)
++    with ds:
++        if spec.var(ds) is None:
++            return f"no var {spec.vars}"
++        for f in fields:
++            v = spec.read(ds, f["lat"], f["lon"])
++            w = spec.coverage(ds, f["lat"], f["lon"]) \
++                if spec.radius_km > 0 else float(np.isfinite(v))
++            if np.isfinite(v) and w > 0.0:
++                out[f["id"]] = (v, w)
++    for p in paths:
++        Path(p).unlink(missing_ok=True)
+     return day, out
+ 
+ 
+@@ -159,12 +223,13 @@
+               temporal: Temporal, log, workers: int = 4) -> None:
+     """Satellite granules → obs series + coverage weights — one tx per
+     granule (all field puts + the mark), so re-crawl never re-downloads."""
+-    import earthaccess
+-    earthaccess.login(strategy="environment")
++    login()
+     aoi = BBox(min(f["lon"] for f in fields), min(f["lat"] for f in fields),
+                max(f["lon"] for f in fields), max(f["lat"] for f in fields))
++    pick = re.compile(spec.pick) if spec.pick else None
+     results = [r for r in spec.source.fetch(aoi, temporal, count=spec.limit)
+-               if not lake.has_granule(granule_id(r))]
++               if not lake.has_granule(gid := granule_id(r))
++               and (pick is None or pick.search(gid))]
+     log(f"{spec.obs}: {len(results)} granules to fetch")
+     if not results:
+         return
+@@ -175,8 +240,8 @@
+ 
+     with ThreadPoolExecutor(max_workers=workers) as pool:
+         for gid, got in pool.map(work, results):
+-            if got is None:
+-                log(f"{spec.obs} {gid} skip (no var)")
++            if isinstance(got, str):
++                log(f"{spec.obs} {gid} skip ({got})")
+                 continue
+             day, vals = got
+             di = np.array([day], np.int32)
+@@ -210,6 +275,7 @@
+             _soil(fields, lake, log, soil)
+         if "nldas" in sources:
+             _nldas(fields, lake, years, log)
++        wanted = {ALIASES.get(s, s) for s in sources}
+         for name, spec in GRANULE_SPECS.items():
+-            if name in sources:
++            if name in wanted:
+                 _granules(spec, fields, lake, temporal, log)
+diff -ruN a2/src/nasa_farm/acquire/earthdata.py b2/src/nasa_farm/acquire/earthdata.py
+--- a2/src/nasa_farm/acquire/earthdata.py	2026-11-14 21:15:10.950853142 +0100
++++ b2/src/nasa_farm/acquire/earthdata.py	2026-11-14 21:16:34.018261059 +0100
+@@ -1,12 +1,20 @@
+ """NASA Earthdata (CMR) source via `earthaccess` — PEP 810 lazy import keeps
+ the package usable (and import-fast) without the heavy dep or credentials;
+ search needs no login, downloads do.
++
++Every product is pinned to a CMR (short_name, version): without a version,
++CMR returns granules of *all* versions (ECOSTRESS 002 + 003, GEDI 002 + 003,
++GLDAS 2.0 + 2.1, MODIS 061 + 6.1NRT…), so series silently mix versions.
++IDs below were checked against CMR on 2026-11-14 (project doc
++`claude/download-access.md`).
+ """
+ 
+ from __future__ import annotations
+ 
+ lazy import earthaccess
+ 
++import datetime as dt
++import functools
+ import re
+ from dataclasses import dataclass
+ from typing import Any
+@@ -33,75 +41,156 @@
+ 
+ 
+ _DATE = re.compile(r"(?<!\d)(?:19|20)\d{6}(?!\d)")
+-_DOY = re.compile(r"(?<!\d)((?:19|20)\d{2})(\d{3})(?!\d)")
++_DOY = re.compile(r"(?<!\d)((?:19|20)\d{2})(\d{3})(?=\D|\d{6}(?!\d)|$)")
++"""yyyyddd, alone or heading a yyyydddhhmmss stamp (GEDI)."""
+ 
+ 
+-def granule_day(gid: str) -> int:
+-    """yyyymmdd int from a granule id — ISO date or yyyyddd day-of-year."""
++def granule_day(gid: str) -> int | None:
++    """yyyymmdd int from a granule id — ISO date or yyyyddd day-of-year;
++    None when the id carries no date (use `umm_day` then)."""
+     if m := _DATE.search(gid):
+         return int(m.group())
+-    import datetime as dt
+     m = _DOY.search(gid)
++    if m is None or not 1 <= int(m[2]) <= 366:
++        return None
+     d = dt.date(int(m[1]), 1, 1) + dt.timedelta(int(m[2]) - 1)
+     return int(d.strftime("%Y%m%d"))
+ 
+ 
++def umm_day(res: Any) -> int | None:
++    """Fallback date: start of the granule's CMR temporal extent."""
++    try:
++        t = res["umm"]["TemporalExtent"]
++        t = (t.get("RangeDateTime", {}).get("BeginningDateTime")
++             or t["SingleDateTime"])
++        return int(t[:10].replace("-", ""))
++    except (KeyError, TypeError, AttributeError, ValueError):
++        return None
++
++
++@functools.cache
++def login() -> Any:
++    """One Earthdata login per process: env vars first, then ~/.netrc.
++    Never falls back to an interactive prompt (crawls run unattended)."""
++    for strategy in ("environment", "netrc"):
++        try:
++            auth = earthaccess.login(strategy=strategy)
++        except Exception:  # raises or returns, depending on the version
++            continue
++        if auth is not None and getattr(auth, "authenticated", False):
++            return auth
++    raise RuntimeError("Earthdata login failed: set EARTHDATA_USERNAME/"
++                       "EARTHDATA_PASSWORD or add urs.earthdata.nasa.gov "
++                       "to ~/.netrc")
++
++
+ @dataclass(frozen=True, slots=True)
+ class EarthdataSource:
+     """Generic CMR granule source for one product short name.
+ 
+-    `group` is the HDF5 group holding data vars (None = root); `span` is
+-    the product's native temporal window passed to open calls.
++    `group` is the HDF5 group holding data vars (None = root); `version`
++    pins the CMR collection version (None = every version — avoid).
+     """
+ 
+     short_name: str
+     name: str = "earthdata"
+     requires_auth: bool = True  # search is open; download needs Earthdata Login
+     group: str | None = None
++    version: str | None = None
+ 
+-    def search(self, aoi: BBox | None, temporal: Temporal,
+-               limit: int = 10_000) -> list[Granule]:
+-        """CMR query → lightweight granule descriptors (no download)."""
++    def _query(self, aoi: BBox | None, temporal: Temporal,
++               count: int) -> dict[str, Any]:
+         kw: dict[str, Any] = {
+             "short_name": self.short_name,
+             "temporal": (temporal.start, temporal.end),
+-            "count": limit,
++            "count": count,
+         }
++        if self.version is not None:
++            kw["version"] = self.version
+         if aoi is not None:
+             kw["bounding_box"] = aoi.as_tuple()
++        return kw
++
++    def search(self, aoi: BBox | None, temporal: Temporal,
++               limit: int = 10_000) -> list[Granule]:
++        """CMR query → lightweight granule descriptors (no download)."""
++        kw = self._query(aoi, temporal, limit)
+         return [Granule(granule_id(r), r)
+                 for r in earthaccess.search_data(**kw)]
+ 
+     def fetch(self, aoi: BBox | None, temporal: Temporal, *,
+               count: int = 10, cloud_cover: tuple[int, int] | None = None,
+               download_dir: str | None = None) -> list[Any]:
+-        kw: dict[str, Any] = {
+-            "short_name": self.short_name,
+-            "temporal": (temporal.start, temporal.end),
+-            "count": count,
+-        }
+-        if aoi is not None:
+-            kw["bounding_box"] = aoi.as_tuple()
++        kw = self._query(aoi, temporal, count)
+         if cloud_cover is not None:
+             kw["cloud_cover"] = cloud_cover
+         results = earthaccess.search_data(**kw)
+         if download_dir is not None:
+-            earthaccess.login(strategy="environment")
++            login()
+             return earthaccess.download(results, download_dir)
+         return results
+ 
+ 
+-# Challenge-relevant products, declared once.
+-SMAP_L4 = EarthdataSource("SPL3SMP_E", name="smap-l4-soil-moisture",
+-                          group="Soil_Moisture_Retrieval_Data_AM")
+-GPM_IMERG_DAILY = EarthdataSource("GPM_3IMERGDF", name="gpm-imerg-daily")
+-HLS_L30 = EarthdataSource("HLSL30", name="hls-landsat-30m")
+-ECOSTRESS_ET = EarthdataSource("ECO_L3T_JET", name="ecostress-et")
+-ECOSTRESS_SEB = EarthdataSource("ECO_L3G_SEB", name="ecostress-seb")
+-ECOSTRESS_MET = EarthdataSource("ECO_L3G_MET", name="ecostress-met")
+-NLDAS2_FORCING = EarthdataSource("NLDAS_FORA0125_H", name="nldas2-forcing")
+-GRACE_MASCON = EarthdataSource("TELLUS_GRAC-GRFO_MASCON_CRI_GRID_RL06.3_V4",
+-                               name="grace-fo-mascon")
+-NISAR_GCOV = EarthdataSource("NISAR_L2_GCOV_BETA_V1", name="nisar-l2-gcov")
+-NISAR_SME = EarthdataSource("NISAR_L3_SME2_BETA_V1",
+-                            name="nisar-l3-soil-moisture")
++def _src(short_name: str, version: str | None, name: str,
++         group: str | None = None) -> EarthdataSource:
++    return EarthdataSource(short_name, name=name, group=group,
++                           version=version)
++
++
++# --- Soil moisture / freeze-thaw / carbon (NSIDC) -------------------------
++SMAP_L3 = _src("SPL3SMP_E", "006", "smap-l3-soil-moisture",
++               group="Soil_Moisture_Retrieval_Data_AM")  # retrieval, daily
++SMAP_L4 = _src("SPL4SMGP", "008", "smap-l4-soil-moisture",
++               group="Geophysical_Data")                  # model+DA, 3-hourly
++SMAP_FT = _src("SPL3FTP", "004", "smap-l3-freeze-thaw")
++SMAP_L4C = _src("SPL4CMDL", "008", "smap-l4-carbon")
++
++# --- ECOSTRESS 70 m tiled COGs (LP DAAC) ----------------------------------
++ECOSTRESS_LST = _src("ECO_L2T_LSTE", "002", "ecostress-lst")
++ECOSTRESS_ET = _src("ECO_L3T_JET", "002", "ecostress-et")
++ECOSTRESS_SEB = _src("ECO_L3T_SEB", "002", "ecostress-seb")  # Rn, SWin
++ECOSTRESS_MET = _src("ECO_L3T_MET", "002", "ecostress-met")  # Ta, RH
++ECOSTRESS_SM = _src("ECO_L3T_SM", "002", "ecostress-sm")
++ECOSTRESS_ESI = _src("ECO_L4T_ESI", "002", "ecostress-esi")
++ECOSTRESS_WUE = _src("ECO_L4T_WUE", "002", "ecostress-wue")
++
++# --- Forcing / land-surface models (GES DISC) -----------------------------
++NLDAS2_FORCING = _src("NLDAS_FORA0125_H", "2.0", "nldas2-forcing")
++NLDAS2_NOAH = _src("NLDAS_NOAH0125_H", "2.0", "nldas2-noah")
++GLDAS_DA = _src("GLDAS_CLSM025_DA1_D", "2.2", "gldas22-grace-da")
++GLDAS_NOAH = _src("GLDAS_NOAH025_3H", "2.1", "gldas21-noah")
++GRACE_DA_US = _src("GRACEDADM_CLSM0125US_7D", "4.0", "grace-da-drought-us")
++GPM_IMERG_DAILY = _src("GPM_3IMERGDF", "07", "gpm-imerg-daily")
++GRACE_MASCON = _src("TELLUS_GRAC-GRFO_MASCON_CRI_GRID_RL06.3_V4",
++                    "RL06.3Mv04", "grace-fo-mascon")
++
++# --- Optical reflectance / indices (LP DAAC) ------------------------------
++HLS_L30 = _src("HLSL30", "2.0", "hls-landsat-30m")
++HLS_S30 = _src("HLSS30", "2.0", "hls-sentinel-30m")
++HLS_L30_VI = _src("HLSL30_VI", "2.0", "hls-landsat-vi")
++HLS_S30_VI = _src("HLSS30_VI", "2.0", "hls-sentinel-vi")
++MODIS_SR_DAILY = _src("MOD09GA", "061", "modis-sr-daily")
++MODIS_SR_8D = _src("MOD09A1", "061", "modis-sr-8day")
++MODIS_NBAR = _src("MCD43A4", "061", "modis-nbar")
++MODIS_LAI = _src("MCD15A3H", "061", "modis-lai-4day")
++MODIS_GPP = _src("MOD17A2HGF", "061", "modis-gpp-8day")
++MODIS_NPP = _src("MOD17A3HGF", "061", "modis-npp-annual")
++MODIS_PHENO = _src("MCD12Q2", "061", "modis-phenology")
++VIIRS_LST_DAY = _src("VNP21A1D", "002", "viirs-lst-day")
++VIIRS_LST_NIGHT = _src("VNP21A1N", "002", "viirs-lst-night")
++VIIRS_SR = _src("VNP09GA", "002", "viirs-sr")
++
++# --- Structure / water / SAR ----------------------------------------------
++GEDI_L2A = _src("GEDI02_A", "003", "gedi-l2a")
++GEDI_L2B = _src("GEDI02_B", "003", "gedi-l2b")
++GEDI_L4A = _src("GEDI_L4A_AGB_Density_V3_2508", "3", "gedi-l4a")
++GEDI_L3 = _src("GEDI_L3_LandSurface_Metrics_V3_2525", "3", "gedi-l3")
++OPERA_DSWX = _src("OPERA_L3_DSWX-HLS_V1", "1.0", "opera-dswx-hls")
++OPERA_RTC_S1 = _src("OPERA_L2_RTC-S1_V1", "1", "opera-rtc-s1")
++NISAR_GCOV = _src("NISAR_L2_GCOV_BETA_V1", None, "nisar-l2-gcov")
++NISAR_SME = _src("NISAR_L3_SME2_BETA_V1", None, "nisar-l3-soil-moisture")
++
++PRODUCTS: dict[str, EarthdataSource] = {
++    s.name: s for s in list(globals().values())
++    if isinstance(s, EarthdataSource)}
++"""name → source, for CLI lookup and bulk crawls."""
+diff -ruN a2/src/nasa_farm/acquire/nldas.py b2/src/nasa_farm/acquire/nldas.py
+--- a2/src/nasa_farm/acquire/nldas.py	2026-11-14 21:15:10.952063795 +0100
++++ b2/src/nasa_farm/acquire/nldas.py	2026-11-14 21:17:46.261174682 +0100
+@@ -6,7 +6,13 @@
+ read — kilobytes, not gigabytes. One open serves every field.
+ 
+ Vars (daily collection): Tair, Tair_min/max (K), Qair (kg/kg), PSurf (Pa),
+-Wind_E/N (m/s, 10 m), LWdown/SWdown (W/m²), Rainf (kg/m²/day).
++Wind_E/N (m/s, 10 m), LWdown/SWdown (W/m²), Rainf (daily *total*, kg/m²).
++
++Chunks are (time=1, lat=500, lon=900) per variable (README of
++NASAWaterInsight/NLDAS-3): one point read pulls a full 5°×9° chunk — MBs,
++not KBs — but every field inside that chunk is served by the same read.
++Beta caveats (known_issues.md): a few negative SWdown values leak into the
++daily means; a non-beta release is announced → VERSION is a constant.
+ """
+ 
+ from __future__ import annotations
+@@ -26,11 +32,12 @@
+ from nasa_farm.constants import DTYPE
+ from nasa_farm.types import Forcing
+ 
+-DOMAIN = BBox(-170.0, 10.0, -50.0, 75.0)
+-"""NLDAS-3 domain: CONUS + AK + HI + PR + Central America."""
++DOMAIN = BBox(-169.0, 7.0, -52.0, 72.0)
++"""NLDAS-3 grid: 7–72 °N, 169–52 °W (README, 6,500 × 11,700 points)."""
+ 
+ BASE = "https://nasa-waterinsight.s3.amazonaws.com/NLDAS3/forcing/daily"
+-KEY = "{base}/{ym}/NLDAS_FOR0010_D.A{day}.030.beta.nc"
++VERSION = "030.beta"
++KEY = "{base}/{ym}/NLDAS_FOR0010_D.A{day}.{ver}.nc"
+ VARS = ("Tair", "Tair_min", "Tair_max", "Qair", "PSurf",
+         "Wind_E", "Wind_N", "SWdown", "Rainf")
+ 
+@@ -41,7 +48,7 @@
+ 
+ def day_url(day: dt.date) -> str:
+     return KEY.format(base=BASE, ym=day.strftime("%Y%m"),
+-                      day=day.strftime("%Y%m%d"))
++                      day=day.strftime("%Y%m%d"), ver=VERSION)
+ 
+ 
+ def open_day(day: dt.date, fs=None) -> xr.Dataset:
+@@ -61,18 +68,26 @@
+     return float(np.clip(100.0 * qair / max(ws, 1e-9), 1.0, 100.0))
+ 
+ 
+-def convert(vals: dict[str, float]) -> dict[str, float]:
++def rain_is_rate(ds: xr.Dataset) -> bool:
++    """True when Rainf is a flux (kg m-2 s-1) rather than a daily total.
++    Decided from the units attribute — never from the value itself."""
++    u = str(ds["Rainf"].attrs.get("units", "")) if "Rainf" in ds else ""
++    return "s-1" in u or "/s" in u
++
++
++def convert(vals: dict[str, float], rain_rate: bool = False
++            ) -> dict[str, float]:
+     """NLDAS-3 units → canonical forcing vars."""
+     tmin = vals.get("Tair_min", np.nan) - 273.15
+     tmax = vals.get("Tair_max", np.nan) - 273.15
+     tair = vals.get("Tair", (tmin + tmax) / 2 + 273.15)
+     wind = math.hypot(vals.get("Wind_E", 0.0), vals.get("Wind_N", 0.0))
+     rainf = float(vals.get("Rainf", np.nan))
+-    if rainf < 0.01:  # rate kg m-2 s-1 → mm/day (daily files are accum.)
++    if rain_rate:  # kg m-2 s-1 → mm/day; daily totals are already mm
+         rainf *= 86400.0
+     return {
+         "tmin": tmin, "tmax": tmax,
+-        "srad": vals.get("SWdown", np.nan) * 0.0864,  # W/m² → MJ/m²/day
++        "srad": max(vals.get("SWdown", np.nan), 0.0) * 0.0864,  # W/m² → MJ/m²/day
+         "precip": rainf,
+         "rh": _rh(vals.get("Qair", np.nan), tair, vals.get("PSurf", 101325.0)),
+         "u2": wind * 0.748,  # FAO-56: 10 m → 2 m
+@@ -83,7 +98,8 @@
+     """One day, one point → canonical forcing values."""
+     with open_day(day, fs) as ds:
+         vals = {v: sample(ds, v, lat, lon) for v in VARS if v in ds}
+-    return convert(vals)
++        rate = rain_is_rate(ds)
++    return convert(vals, rate)
+ 
+ 
+ def year_point(lat: float, lon: float, year: int) -> Forcing:
+diff -ruN a2/src/nasa_farm/acquire/products.py b2/src/nasa_farm/acquire/products.py
+--- a2/src/nasa_farm/acquire/products.py	2026-11-14 21:15:10.955776628 +0100
++++ b2/src/nasa_farm/acquire/products.py	2026-11-14 21:17:05.259591783 +0100
+@@ -4,7 +4,8 @@
+   AlphaEarth embeddings, Fields of The World) — needs `earthengine-api`
+   and an authenticated EE session at fetch time.
+ - `OpenETClient`: OpenET v2 REST API — needs an API key (free tier).
+-Both keep `DataSource`'s contract: fetch returns lightweight descriptors
++- `StacSource`: Microsoft Planetary Computer STAC (no key; signed URLs).
++All keep `DataSource`'s contract: fetch returns lightweight descriptors
+ (file URIs or EE export tasks), not bulky arrays — callers decide what to
+ materialize, keeping memory minimal.
+ """
+@@ -13,19 +14,20 @@
+ 
+ lazy import ee
+ 
+-import urllib.parse
++import json
++import os
+ import urllib.request
+-from dataclasses import dataclass, field
++from dataclasses import dataclass
+ from typing import Any
+ 
+ import xarray as xr
+ 
+ from nasa_farm.acquire.base import BBox, Temporal
+ from nasa_farm.acquire.earthdata import (
+-    ECOSTRESS_MET, ECOSTRESS_SEB, NISAR_SME, SMAP_L4, EarthdataSource,
+-    granule_day,
++    ECOSTRESS_ET, ECOSTRESS_LST, NISAR_SME, SMAP_L3, SMAP_L4,
++    EarthdataSource, granule_day,
+ )
+-from nasa_farm.acquire.qc import FLAG_QC, SMAP_QC, QcSpec
++from nasa_farm.acquire.qc import CLOUD_QC, FLAG_QC, SMAP_QC, QcSpec
+ from nasa_farm.acquire.support import coverage as _cov, sample as _smp
+ 
+ WORLD = (-180.0, -90.0, 180.0, 90.0)
+@@ -39,6 +41,15 @@
+     bands between versions); `radius_km` is the nominal footprint for the
+     extraction kernel (0 = nearest); `qc` yields the confidence map that
+     weights extraction and lands as the `{obs}_w` series.
++
++    How the granule is read: `reader` "h5" (HDF5/netCDF via h5netcdf) or
++    "cog" (one GeoTIFF per variable, ECOSTRESS tiles); `assets` = file
++    suffixes to fetch (skips XML, browse images, unused bands);
++    `root_coords` = lat/lon datasets in the HDF5 root when data sit in a
++    group (SMAP L4); `pick` = regex a granule id must match (one of the
++    eight 3-hourly SMAP L4 files per day); `stream` = read HDF5 in place
++    over HTTPS (`earthaccess.open`) — SMAP files are 146–600 MB but only
++    a few variables are read; `offset` is added to values (K → °C).
+     """
+ 
+     source: EarthdataSource
+@@ -50,6 +61,12 @@
+     limit: int = 10_000
+     bbox: tuple[float, float, float, float] = WORLD
+     span: tuple[str, str] = ("2015-01-01", "2030-01-01")
++    reader: str = "h5"
++    assets: tuple[str, ...] = (".h5", ".nc", ".nc4")
++    root_coords: tuple[str, str] | None = None
++    pick: str | None = None
++    stream: bool = False
++    offset: float = 0.0
+ 
+     def var(self, ds: xr.Dataset) -> str | None:
+         return next((v for v in self.vars if v in ds), None)
+@@ -61,7 +78,8 @@
+         """Footprint-weighted value at the point; NaN when unsupported."""
+         if (v := self.var(ds)) is None:
+             return float("nan")
+-        return _smp(ds, v, lat, lon, self.radius_km, self._conf(ds))
++        return _smp(ds, v, lat, lon, self.radius_km, self._conf(ds)) \
++            + self.offset
+ 
+     def coverage(self, ds: xr.Dataset, lat: float, lon: float) -> float:
+         """Kernel-mass fraction over valid cells — the stored obs weight."""
+@@ -74,19 +92,31 @@
+         return granule_day(ds.attrs.get("granule_id", ""))
+ 
+ 
+-SMAP_SM = Spec(SMAP_L4, obs="sm", vars=("soil_moisture",),
+-               radius_km=18.0, qc=SMAP_QC)
++SMAP_SM = Spec(SMAP_L3, obs="sm", vars=("soil_moisture",),
++               radius_km=18.0, qc=SMAP_QC, assets=(".h5",), stream=True)
++"""SPL3SMP_E surface (0–5 cm) retrieval, AM pass — kept as `sm` for the
++existing training loop."""
++SMAP_RZ = Spec(SMAP_L4, obs="sm_rz", vars=("sm_rootzone",), radius_km=18.0,
++               assets=(".h5",), root_coords=("cell_lat", "cell_lon"),
++               pick=r"T133000", stream=True)
++"""SPL4SMGP root zone (0–100 cm), 12:00–15:00 UTC mean — 1 of 8 files/day."""
+ NISAR_SM = Spec(NISAR_SME, obs="sme2", radius_km=0.2, qc=FLAG_QC,
+                 vars=("soil_moisture", "soilMoisture", "soil_moisture_pmi",
+                       "PMI", "DSG", "TSR"),
+                 span=("2025-06-01", "2030-01-01"))
+-ECO_ET = Spec(ECOSTRESS_SEB, obs="et", vars=("ETdaily", "EVAPOTRANSPIRATION"),
+-              radius_km=0.5, qc=FLAG_QC, span=("2018-07-01", "2030-01-01"))
+-ECO_LST = Spec(ECOSTRESS_MET, obs="lst", vars=("LST", "LST_Day", "LST_Night"),
+-               radius_km=0.5, qc=FLAG_QC, span=("2018-07-01", "2030-01-01"))
+-
+-SPECS = {"smap": SMAP_SM, "nisar": NISAR_SM,
+-         "ecostress-seb": ECO_ET, "ecostress-met": ECO_LST}
++ECO_ET = Spec(ECOSTRESS_ET, obs="et", vars=("ETdaily",), radius_km=0.5,
++              reader="cog", assets=("_ETdaily.tif",),
++              span=("2018-07-01", "2030-01-01"))
++"""ECO_L3T_JET daily ET (mm/day). ETdaily is not in SEB (Rn, SWin)."""
++ECO_LST = Spec(ECOSTRESS_LST, obs="lst", vars=("LST",), radius_km=0.5,
++               qc=CLOUD_QC, reader="cog", assets=("_LST.tif", "_cloud.tif"),
++               offset=-273.15, span=("2018-07-01", "2030-01-01"))
++"""ECO_L2T_LSTE, K → °C (observe.lst is °C). LST is not in MET (Ta, RH)."""
++
++SPECS = {"smap": SMAP_SM, "smap-l4": SMAP_RZ, "nisar": NISAR_SM,
++         "ecostress-et": ECO_ET, "ecostress-lst": ECO_LST}
++ALIASES = {"ecostress-seb": "ecostress-et", "ecostress-met": "ecostress-lst"}
++"""Old CLI names — they pointed at products without ETdaily / LST."""
+ 
+ 
+ @dataclass(frozen=True, slots=True)
+@@ -119,30 +149,73 @@
+ 
+ @dataclass(frozen=True, slots=True)
+ class OpenETClient:
+-    """OpenET v2 REST client — ensemble ET rasters/point series."""
++    """OpenET v2 REST client — ensemble ET point series.
++
++    The API takes POST + JSON body (docs: openet.gitbook.io, raster
++    endpoints); a GET with query parameters is not part of the API.
++    Key: `api_key` or env `OPENET_API_KEY`.
++    """
+ 
+     api_key: str | None = None
+     base_url: str = "https://openet-api.org"
+     name: str = "openet"
+     requires_auth: bool = True
+-    _headers: dict[str, str] = field(default_factory=dict)
+ 
+-    def _get(self, path: str, params: dict[str, Any]) -> Any:
+-        import json
+-        q = urllib.parse.urlencode(params)
+-        req = urllib.request.Request(f"{self.base_url}/{path}?{q}",
+-                                     headers={"Authorization": self.api_key or ""})
+-        with urllib.request.urlopen(req, timeout=30) as r:
++    def _post(self, path: str, body: dict[str, Any]) -> Any:
++        key = self.api_key or os.environ.get("OPENET_API_KEY")
++        if not key:
++            raise RuntimeError("OpenET needs an API key (OPENET_API_KEY)")
++        req = urllib.request.Request(
++            f"{self.base_url}/{path}", data=json.dumps(body).encode(),
++            method="POST", headers={"Authorization": key,
++                                    "Content-Type": "application/json",
++                                    "accept": "application/json"})
++        with urllib.request.urlopen(req, timeout=120) as r:
+             return json.load(r)
+ 
+     def fetch(self, aoi: BBox | None, temporal: Temporal, *,
+               model: str = "Ensemble", variable: str = "ET",
+               interval: str = "daily", units: str = "mm",
+-              **kw: Any) -> Any:
++              reference_et: str = "gridMET", **kw: Any) -> Any:
+         if aoi is None:
+             raise ValueError("OpenET point queries require a bbox centroid")
+         lon, lat = (aoi.west + aoi.east) / 2, (aoi.south + aoi.north) / 2
+-        return self._get("raster/timeseries/point", {
+-            "lon": lon, "lat": lat, "model": model, "variable": variable,
+-            "start_date": temporal.start, "end_date": temporal.end,
+-            "interval": interval, "units": units, **kw})
++        return self._post("raster/timeseries/point", {
++            "date_range": [temporal.start, temporal.end],
++            "interval": interval, "geometry": [lon, lat], "model": model,
++            "variable": variable, "reference_et": reference_et,
++            "units": units, "file_format": "JSON", **kw})
++
++
++@dataclass(frozen=True, slots=True)
++class StacSource:
++    """One Planetary Computer collection → signed STAC items (descriptors;
++    the caller reads only the COG windows it needs)."""
++
++    collection: str
++    name: str = "planetary-computer"
++    requires_auth: bool = False
++    url: str = "https://planetarycomputer.microsoft.com/api/stac/v1"
++
++    def fetch(self, aoi: BBox | None, temporal: Temporal, *,
++              count: int = 500, query: dict | None = None) -> list[Any]:
++        import planetary_computer
++        import pystac_client
++        cat = pystac_client.Client.open(
++            self.url, modifier=planetary_computer.sign_inplace)
++        search = cat.search(
++            collections=[self.collection],
++            bbox=None if aoi is None else aoi.as_tuple(),
++            datetime=f"{temporal.start}/{temporal.end}",
++            query=query, max_items=count)
++        return list(search.items())
++
++
++# Checked live over Ames 2026-11-14 (see claude/download-access.md).
++S1_RTC = StacSource("sentinel-1-rtc", name="pc-sentinel-1-rtc")
++S2_L2A = StacSource("sentinel-2-l2a", name="pc-sentinel-2-l2a")  # −1000 DN offset ≥ baseline 04.00
++HLS2_L30 = StacSource("hls2-l30", name="pc-hls-l30")   # 2013–
++HLS2_S30 = StacSource("hls2-s30", name="pc-hls-s30")   # 2020– only on PC
++DEM_3DEP = StacSource("3dep-seamless", name="pc-3dep")
++GNATSGO = StacSource("gnatsgo-rasters", name="pc-gnatsgo")  # 2020 vintage, NCCPI
++MODIS_NBAR_PC = StacSource("modis-43A4-061", name="pc-modis-nbar")
+diff -ruN a2/src/nasa_farm/acquire/qc.py b2/src/nasa_farm/acquire/qc.py
+--- a2/src/nasa_farm/acquire/qc.py	2026-11-14 21:15:10.957048183 +0100
++++ b2/src/nasa_farm/acquire/qc.py	2026-11-14 21:17:05.259727815 +0100
+@@ -23,7 +23,10 @@
+ def _smap_conf(flag: np.ndarray) -> np.ndarray:
+     """bit0 recommended, bit1 attempted, bit2 successful → {1.0, 0.4, 0.0}."""
+     f = np.asarray(flag, np.int64)
+-    out = np.where((f & 7) == 0, 1.0, np.where((f & 2) == 0, 0.4, 0.0))
++    # bit0=0 recommended → 1.0; attempted (bit1=0) AND successful (bit2=0)
++    # but not recommended → 0.4; anything else → 0.
++    out = np.where((f & 7) == 0, 1.0,
++                   np.where((f & 6) == 0, 0.4, 0.0))
+     return np.where((f >= 0) & (f < 256), out, 0.0)
+ 
+ 
+@@ -55,4 +58,15 @@
+ """SPL3SMP_E: recommended 0/8 → 1.0, attempted-uncertain → 0.4, skip → 0."""
+ 
+ FLAG_QC = QcSpec(vars=("QC", "qc", "quality_flag", "mask"))
+-"""Generic single-band QA (ECOSTRESS, NISAR): clean → 1.0, flagged → 0.4."""
++"""Generic single-band QA (NISAR): clean → 1.0, flagged → 0.4.
++Not valid for bit-packed bands (ECOSTRESS `QC`): use CLOUD_QC there."""
++
++
++def _cloud_conf(flag: np.ndarray) -> np.ndarray:
++    """Binary cloud mask: 0 clear → 1.0; cloud or missing → 0."""
++    f = np.asarray(flag, np.float64)
++    return np.where(f == 0, 1.0, 0.0)
++
++
++CLOUD_QC = QcSpec(vars=("cloud",), to_conf=_cloud_conf)
++"""ECOSTRESS v002 tiles: `_cloud.tif` asset (0 clear / 1 cloud)."""
+diff -ruN a2/src/nasa_farm/acquire/soilgrid.py b2/src/nasa_farm/acquire/soilgrid.py
+--- a2/src/nasa_farm/acquire/soilgrid.py	2026-11-14 21:15:10.958347190 +0100
++++ b2/src/nasa_farm/acquire/soilgrid.py	2026-11-14 21:18:11.703945483 +0100
+@@ -2,7 +2,11 @@
+ 
+ Endpoint: https://rest.isric.org/soilgrids/v2.0/properties/query
+ Values are scaled integers; one request fetches the full prediction
+-distribution (mean / Q0.05 / Q0.50 / Q0.95). `sample` flattens it into
++distribution (mean / Q0.05 / Q0.50 / Q0.95). Depths must be standard
++intervals: "0-30cm" exists only for `ocs` — for clay/sand/bdod/soc/phh2o
++it returns `"layers": []` (checked live 2026-11-14), which used to fall
++through to DEFAULTS silently. The topsoil value is therefore the
++thickness-weighted mean of 0-5, 5-15 and 15-30 cm. `sample` flattens it into
+ the dict the lake stores per field — median texture + 90 % prediction
+ bounds on clay/sand/bd — and `profile` maps the same dict to a
+ SoilProfile, so live serving and lake attrs can never diverge.
+@@ -10,13 +14,18 @@
+ 
+ from __future__ import annotations
+ 
++import logging
++
+ import httpx2 as httpx
+ import torch
+ 
+ from nasa_farm.constants import DTYPE
+ from nasa_farm.state.soil import SoilProfile
+ 
++log = logging.getLogger(__name__)
++
+ BASE_URL = "https://rest.isric.org/soilgrids/v2.0/properties/query"
++DEPTHS = ("0-5cm", "5-15cm", "15-30cm")
+ PROPERTIES = ("clay", "sand", "bdod", "soc", "phh2o")
+ STATS = ("mean", "Q0.05", "Q0.5", "Q0.95")
+ UNIT = {"clay": 10.0, "sand": 10.0, "bdod": 100.0,
+@@ -28,25 +37,41 @@
+             "soc": 15.0, "ph": 6.5, "depth": 30.0}
+ 
+ 
+-def request_params(lat: float, lon: float, depth: str = "0-30cm",
++def request_params(lat: float, lon: float,
++                   depths: tuple[str, ...] | str = DEPTHS,
+                    values: tuple[str, ...] = ("mean",)) -> list[tuple[str, str]]:
+-    params: list[tuple[str, str]] = [("lon", str(lon)), ("lat", str(lat)),
+-                                     ("depth", depth)]
++    if isinstance(depths, str):
++        depths = (depths,)
++    params: list[tuple[str, str]] = [("lon", str(lon)), ("lat", str(lat))]
++    params += [("depth", d) for d in depths]
+     params += [("value", v) for v in values]
+     params += [("property", p) for p in PROPERTIES]
+     return params
+ 
+ 
++def _thickness(d: dict) -> float:
++    r = d.get("range") or {}
++    try:
++        return float(r["bottom_depth"]) - float(r["top_depth"])
++    except (KeyError, TypeError, ValueError):
++        return 1.0
++
++
+ def parse(payload: dict) -> dict[str, dict[str, float]]:
+-    """{prop: {mean, Q0.05, Q0.5, Q0.95}} at requested depth, unit-scaled."""
++    """{stat: {prop: value}} unit-scaled, thickness-weighted over the
++    returned depths. Averaging quantiles across depths approximates the
++    quantile of the 0–30 cm mean (slightly too wide)."""
+     out = {s: {} for s in STATS}
+     for layer in payload["properties"]["layers"]:
+         name = layer["name"]
+-        for d in layer["depths"]:
+-            for s in STATS:
++        for s in STATS:
++            num = den = 0.0
++            for d in layer["depths"]:
+                 if (v := d["values"].get(s)) is not None:
+-                    out[s][name] = v / UNIT[name]
+-            break
++                    t = _thickness(d)
++                    num, den = num + v * t, den + t
++            if den > 0:
++                out[s][name] = num / den / UNIT[name]
+     return out
+ 
+ 
+@@ -71,10 +96,10 @@
+         self._client = client or httpx.Client(timeout=timeout)
+ 
+     def dist(self, lat: float, lon: float,
+-             depth: str = "0-30cm") -> dict[str, dict[str, float]]:
++             depths: tuple[str, ...] = DEPTHS) -> dict[str, dict[str, float]]:
+         """Full prediction distribution in one request."""
+         resp = self._client.get(
+-            BASE_URL, params=request_params(lat, lon, depth, STATS))
++            BASE_URL, params=request_params(lat, lon, depths, STATS))
+         resp.raise_for_status()
+         return parse(resp.json())
+ 
+@@ -82,6 +107,9 @@
+         """Flat field dict: median texture + Q05/Q95 bounds (lake attrs)."""
+         try:
+             d = self.dist(lat, lon)
++            if not d["Q0.5"] and not d["mean"]:
++                log.warning("SoilGrids returned no layers at (%s, %s) → "
++                            "DEFAULTS", lat, lon)
+             q = lambda s, p: d[s].get(p)
+             med = lambda p: q("Q0.5", p) if q("Q0.5", p) is not None \
+                 else d["mean"].get(p)
+@@ -96,7 +124,9 @@
+                 out[f"{key}_lo"] = q("Q0.05", p) or out[key] * 0.7
+                 out[f"{key}_hi"] = q("Q0.95", p) or out[key] * 1.3
+             return out
+-        except (httpx.HTTPError, KeyError, TypeError):
++        except (httpx.HTTPError, KeyError, TypeError) as e:
++            log.warning("SoilGrids failed at (%s, %s): %r → DEFAULTS",
++                        lat, lon, e)
+             lo = dict(DEFAULTS, clay_lo=DEFAULTS["clay"] * 0.7,
+                       sand_lo=DEFAULTS["sand"] * 0.7,
+                       bd_lo=DEFAULTS["bd"] * 0.8,
+diff -ruN a2/src/nasa_farm/cli.py b2/src/nasa_farm/cli.py
+--- a2/src/nasa_farm/cli.py	2026-11-14 21:15:10.970326529 +0100
++++ b2/src/nasa_farm/cli.py	2026-11-14 21:18:11.704948080 +0100
+@@ -90,7 +90,7 @@
+     cr.add_argument("--out", default="lake", help="lake root dir")
+     cr.add_argument("--years", type=int, default=5)
+     cr.add_argument("--sources", default="power,soil",
+-                    help="power,soil,smap,ecostress-seb,ecostress-met")
++                    help="power,soil,nldas,smap,smap-l4,nisar,ecostress-et,ecostress-lst")
+     cr.add_argument("--workers", type=int, default=8)
+ 
+     sv = sub.add_parser("serve", help="HTTP API (granian + fastapi)")
+diff -ruN a2/tests/test_crawl.py b2/tests/test_crawl.py
+--- a2/tests/test_crawl.py	2026-11-14 21:15:10.972723469 +0100
++++ b2/tests/test_crawl.py	2026-11-14 21:18:11.706747821 +0100
+@@ -37,6 +37,11 @@
+         assert granule_day("SPL3SMP_E.007_20230115T120000.h5") == 20230115
+         assert granule_day("ECO_L3G_SEB_doy2023180") == 20230629
+ 
++    def test_granule_day_gedi_and_missing(self):
++        gedi = "GEDI02_A_2026161233236_O42448_03_T04445_02_005_02_V003"
++        assert granule_day(gedi) == 20260610        # was TypeError
++        assert granule_day("no-date-here") is None
++
+     def test_sample_1d(self):
+         ds = xr.Dataset(
+             {"v": (("lat", "lon"), np.arange(6.0).reshape(2, 3))},
+diff -ruN a2/tests/test_nldas.py b2/tests/test_nldas.py
+--- a2/tests/test_nldas.py	2026-11-14 21:15:10.977164909 +0100
++++ b2/tests/test_nldas.py	2026-11-14 21:18:11.706325314 +0100
+@@ -12,6 +12,8 @@
+ class TestDomain:
+     def test_covers(self):
+         assert covers(40.0, -100.0)          # Kansas
++        assert covers(8.0, -80.0)            # Panama (grid starts at 7 °N)
++        assert not covers(73.0, -100.0)      # grid stops at 72 °N
+         assert not covers(48.2, 1.6)         # France
+         assert not covers(0.0, 0.0)
+ 
+@@ -40,9 +42,19 @@
+         assert 1.0 <= out["rh"] <= 100.0
+ 
+     def test_rainf_rate_converts(self):
+-        out = convert({"Rainf": 5e-5, "SWdown": 0.0, "Wind_E": 0, "Wind_N": 0})
++        out = convert({"Rainf": 5e-5, "SWdown": 0.0, "Wind_E": 0, "Wind_N": 0},
++                      rain_rate=True)
+         assert out["precip"] == pytest.approx(4.32)
+ 
++    def test_small_daily_total_not_scaled(self):
++        """Daily files hold totals (mm): 0.004 mm must stay 0.004 mm —
++        the old value-threshold heuristic turned it into 345.6 mm."""
++        out = convert({"Rainf": 0.004, "SWdown": 0.0, "Wind_E": 0, "Wind_N": 0})
++        assert out["precip"] == pytest.approx(0.004)
++
++    def test_negative_beta_swdown_clamped(self):
++        assert convert({"SWdown": -3.0})["srad"] == 0.0
++
+     def test_rh_bounds(self):
+         assert _rh(0.050, 310.0, 101325.0) == pytest.approx(100.0)
+         assert _rh(0.0, 293.0, 101325.0) == pytest.approx(1.0)
+diff -ruN a2/tests/test_qc.py b2/tests/test_qc.py
+--- a2/tests/test_qc.py	2026-11-14 21:15:10.976000335 +0100
++++ b2/tests/test_qc.py	2026-11-14 21:18:11.706580983 +0100
+@@ -16,6 +16,10 @@
+         """bit0 set, bit1 clear → retrieved, uncertain → 0.4."""
+         assert _smap_conf(np.array([[1.0, 9.0]])).tolist() == [[0.4, 0.4]]
+ 
++    def test_attempted_but_failed_is_zero(self):
++        """bit2 set → retrieval unsuccessful → unusable (was 0.4)."""
++        assert _smap_conf(np.array([[5.0, 13.0]])).tolist() == [[0.0, 0.0]]
++
+     def test_skipped_is_zero(self):
+         """bit1 set → retrieval skipped → unusable."""
+         assert _smap_conf(np.array([[2.0, 3.0, 7.0]])).tolist() == \
+diff -ruN a2/tests/test_readers.py b2/tests/test_readers.py
+--- a2/tests/test_readers.py	1970-01-01 01:00:00.000000000 +0100
++++ b2/tests/test_readers.py	2026-11-14 21:18:28.026062239 +0100
+@@ -0,0 +1,78 @@
++"""Granule readers — SMAP HDF5 layouts and ECOSTRESS COG tiles → sample.
++
++Synthetic files mirror the documented layouts: SPL3SMP_E keeps 2-D
++`latitude`/`longitude` inside `Soil_Moisture_Retrieval_Data_AM`; SPL4SMGP
++keeps `cell_lat`/`cell_lon` in the root and data in `Geophysical_Data`;
++ECOSTRESS tiles are one UTM GeoTIFF per variable.
++"""
++
++import numpy as np
++import pytest
++
++h5py = pytest.importorskip("h5py")
++
++from nasa_farm.acquire.crawl import _open_h5
++from nasa_farm.acquire.products import ECO_LST, SMAP_RZ, SMAP_SM
++from nasa_farm.acquire.qc import CLOUD_QC, SMAP_QC
++from nasa_farm.acquire.support import coverage, sample
++
++LAT = np.linspace(43, 41, 30)[:, None] * np.ones((1, 40))
++LON = np.ones((30, 1)) * np.linspace(-94.5, -92.5, 40)[None, :]
++
++
++def test_smap_l4_root_coords(tmp_path):
++    f = tmp_path / "SMAP_L4_SM_gph_20250701T133000_Vv8013_001.h5"
++    with h5py.File(f, "w") as h:
++        h["cell_lat"], h["cell_lon"] = LAT.astype("f4"), LON.astype("f4")
++        h.create_group("Geophysical_Data")["sm_rootzone"] = \
++            np.full((30, 40), 0.25, "f4")
++    with _open_h5(str(f), SMAP_RZ) as ds:
++        assert sample(ds, "sm_rootzone", 42.0, -93.5, 18.0) == \
++            pytest.approx(0.25)
++    with open(f, "rb") as fh, _open_h5(fh, SMAP_RZ) as ds:   # streamed
++        assert SMAP_RZ.read(ds, 42.0, -93.5) == pytest.approx(0.25)
++
++
++def test_smap_l3_latitude_longitude_and_qc(tmp_path):
++    f = tmp_path / "SMAP_L3_SM_P_E_20250701_R19240_001.h5"
++    q = np.zeros((30, 40), "u2")
++    q[:, :20] = 7                                  # left half unusable
++    with h5py.File(f, "w") as h:
++        g = h.create_group("Soil_Moisture_Retrieval_Data_AM")
++        g["latitude"], g["longitude"] = LAT.astype("f4"), LON.astype("f4")
++        g["soil_moisture"] = np.full((30, 40), 0.25, "f4")
++        g["retrieval_qual_flag"] = q
++    with _open_h5(str(f), SMAP_SM) as ds:
++        conf = SMAP_QC.mask(ds)
++        assert sample(ds, "soil_moisture", 42.0, -93.5, 18.0, conf) == \
++            pytest.approx(0.25)
++        assert 0.0 < coverage(ds, "soil_moisture", 42.0, -93.5, 18.0,
++                              conf) < 1.0
++
++
++def test_ecostress_cog_tiles(tmp_path):
++    rioxarray = pytest.importorskip("rioxarray")  # noqa: F841
++    import xarray as xr
++    from pyproj import Transformer
++
++    from nasa_farm.acquire.crawl import _open_cog
++    x = 445_000 + 70 * np.arange(200)
++    y = 4_660_000 - 70 * np.arange(200)
++
++    def tif(name, arr):
++        da = xr.DataArray(arr[None], dims=("band", "y", "x"),
++                          coords={"band": [1], "y": y, "x": x}
++                          ).rio.write_crs(32615)
++        p = tmp_path / f"ECOv002_L2T_LSTE_1_2_15TVG_20250701T180000_0713_01_{name}.tif"
++        da.rio.to_raster(p)
++        return str(p)
++
++    cloud = np.zeros((200, 200), "u1")
++    cloud[:, 100:] = 1
++    ds = _open_cog([tif("LST", np.full((200, 200), 300.0, "f4")),
++                    tif("cloud", cloud)])
++    lon, lat = Transformer.from_crs(32615, 4326, always_xy=True).transform(
++        445_000 + 70 * 50, 4_660_000 - 70 * 100)
++    assert set(ds) >= {"LST", "cloud", "lat", "lon"}
++    assert ECO_LST.read(ds, lat, lon) == pytest.approx(26.85)   # K → °C
++    assert CLOUD_QC.mask(ds)[0, 150] == 0.0
+diff -ruN a2/tests/test_soilgrid.py b2/tests/test_soilgrid.py
+--- a2/tests/test_soilgrid.py	2026-11-14 21:15:10.973856460 +0100
++++ b2/tests/test_soilgrid.py	2026-11-14 21:18:11.705328405 +0100
+@@ -29,8 +29,11 @@
+ 
+ 
+ def test_request_params_multivalued():
+-    params = dict(request_params(41.0, -93.0))
+-    assert params["lat"] == "41.0" and params["depth"] == "0-30cm"
++    params = request_params(41.0, -93.0)
++    assert ("lat", "41.0") in params
++    # "0-30cm" returns empty layers for clay/sand/soc → standard intervals
++    assert [v for k, v in params if k == "depth"] == \
++        ["0-5cm", "5-15cm", "15-30cm"]
+ 
+ 
+ def test_parse_units():
+@@ -88,3 +91,19 @@
+     assert s.batch == 16
+     assert (s.clay >= lo.clay.min() - 1e-9).all() \
+         and (s.clay <= hi.clay.max() + 1e-9).all()
++
++
++def test_parse_thickness_weighted():
++    payload = {"properties": {"layers": [{"name": "clay", "depths": [
++        {"range": {"top_depth": 0, "bottom_depth": 5}, "values": {"mean": 100}},
++        {"range": {"top_depth": 5, "bottom_depth": 15}, "values": {"mean": 200}},
++        {"range": {"top_depth": 15, "bottom_depth": 30}, "values": {"mean": 400}},
++    ]}]}}
++    # (5·100 + 10·200 + 15·400) / 30 = 283.3 g/kg → 28.33 %
++    assert parse(payload)["mean"]["clay"] == pytest.approx(28.333, abs=1e-3)
++
++
++def test_empty_layers_fall_back_to_defaults():
++    c = SoilGridClient(httpx.Client(transport=httpx.MockTransport(
++        lambda r: httpx.Response(200, json={"properties": {"layers": []}}))))
++    assert c.sample(41.0, -93.0)["clay"] == DEFAULTS["clay"]

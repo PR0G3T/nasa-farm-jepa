@@ -17,6 +17,8 @@ dependencies = [
 [project.optional-dependencies]
 hpo = ["optuna>=5.0.0"]
 gee = ["earthengine-api>=1.5.26"]
+# COG tiles (ECOSTRESS, HLS), Planetary Computer signing, NLDAS-3 S3 reads
+acquire = ["rioxarray", "pyproj", "planetary-computer", "s3fs"]
 serve = ["fastapi>=0.162.0", "granian>=2.8.5"]
 
 [project.scripts]

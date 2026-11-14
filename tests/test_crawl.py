@@ -37,6 +37,11 @@ class TestHelpers:
         assert granule_day("SPL3SMP_E.007_20230115T120000.h5") == 20230115
         assert granule_day("ECO_L3G_SEB_doy2023180") == 20230629
 
+    def test_granule_day_gedi_and_missing(self):
+        gedi = "GEDI02_A_2026161233236_O42448_03_T04445_02_005_02_V003"
+        assert granule_day(gedi) == 20260610        # was TypeError
+        assert granule_day("no-date-here") is None
+
     def test_sample_1d(self):
         ds = xr.Dataset(
             {"v": (("lat", "lon"), np.arange(6.0).reshape(2, 3))},

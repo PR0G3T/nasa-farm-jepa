@@ -12,6 +12,8 @@ from nasa_farm.acquire.nldas import (
 class TestDomain:
     def test_covers(self):
         assert covers(40.0, -100.0)          # Kansas
+        assert covers(8.0, -80.0)            # Panama (grid starts at 7 °N)
+        assert not covers(73.0, -100.0)      # grid stops at 72 °N
         assert not covers(48.2, 1.6)         # France
         assert not covers(0.0, 0.0)
 
@@ -40,8 +42,18 @@ class TestConvert:
         assert 1.0 <= out["rh"] <= 100.0
 
     def test_rainf_rate_converts(self):
-        out = convert({"Rainf": 5e-5, "SWdown": 0.0, "Wind_E": 0, "Wind_N": 0})
+        out = convert({"Rainf": 5e-5, "SWdown": 0.0, "Wind_E": 0, "Wind_N": 0},
+                      rain_rate=True)
         assert out["precip"] == pytest.approx(4.32)
+
+    def test_small_daily_total_not_scaled(self):
+        """Daily files hold totals (mm): 0.004 mm must stay 0.004 mm —
+        the old value-threshold heuristic turned it into 345.6 mm."""
+        out = convert({"Rainf": 0.004, "SWdown": 0.0, "Wind_E": 0, "Wind_N": 0})
+        assert out["precip"] == pytest.approx(0.004)
+
+    def test_negative_beta_swdown_clamped(self):
+        assert convert({"SWdown": -3.0})["srad"] == 0.0
 
     def test_rh_bounds(self):
         assert _rh(0.050, 310.0, 101325.0) == pytest.approx(100.0)

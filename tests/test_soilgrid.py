@@ -29,8 +29,11 @@ def _client(status: int = 200) -> SoilGridClient:
 
 
 def test_request_params_multivalued():
-    params = dict(request_params(41.0, -93.0))
-    assert params["lat"] == "41.0" and params["depth"] == "0-30cm"
+    params = request_params(41.0, -93.0)
+    assert ("lat", "41.0") in params
+    # "0-30cm" returns empty layers for clay/sand/soc → standard intervals
+    assert [v for k, v in params if k == "depth"] == \
+        ["0-5cm", "5-15cm", "15-30cm"]
 
 
 def test_parse_units():
@@ -88,3 +91,19 @@ def test_profiles_ensemble_within_bounds():
     assert s.batch == 16
     assert (s.clay >= lo.clay.min() - 1e-9).all() \
         and (s.clay <= hi.clay.max() + 1e-9).all()
+
+
+def test_parse_thickness_weighted():
+    payload = {"properties": {"layers": [{"name": "clay", "depths": [
+        {"range": {"top_depth": 0, "bottom_depth": 5}, "values": {"mean": 100}},
+        {"range": {"top_depth": 5, "bottom_depth": 15}, "values": {"mean": 200}},
+        {"range": {"top_depth": 15, "bottom_depth": 30}, "values": {"mean": 400}},
+    ]}]}}
+    # (5·100 + 10·200 + 15·400) / 30 = 283.3 g/kg → 28.33 %
+    assert parse(payload)["mean"]["clay"] == pytest.approx(28.333, abs=1e-3)
+
+
+def test_empty_layers_fall_back_to_defaults():
+    c = SoilGridClient(httpx.Client(transport=httpx.MockTransport(
+        lambda r: httpx.Response(200, json={"properties": {"layers": []}}))))
+    assert c.sample(41.0, -93.0)["clay"] == DEFAULTS["clay"]

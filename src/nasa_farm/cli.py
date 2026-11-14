@@ -90,7 +90,7 @@ def _build_parser() -> argparse.ArgumentParser:
     cr.add_argument("--out", default="lake", help="lake root dir")
     cr.add_argument("--years", type=int, default=5)
     cr.add_argument("--sources", default="power,soil",
-                    help="power,soil,smap,ecostress-seb,ecostress-met")
+                    help="power,soil,nldas,smap,smap-l4,nisar,ecostress-et,ecostress-lst")
     cr.add_argument("--workers", type=int, default=8)
 
     sv = sub.add_parser("serve", help="HTTP API (granian + fastapi)")
