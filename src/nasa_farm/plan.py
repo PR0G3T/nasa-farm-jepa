@@ -4,7 +4,7 @@ Rotation space is discrete and small (C^H sequences), so exhaustive
 evaluation beats sampling-based search: exact Pareto front, zero
 approximation error, fully vectorized.
 
-Execution is delegated to the hardware layer (`nasa_farm.hw`): every
+Execution is delegated to the hardware layer (`nasa_farm.hardware`): every
 usable device is a co-executing lane, work is pulled from a shared
 cursor sized by *measured* per-lane rates, blocks stream through pinned
 staging on dedicated streams, fixed-shape blocks replay through
@@ -26,7 +26,7 @@ from nasa_farm.constants import DAYS_PER_YEAR, DTYPE
 from nasa_farm.dynamics.model import WorldModel
 from nasa_farm.heads import (METRICS, OBJECTIVE_DIRECTION,
                              SeasonAccumulator, objectives)
-from nasa_farm.hw import caps, mem, probe, sched, thermo
+from nasa_farm.hardware import caps, mem, probe, sched, thermo
 from nasa_farm.state.crops import IDX
 from nasa_farm.state.field import Field
 from nasa_farm.state.soil import SoilProfile

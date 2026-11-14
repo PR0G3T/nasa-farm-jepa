@@ -129,7 +129,7 @@ class TestEvaluate:
 
 class TestWorkers:
     def test_auto_workers_positive(self):
-        from nasa_farm.hw.caps import cpu_workers
+        from nasa_farm.hardware.capabilities import cpu_workers
         assert cpu_workers() >= 1
 
     def test_sharded_evaluate_bit_identical(self, physics_model, field, crops):
@@ -216,12 +216,12 @@ class TestAdaptiveHardware:
     def test_probe_short_circuits_small_workloads(self, physics_model, field,
                                                   crops):
         """<500k field-days: probing costs more than the run — skipped."""
-        from nasa_farm.hw import probe
+        from nasa_farm.hardware import probe
         plans = enumerate_rotations([crops.index("maize")], 1)
         ens = climatology_ensemble([synthetic_year(42.0, seed=1)], 1)
         r, s, days = plans.shape[0], ens.batch, ens.days
         assert not probe.worth(r, s, days)
 
     def test_physical_cores_detected(self):
-        from nasa_farm.hw.topo import physical_cores
+        from nasa_farm.hardware.topology import physical_cores
         assert physical_cores() >= 1

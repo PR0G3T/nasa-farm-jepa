@@ -62,7 +62,7 @@ class TestHLatent:
     def test_jepa_fit_hier(self, field, warm_year):
         """jepa_fit runs end-to-end on a hierarchical latent."""
         from nasa_farm.dynamics.latent import ObsEncoder
-        from nasa_farm.optimize.jepa import jepa_fit
+        from nasa_farm.optimize.embedding import jepa_fit
         crops = CropLibrary.default()
         m = WorldModel(crops, residual=True, latent_dim=4,
                        latent_strides=(1, 4), seed=0)
@@ -164,7 +164,7 @@ class TestMPPIExt:
 
 class TestSmooth:
     def test_esv_recovers_state(self, physics_model, field, warm_year):
-        from nasa_farm.assim import Observation, esv_smooth
+        from nasa_farm.assimilation import Observation, esv_smooth
         from nasa_farm.observe import observables
         f90 = _year30(warm_year)
         acts = Actions.idle(1, 90)
@@ -191,7 +191,7 @@ class TestSmooth:
 
 class TestGFlow:
     def test_hier_groups(self):
-        from nasa_farm.optimize.sbi import (
+        from nasa_farm.optimize.inference import (
             GroupPosterior, fit_hier,
         )
         g = torch.Generator().manual_seed(0)
@@ -317,7 +317,7 @@ class TestEnsBC:
 
 class TestMarl:
     def test_budget_and_report(self, physics_model, warm_year):
-        from nasa_farm.marl import fit_marl
+        from nasa_farm.allocation import fit_marl
         from nasa_farm.state.field import initial_state
         from nasa_farm.state.soil import SoilProfile
         soil = SoilProfile.preset("loam").repeat(2)

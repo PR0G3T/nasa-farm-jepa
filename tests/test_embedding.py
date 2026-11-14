@@ -10,9 +10,9 @@ from nasa_farm.dynamics.latent import (
 )
 from nasa_farm.dynamics.model import WorldModel
 from nasa_farm.dynamics.residual import N_FEATURES, ResidualNet
-from nasa_farm.exp.spec import Spec
+from nasa_farm.experiments.specification import Spec
 from nasa_farm.observe.trace import JEPATrace
-from nasa_farm.optimize.jepa import jepa_fit, seeded
+from nasa_farm.optimize.embedding import jepa_fit, seeded
 from nasa_farm.state.crops import CropLibrary
 from nasa_farm.state.field import Field, initial_state
 from nasa_farm.state.soil import SoilProfile
@@ -161,7 +161,7 @@ class TestJepaFit:
 class TestExpJepa:
     def test_registered_and_json_safe(self):
         import json
-        from nasa_farm.exp import run
+        from nasa_farm.experiments import run
         spec = Spec(horizon=1, realizations=1, obs_every=30, epochs=3,
                     latent_dim=4, obs_channels=("ndvi", "sm1"),
                     channels=("yield_kg",))
@@ -172,7 +172,7 @@ class TestExpJepa:
         json.dumps(r)  # no NaN leaks
 
     def test_reproducible(self):
-        from nasa_farm.exp import run
+        from nasa_farm.experiments import run
         spec = Spec(horizon=1, realizations=1, obs_every=30, epochs=3,
                     latent_dim=4, obs_channels=("ndvi", "sm1"))
         a = run("jepa", spec).results["channels"]["ndvi"]["hybrid"]

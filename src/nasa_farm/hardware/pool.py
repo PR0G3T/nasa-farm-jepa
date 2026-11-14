@@ -17,7 +17,7 @@ from __future__ import annotations
 import sys
 from concurrent.futures import Executor, ThreadPoolExecutor
 
-from nasa_farm.hw.topo import pin, worker_cpus
+from nasa_farm.hardware.topology import pin, worker_cpus
 
 
 def gil_on() -> bool:

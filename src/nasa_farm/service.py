@@ -155,7 +155,7 @@ def _history(series: list[Forcing], y0: int,
 
 
 def _in_nldas(p: Point) -> bool:
-    from nasa_farm.acquire.nldas import covers
+    from nasa_farm.acquire.reanalysis import covers
     return covers(p.lat, p.lon)
 
 
@@ -174,7 +174,7 @@ def _forcings(req: PlanRequest, p: Point) -> tuple[list, torch.Tensor | None]:
         except (KeyError, FileNotFoundError, ValueError):
             pass
     if not req.offline and _in_nldas(p):
-        from nasa_farm.acquire.nldas import NldasClient
+        from nasa_farm.acquire.reanalysis import NldasClient
         try:
             return NldasClient().forcing_years(p.lat, p.lon, years), None
         except (OSError, KeyError, ValueError):

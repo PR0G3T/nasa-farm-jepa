@@ -4,7 +4,7 @@ import numpy as np
 import pytest
 import xarray as xr
 
-from nasa_farm.acquire.qc import FLAG_QC, SMAP_QC, _smap_conf, _strict_conf
+from nasa_farm.acquire.quality import FLAG_QC, SMAP_QC, _smap_conf, _strict_conf
 
 
 class TestSmapConf:

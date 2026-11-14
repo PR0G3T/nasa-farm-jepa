@@ -11,17 +11,17 @@ acquisition calendars.
 4DEnVar through the differentiable rollout).
 """
 
-from nasa_farm.assim.kalman import (
+from nasa_farm.assimilation.kalman import (
     Observation, STATE_VARS, assimilate, enkf_update,
 )
-from nasa_farm.assim.err import RStat, aoei
-from nasa_farm.assim.score import ensf_update
-from nasa_farm.assim.latent import (
+from nasa_farm.assimilation.error import RStat, aoei
+from nasa_farm.assimilation.score import ensf_update
+from nasa_farm.assimilation.latent import (
     FilterNet, ensf_lr_update, fit_filter, net_update,
 )
-from nasa_farm.assim.langevin import ula_posterior
-from nasa_farm.assim.design import design_schedule, eig, plan_schedule
-from nasa_farm.assim.smooth import esv_smooth
+from nasa_farm.assimilation.langevin import ula_posterior
+from nasa_farm.assimilation.design import design_schedule, eig, plan_schedule
+from nasa_farm.assimilation.smooth import esv_smooth
 
 __all__ = [
     "FilterNet", "Observation", "RStat", "STATE_VARS", "aoei",

@@ -13,9 +13,9 @@ from __future__ import annotations
 import torch
 
 from nasa_farm.dynamics.counterfactual import counterfactual
-from nasa_farm.exp.run import register
-from nasa_farm.exp.scene import scene
-from nasa_farm.exp.spec import Spec
+from nasa_farm.experiments.run import register
+from nasa_farm.experiments.scene import scene
+from nasa_farm.experiments.specification import Spec
 from nasa_farm.metrics import rmse
 from nasa_farm.observe.trace import ObsTrace
 from nasa_farm.types import Actions

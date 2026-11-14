@@ -8,7 +8,7 @@ import pytest
 from hypothesis import given, settings, strategies as st
 
 from nasa_farm.lake import Lake, migrate
-from nasa_farm.lake.cal import to_ord, to_ymd
+from nasa_farm.lake.calendar import to_ord, to_ymd
 from nasa_farm.lake.series import decode, encode, merge
 
 
@@ -231,7 +231,7 @@ class TestLake:
             L.put("F1", "obs", "sm", np.array([20240101]), np.array([0.5]))
             L.mark_granule("G", "p")
             L.put_vec("F1", "aef", np.ones(4, np.float32))
-        assert [p.name for p in tmp_path.iterdir()] == ["lake.db"]
+        assert [p.name for p in tmp_path.iterdir()] == ["lake.database"]
 
 
 class TestMigrate:

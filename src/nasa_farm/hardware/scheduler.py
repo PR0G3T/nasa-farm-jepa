@@ -21,11 +21,11 @@ from typing import Callable
 
 import torch
 
-from nasa_farm.hw import graphs as _graphs
-from nasa_farm.hw import mem
-from nasa_farm.hw import pipe
-from nasa_farm.hw import pool as _pool
-from nasa_farm.hw import thermo as _thermo
+from nasa_farm.hardware import graphs as _graphs
+from nasa_farm.hardware import mem
+from nasa_farm.hardware import pipe
+from nasa_farm.hardware import pool as _pool
+from nasa_farm.hardware import thermo as _thermo
 
 _OOM_PATTERNS = ("out of memory", "can't allocate", "cannot allocate",
                  "cudaerror memoryallocation")
@@ -96,7 +96,7 @@ def make_lane(device: torch.device, workers: int,
 
 
 def device_label(device: torch.device) -> str:
-    from nasa_farm.hw.caps import name
+    from nasa_farm.hardware.capabilities import name
     return name(device)
 
 

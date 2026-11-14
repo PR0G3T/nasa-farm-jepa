@@ -23,7 +23,7 @@ from nasa_farm.forcing.bias import (
     EnsBC, apply_ensbc, apply_qmap, fit_ensbc, fit_qmap,
 )
 from nasa_farm.forcing.seam import bridge, roll_to_doy, span
-from nasa_farm.forcing.gen import WxGen, fit_gen, sample_gen
+from nasa_farm.forcing.generation import WxGen, fit_gen, sample_gen
 from nasa_farm.forcing.provide import ensemble, register
 from nasa_farm.forcing.reconcile import consensus
 from nasa_farm.forcing.shuffle import ecc, ranks, shuffle_forcing

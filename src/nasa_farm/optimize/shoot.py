@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import torch
 
-from nasa_farm.assim.kalman import STATE_VARS, _get_var
+from nasa_farm.assimilation.kalman import STATE_VARS, _get_var
 from nasa_farm.constants import DTYPE
 from nasa_farm.observe import observables
 from nasa_farm.optimize.trainer import fit

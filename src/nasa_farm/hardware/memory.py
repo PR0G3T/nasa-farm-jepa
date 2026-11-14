@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import torch
 
-from nasa_farm.hw.caps import device_mem
+from nasa_farm.hardware.capabilities import device_mem
 
 _RESERVE_CAP = 512 << 20      # never more than 512 MiB held back
 _RESERVE_FRAC = 0.02          # ~2 % of free VRAM

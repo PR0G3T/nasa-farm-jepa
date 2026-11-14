@@ -127,7 +127,7 @@ def assimilate(model, field: Field, forcing: Forcing, actions: Actions,
     spread comes from the initial ensemble and/or soil.sample(). The step
     itself runs under inference_mode — EnKF needs no gradients.
     """
-    from nasa_farm.assim.err import aoei
+    from nasa_farm.assimilation.error import aoei
     update = update or enkf_update
     gen = torch.Generator().manual_seed(seed)
     t0 = 0

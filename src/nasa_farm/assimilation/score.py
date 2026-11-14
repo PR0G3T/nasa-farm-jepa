@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import torch
 
-from nasa_farm.assim.kalman import STATE_VARS, _get_var, _put_vars
+from nasa_farm.assimilation.kalman import STATE_VARS, _get_var, _put_vars
 from nasa_farm.state.field import FieldState
 
 

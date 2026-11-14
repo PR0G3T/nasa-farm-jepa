@@ -9,22 +9,22 @@ from nasa_farm.constants import DTYPE
 from nasa_farm.dynamics.counterfactual import abduct, counterfactual
 from nasa_farm.dynamics.extra import EXTRAS, step_extra
 from nasa_farm.dynamics.latent import OPS, FactorDyn, LatentDyn
-from nasa_farm.optimize.jepa import rdmreg
+from nasa_farm.optimize.embedding import rdmreg
 from nasa_farm.dynamics.model import WorldModel
 from nasa_farm.dynamics.residual import N_FEATURES
 from nasa_farm.control import _lbfgs, mppi
-from nasa_farm.optimize.dsreg import dsreg
-from nasa_farm.optimize.sindy import identify, library, stlsq
-from nasa_farm.optimize.ttt import TTT
-from nasa_farm.assim.design import fisher_design
-from nasa_farm.assim.kalman import Observation, assimilate
-from nasa_farm.marl import eval_policies, nash_gap
+from nasa_farm.optimize.rotation import dsreg
+from nasa_farm.optimize.identification import identify, library, stlsq
+from nasa_farm.optimize.replay import TTT
+from nasa_farm.assimilation.design import fisher_design
+from nasa_farm.assimilation.kalman import Observation, assimilate
+from nasa_farm.allocation import eval_policies, nash_gap
 from nasa_farm.policy import PolicyNet
 from nasa_farm.state.crops import CropLibrary
 from nasa_farm.state.field import Field, initial_state
 from nasa_farm.state.soil import SoilProfile
 from nasa_farm.types import ACTION_VARS, FORCING_VARS, Actions, Forcing
-from nasa_farm.uq import spw_rollout
+from nasa_farm.uncertainty import spw_rollout
 
 
 def _field(batch: int = 1) -> Field:
@@ -313,13 +313,13 @@ class TestMarl:
 
 class TestExpNew:
     def test_registry(self):
-        from nasa_farm.exp import experiments
+        from nasa_farm.experiments import experiments
         for n in ("cf", "discover", "scale"):
             assert n in experiments()
 
     def test_cf_experiment(self):
-        from nasa_farm.exp import run
-        from nasa_farm.exp.spec import Spec as S
+        from nasa_farm.experiments import run
+        from nasa_farm.experiments.specification import Spec as S
         rep = run("cf", S(horizon=1, obs_every=10, noise=0.0,
                           realizations=1))
         ch = rep.results["channels"]["ndvi"]

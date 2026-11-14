@@ -50,7 +50,7 @@ def adapt(model, field: Field, forcing: Forcing, actions: Actions,
 
     Returns the adapted field (model untouched) plus a fit report.
     """
-    from nasa_farm.assim.kalman import _get_var, _put_vars
+    from nasa_farm.assimilation.kalman import _get_var, _put_vars
 
     if loss_fn is None:
         if obs is None:

@@ -8,7 +8,7 @@ from nasa_farm.forcing import synthetic_year, tile_to_horizon
 from nasa_farm.observe import CHANNELS, observables, sm_vol, vwc
 from nasa_farm.observe.optical import fapar, ndvi
 from nasa_farm.observe.radiometer import tb
-from nasa_farm.observe.sar import sigma0
+from nasa_farm.observe.radar import sigma0
 from nasa_farm.observe.trace import ObsTrace
 from nasa_farm.state.field import Field
 from nasa_farm.types import Actions

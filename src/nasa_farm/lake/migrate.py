@@ -1,7 +1,7 @@
-"""Legacy `*.zarr` dirs + `catalog.db` → `lake.db` (idempotent).
+"""Legacy `*.zarr` dirs + `catalog.db` → `lake.database` (idempotent).
 
 `Lake(root)` runs this automatically the first time it opens a root that
-still has the legacy layout and no `lake.db` yet: every series is
+still has the legacy layout and no `lake.database` yet: every series is
 re-packed through `Lake.put` (POWER-native names canonicalized, source
 provenance replayed from `catalog.series`), fields and granule marks
 replayed from `catalog.db` — all inside one transaction, so a failed
@@ -86,7 +86,7 @@ def migrate_into(lake) -> dict:
 def migrate(root: Path | str, clean: bool = False) -> dict:
     """Import the legacy layout under `root`; `clean` removes it after."""
     root = Path(root)
-    from nasa_farm.lake.db import Lake
+    from nasa_farm.lake.database import Lake
     with Lake(root) as lake:
         stats = lake.migrated or migrate_into(lake)
     if clean:

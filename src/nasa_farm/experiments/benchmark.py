@@ -15,9 +15,9 @@ from __future__ import annotations
 
 import torch
 
-from nasa_farm.exp.run import register
-from nasa_farm.exp.scene import calibrate, observe, scene
-from nasa_farm.exp.spec import Spec
+from nasa_farm.experiments.run import register
+from nasa_farm.experiments.scene import calibrate, observe, scene
+from nasa_farm.experiments.specification import Spec
 from nasa_farm.heads import METRICS
 from nasa_farm.metrics import score_ens
 from nasa_farm.optimize.targets import season_metrics

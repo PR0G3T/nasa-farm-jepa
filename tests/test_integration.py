@@ -5,7 +5,7 @@ import json
 import pytest
 import torch
 
-from nasa_farm.cli import main
+from nasa_farm.commands import main
 from nasa_farm.constants import DTYPE
 from nasa_farm.dynamics.model import WorldModel
 from nasa_farm.forcing import climatology_ensemble, synthetic_year

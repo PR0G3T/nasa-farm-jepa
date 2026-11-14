@@ -12,7 +12,7 @@ from __future__ import annotations
 import torch
 
 from nasa_farm.constants import DTYPE
-from nasa_farm.hw.topo import physical_cores
+from nasa_farm.hardware.topology import physical_cores
 
 
 def accelerators() -> list[torch.device]:

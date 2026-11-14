@@ -3,7 +3,7 @@
 import pytest
 import torch
 
-from nasa_farm.assim import Observation, assimilate, enkf_update
+from nasa_farm.assimilation import Observation, assimilate, enkf_update
 from nasa_farm.constants import DTYPE
 from nasa_farm.forcing import synthetic_year, tile_to_horizon
 from nasa_farm.state.field import Field, initial_state

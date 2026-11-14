@@ -4,7 +4,7 @@ import pytest
 import torch
 
 from nasa_farm.constants import DTYPE
-from nasa_farm.uq import (
+from nasa_farm.uncertainty import (
     SplitConformal, conf_level, coverage, interval, weighted_quantile,
 )
 

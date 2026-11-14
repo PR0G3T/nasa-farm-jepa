@@ -18,7 +18,7 @@ import torch
 
 from nasa_farm.constants import DTYPE
 from nasa_farm.dynamics.model import WorldModel
-from nasa_farm.exp.spec import Spec
+from nasa_farm.experiments.specification import Spec
 from nasa_farm.forcing import (
     augment, climatology_ensemble, synthetic_year, tile_to_horizon,
 )

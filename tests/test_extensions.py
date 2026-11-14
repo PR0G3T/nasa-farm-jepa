@@ -13,7 +13,7 @@ from nasa_farm.types import Actions
 # ── state/ctx ─────────────────────────────────────────────────────────
 
 def test_ctx_norm_standardizes():
-    from nasa_farm.state.ctx import CtxNorm, build_ctx
+    from nasa_farm.state.context import CtxNorm, build_ctx
     g = torch.Generator().manual_seed(0)
     emb = torch.randn(50, 64, generator=g, dtype=DTYPE) * 3 + 1.0
     n = CtxNorm(64).fit(emb)
@@ -25,7 +25,7 @@ def test_ctx_norm_standardizes():
 
 
 def test_trait_hyper_identity_and_bounds(crops):
-    from nasa_farm.state.ctx import TraitHyper
+    from nasa_farm.state.context import TraitHyper
     th = TraitHyper(8, crops.n_crops, crops.table.shape[1])
     ctx = torch.randn(4, 8, dtype=DTYPE)
     mult = th(ctx)
@@ -38,7 +38,7 @@ def test_trait_hyper_identity_and_bounds(crops):
 
 def test_condition_wires_ctx_and_latents(field, crops):
     from nasa_farm.dynamics.model import WorldModel
-    from nasa_farm.state.ctx import LatentInit, condition
+    from nasa_farm.state.context import LatentInit, condition
     m = WorldModel(crops, latent_dim=6, ctx_dim=8)
     init = LatentInit(8, 6, m.latent.h_dim)
     ctx = torch.randn(1, 8, dtype=DTYPE)
@@ -161,7 +161,7 @@ def test_sample_gen_spread(warm_year):
 # ── assim/latent + langevin ───────────────────────────────────────────
 
 def test_ensf_lr_updates_and_bounds(physics_model, field, warm_year):
-    from nasa_farm.assim import ensf_lr_update
+    from nasa_farm.assimilation import ensf_lr_update
     from nasa_farm.observe import observables
     f = field.repeat(8)
     chans = ("ndvi", "sm1")
@@ -172,8 +172,8 @@ def test_ensf_lr_updates_and_bounds(physics_model, field, warm_year):
 
 
 def test_fit_filter_and_update(physics_model, field, warm_year):
-    from nasa_farm.assim import fit_filter, net_update
-    from nasa_farm.assim.kalman import STATE_VARS, _get_var
+    from nasa_farm.assimilation import fit_filter, net_update
+    from nasa_farm.assimilation.kalman import STATE_VARS, _get_var
     net = fit_filter(physics_model, field, warm_year,
                      Actions.idle(1, warm_year.days),
                      ("ndvi",), every=60, members=8, epochs=2, seed=0)
@@ -186,7 +186,7 @@ def test_fit_filter_and_update(physics_model, field, warm_year):
 
 
 def test_ula_posterior_shapes(physics_model, field, warm_year):
-    from nasa_farm.assim import ula_posterior
+    from nasa_farm.assimilation import ula_posterior
     from nasa_farm.optimize.targets import ObservedSeries, obs_series
     from nasa_farm.types import FORCING_VARS, Forcing
     f60 = Forcing(*(getattr(warm_year, k)[:, :60] for k in FORCING_VARS))
@@ -201,7 +201,7 @@ def test_ula_posterior_shapes(physics_model, field, warm_year):
 
 
 def test_plan_schedule_orders(physics_model, field, warm_year):
-    from nasa_farm.assim import plan_schedule
+    from nasa_farm.assimilation import plan_schedule
     from nasa_farm.types import FORCING_VARS, Forcing
     f90 = Forcing(*(getattr(warm_year, k)[:, :90] for k in FORCING_VARS))
     sch = plan_schedule(physics_model, field, f90, Actions.idle(1, 90),
@@ -213,7 +213,7 @@ def test_plan_schedule_orders(physics_model, field, warm_year):
 # ── optimize/sbi ──────────────────────────────────────────────────────
 
 def test_joint_flow_posterior_and_likelihood():
-    from nasa_farm.optimize.sbi import fit_joint, Posterior
+    from nasa_farm.optimize.inference import fit_joint, Posterior
     g = torch.Generator().manual_seed(0)
     theta = torch.randn(300, 2, generator=g, dtype=DTYPE)
     x = torch.stack([theta[:, 0] + theta[:, 1],
@@ -291,12 +291,12 @@ def test_nisar_sme_descriptor():
 
 
 def test_experiment_registry_has_interv():
-    from nasa_farm.exp import experiments
+    from nasa_farm.experiments import experiments
     assert "interv" in experiments()
 
 
 def test_interv_experiment_smoke():
-    from nasa_farm.exp import Spec, run
+    from nasa_farm.experiments import Spec, run
     rep = run("interv", Spec(epochs=3, members=8, seed=1,
                              obs_channels=("ndvi",)))
     assert "perturbations" in rep.results and "plan_tau" in rep.results

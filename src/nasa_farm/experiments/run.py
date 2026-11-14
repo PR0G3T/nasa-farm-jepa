@@ -24,7 +24,7 @@ from pathlib import Path
 
 import torch
 
-from nasa_farm.exp.spec import Spec
+from nasa_farm.experiments.specification import Spec
 
 _REGISTRY: dict[str, Callable[[Spec], dict]] = {}
 

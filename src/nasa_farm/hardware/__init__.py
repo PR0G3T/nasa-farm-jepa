@@ -12,4 +12,4 @@
 - ``sched``  — co-execution scheduler over all lanes + OOM ladder
 """
 
-from nasa_farm.hw import boot as _boot  # noqa: F401  (env side effects)
+from nasa_farm.hardware import boot as _boot  # noqa: F401  (env side effects)

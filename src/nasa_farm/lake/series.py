@@ -14,7 +14,7 @@ from compression import zstd
 
 import numpy as np
 
-from nasa_farm.lake.cal import to_ord, to_ymd
+from nasa_farm.lake.calendar import to_ord, to_ymd
 
 
 def merge(old: tuple[np.ndarray, np.ndarray] | None,

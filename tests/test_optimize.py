@@ -7,10 +7,10 @@ from nasa_farm.constants import DTYPE
 from nasa_farm.dynamics.model import WorldModel
 from nasa_farm.dynamics.residual import ResidualNet
 from nasa_farm.forcing import synthetic_year, tile_to_horizon
-from nasa_farm.optimize.hpo import (
+from nasa_farm.optimize.hyperparameter import (
     blackbox_hpo, gradient_hpo, successive_halving,
 )
-from nasa_farm.optimize.nas import (
+from nasa_farm.optimize.architecture import (
     ARCH_SPACE, build_residual, jacob_cov_score, nas_search, synflow_score,
     zero_cost_rank,
 )
@@ -191,7 +191,7 @@ class TestBlackbox:
 
     def test_optuna_if_available(self):
         optuna = pytest.importorskip("optuna")
-        from nasa_farm.optimize.hpo import optuna_hpo
+        from nasa_farm.optimize.hyperparameter import optuna_hpo
         sp = Space([Param("x", low=0.0, high=1.0)])
         res = optuna_hpo(lambda c, b: (c["x"] - 0.4) ** 2, sp,
                          n_trials=20, seed=0)

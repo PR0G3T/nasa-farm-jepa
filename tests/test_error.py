@@ -3,8 +3,8 @@
 import pytest
 import torch
 
-from nasa_farm.assim import Observation, assimilate, enkf_update
-from nasa_farm.assim.err import RStat, aoei
+from nasa_farm.assimilation import Observation, assimilate, enkf_update
+from nasa_farm.assimilation.error import RStat, aoei
 from nasa_farm.constants import DTYPE
 
 

@@ -21,9 +21,9 @@ import torch
 
 from nasa_farm.constants import DTYPE
 from nasa_farm.dynamics.intervention import EDIT_VARS, edit_state
-from nasa_farm.exp.run import register
-from nasa_farm.exp.scene import calibrate, observe, scene
-from nasa_farm.exp.spec import Spec
+from nasa_farm.experiments.run import register
+from nasa_farm.experiments.scene import calibrate, observe, scene
+from nasa_farm.experiments.specification import Spec
 from nasa_farm.heads import METRICS
 from nasa_farm.optimize.targets import season_metrics
 from nasa_farm.plan import (

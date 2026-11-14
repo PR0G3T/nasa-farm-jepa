@@ -86,7 +86,7 @@ def _seas5(lat, lon, years, horizon, members, seed, model="ecmwf_seas5",
 def _gen(lat, lon, years, horizon, members, seed, model=None, **kw) -> Forcing:
     if model is None:
         raise ValueError("source='gen' requires model=<WxGen>")
-    from nasa_farm.forcing.gen import sample_gen
+    from nasa_farm.forcing.generation import sample_gen
     return sample_gen(model, horizon * 365, members, seed=seed, **kw)
 
 

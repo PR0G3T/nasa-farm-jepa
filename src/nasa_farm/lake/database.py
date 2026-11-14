@@ -1,6 +1,6 @@
 """Lake — one SQLite file for fields, series, granules and embeddings.
 
-`lake.db` (WAL) replaces the per-field zarr trees + catalog.db: one
+`lake.database` (WAL) replaces the per-field zarr trees + catalog.db: one
 transactional row per series (`dates` and `vals` can never diverge),
 coverage columns (`first`, `last`, `n`, `source`, `rev`) maintained by
 `put` itself, and every crawl unit lands in a single `tx()` — a crash
@@ -8,7 +8,7 @@ can never leave data written but unmarked. Writes outside `tx()` commit
 per call; `put` is a no-op when the merged series is unchanged, so
 re-crawls are write-free and idempotent.
 
-Read-only opens (`ro=True`) create no files; a missing `lake.db` under a
+Read-only opens (`ro=True`) create no files; a missing `lake.database` under a
 legacy `*.zarr`/`catalog.db` layout is auto-migrated once through a
 writable open, then served read-only.
 """
@@ -24,7 +24,7 @@ import numpy as np
 
 from nasa_farm.lake import series
 
-DB_NAME = "lake.db"
+DB_NAME = "lake.database"
 _SCHEMA = 1
 
 DDL = """

@@ -22,13 +22,13 @@ from __future__ import annotations
 
 import torch
 
-from nasa_farm.assim.kalman import STATE_VARS, _get_var, enkf_update
-from nasa_farm.assim.score import ensf_update
+from nasa_farm.assimilation.kalman import STATE_VARS, _get_var, enkf_update
+from nasa_farm.assimilation.score import ensf_update
 from nasa_farm.constants import DAYS_PER_YEAR, DTYPE
 from nasa_farm.dynamics.model import WorldModel
-from nasa_farm.exp.run import register
-from nasa_farm.exp.scene import scene
-from nasa_farm.exp.spec import Spec
+from nasa_farm.experiments.run import register
+from nasa_farm.experiments.scene import scene
+from nasa_farm.experiments.specification import Spec
 from nasa_farm.heads import METRICS, SeasonAccumulator
 from nasa_farm.metrics import crps, rmse, score_ens
 from nasa_farm.observe import observables

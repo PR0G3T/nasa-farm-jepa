@@ -17,11 +17,11 @@ import torch
 from nasa_farm import CropLibrary, Field, WorldModel, initial_state
 from nasa_farm.constants import DTYPE
 from nasa_farm.control import mppi
-from nasa_farm.exp import Spec, experiments
-from nasa_farm.exp import run as exp_run
+from nasa_farm.experiments import Spec, experiments
+from nasa_farm.experiments import run as exp_run
 from nasa_farm.forcing import augment, synthetic_year, tile_to_horizon
-from nasa_farm.optimize.hpo import gradient_hpo
-from nasa_farm.optimize.nas import nas_search
+from nasa_farm.optimize.hyperparameter import gradient_hpo
+from nasa_farm.optimize.architecture import nas_search
 from nasa_farm.optimize.targets import (
     season_metrics, synthetic_observation, trajectory_loss,
 )

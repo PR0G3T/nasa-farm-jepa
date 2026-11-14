@@ -66,7 +66,7 @@ def test_provider_dispatch(warm_year):
 # ── assimilation design & detection ─────────────────────────────────
 
 def test_design_schedule_ranks(physics_model, field, warm_year):
-    from nasa_farm.assim import design_schedule, eig
+    from nasa_farm.assimilation import design_schedule, eig
     f = _short(warm_year, 40)
     acts = Actions.idle(8, 40)
     fld = field.repeat(8)
@@ -136,7 +136,7 @@ def test_policy_net_nonnegative():
 # ── UQ: trajectory bands, ACI, EnbPI, SWAG ───────────────────────────
 
 def test_trajectory_conformal_joint_band():
-    from nasa_farm.uq import TrajectoryConformal
+    from nasa_farm.uncertainty import TrajectoryConformal
     pred = torch.zeros(30, 50, dtype=DTYPE)
     y = torch.randn(30, 50, dtype=torch.float64) * 0.1
     tc = TrajectoryConformal(alpha=0.1).fit(pred, y)
@@ -148,7 +148,7 @@ def test_trajectory_conformal_joint_band():
 
 
 def test_aci_direction():
-    from nasa_farm.uq import aci
+    from nasa_farm.uncertainty import aci
     a = aci(0.10, err=True)
     assert a < 0.10                                 # miscoverage drops → widen
     b = aci(0.10, err=False)
@@ -156,7 +156,7 @@ def test_aci_direction():
 
 
 def test_enbpi_band_ordered():
-    from nasa_farm.uq import enbpi
+    from nasa_farm.uncertainty import enbpi
     res = torch.randn(60, 20, dtype=torch.float64)
     pred = torch.zeros(20, dtype=DTYPE)
     lo, hi = enbpi(pred, res, alpha=0.1)
@@ -165,7 +165,7 @@ def test_enbpi_band_ordered():
 
 def test_swag_collect_sample_restore():
     import torch.nn as nn
-    from nasa_farm.optimize.swag import Swag
+    from nasa_farm.optimize.averaging import Swag
     net = nn.Sequential(nn.Linear(4, 8), nn.SiLU(), nn.Linear(8, 2)).to(torch.float64)
     ref = torch.cat([p.clone().reshape(-1) for p in net.parameters()])
     sw = Swag(net)
@@ -187,7 +187,7 @@ def test_swag_collect_sample_restore():
 # ── inference: joint-flow posterior, symbolic distillation ───────────
 
 def test_posterior_recovers_gaussian():
-    from nasa_farm.optimize.sbi import fit_posterior
+    from nasa_farm.optimize.inference import fit_posterior
     g = torch.Generator().manual_seed(0)
     theta = torch.randn(400, 2, generator=g, dtype=torch.float64)
     x = theta[:, :1] * 0.5 + 0.1 * torch.randn(400, 1, generator=g,
@@ -238,7 +238,7 @@ def test_landscape_conserves_runoff(physics_model, soil):
 # ── MRV ──────────────────────────────────────────────────────────────
 
 def test_mrv_signs_and_units():
-    from nasa_farm.mrv import C_TO_CO2, N_TO_N2O, account
+    from nasa_farm.crediting import C_TO_CO2, N_TO_N2O, account
     soc0 = torch.tensor([4.0], dtype=DTYPE)
     soc1 = torch.tensor([5.0], dtype=DTYPE)          # +1 kg C m-2
     n2o = torch.zeros(1, dtype=DTYPE)
@@ -253,7 +253,7 @@ def test_mrv_signs_and_units():
 
 
 def test_mrv_creditable_lower_bound():
-    from nasa_farm.mrv import creditable
+    from nasa_farm.crediting import creditable
     net = torch.randn(200, 4, dtype=torch.float64)   # posterior samples
     lo = creditable(net, alpha=0.1)
     assert lo.shape == (4,)

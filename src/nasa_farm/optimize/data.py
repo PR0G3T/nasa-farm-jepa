@@ -8,7 +8,7 @@ to every footprint-sampled obs, so QA propagates into the loss rather
 than a plain mask. The `soil` attr is the flat SoilGrid dict — converted
 through `soilgrid.profile`, the same mapping live serving uses.
 
-Reads open `lake.db` read-only (no files created); a missing lake raises
+Reads open `lake.database` read-only (no files created); a missing lake raises
 `FileNotFoundError` — the callers' documented fallback to live sources.
 """
 

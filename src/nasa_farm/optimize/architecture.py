@@ -17,7 +17,7 @@ import torch
 import torch.nn as nn
 
 from nasa_farm.dynamics.residual import ACTS, N_FEATURES
-from nasa_farm.optimize.hpo import Trial, successive_halving
+from nasa_farm.optimize.hyperparameter import Trial, successive_halving
 from nasa_farm.optimize.space import Param, Space
 
 ARCH_SPACE = Space([

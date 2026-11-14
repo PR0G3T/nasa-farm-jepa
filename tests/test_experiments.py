@@ -6,8 +6,8 @@ import json
 import pytest
 import torch
 
-from nasa_farm.cli import main
-from nasa_farm.exp import Report, Spec, experiments, run
+from nasa_farm.commands import main
+from nasa_farm.experiments import Report, Spec, experiments, run
 
 
 def spec(**kw) -> Spec:

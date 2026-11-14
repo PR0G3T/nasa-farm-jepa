@@ -197,7 +197,7 @@ def crawl(fields: Iterable[dict], root: Path | str, years: list[int],
           log: Callable[[str], None] = print,
           power: PowerClient | None = None,
           soil: SoilGridClient | None = None) -> None:
-    """Fetch everything `sources` covers for `fields` into `lake.db`."""
+    """Fetch everything `sources` covers for `fields` into `lake.database`."""
     root, fields = Path(root), [dict(f) for f in fields]
     temporal = Temporal(f"{years[0]}-01-01", f"{years[-1]}-12-31")
     root.mkdir(parents=True, exist_ok=True)

@@ -9,7 +9,7 @@ import json
 import pytest
 from pydantic import ValidationError
 
-from nasa_farm.cli import main
+from nasa_farm.commands import main
 from nasa_farm.service import PlanRequest, Point, plan
 
 REQ = {"points": [{"lat": 48.2, "lon": 1.61}],

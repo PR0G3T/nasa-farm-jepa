@@ -94,7 +94,7 @@ class TestSbc:
     def test_ranks_uniform_gaussian(self):
         """Conjugate Gaussian: trained posterior must produce ~uniform
         ranks — the SBC calibration certificate."""
-        from nasa_farm.optimize.sbi import fit_posterior, sbc_ranks
+        from nasa_farm.optimize.inference import fit_posterior, sbc_ranks
         g = torch.Generator().manual_seed(1)
         n = 400
         theta = torch.randn(n, 2, generator=g, dtype=DTYPE)

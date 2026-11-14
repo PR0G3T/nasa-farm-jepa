@@ -4,7 +4,7 @@ import datetime as dt
 
 import pytest
 
-from nasa_farm.acquire.nldas import (
+from nasa_farm.acquire.reanalysis import (
     _rh, covers, convert, day_url, year_point,
 )
 

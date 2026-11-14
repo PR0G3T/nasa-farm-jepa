@@ -23,10 +23,10 @@ import torch
 from nasa_farm.constants import DTYPE
 from nasa_farm.control import metric_reward, mppi
 from nasa_farm.dynamics.model import WorldModel
-from nasa_farm.exp.jepa import _trace
-from nasa_farm.exp.run import register
-from nasa_farm.exp.scene import scene
-from nasa_farm.exp.spec import Spec
+from nasa_farm.experiments.embedding import _trace
+from nasa_farm.experiments.run import register
+from nasa_farm.experiments.scene import scene
+from nasa_farm.experiments.specification import Spec
 from nasa_farm.heads import SeasonAccumulator
 from nasa_farm.optimize.adapt import adapt
 from nasa_farm.optimize.targets import ObservedSeries, obs_series, series_loss

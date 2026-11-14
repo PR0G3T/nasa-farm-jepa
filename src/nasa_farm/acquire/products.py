@@ -25,7 +25,7 @@ from nasa_farm.acquire.earthdata import (
     ECOSTRESS_MET, ECOSTRESS_SEB, NISAR_SME, SMAP_L4, EarthdataSource,
     granule_day,
 )
-from nasa_farm.acquire.qc import FLAG_QC, SMAP_QC, QcSpec
+from nasa_farm.acquire.quality import FLAG_QC, SMAP_QC, QcSpec
 from nasa_farm.acquire.support import coverage as _cov, sample as _smp
 
 WORLD = (-180.0, -90.0, 180.0, 90.0)

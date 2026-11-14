@@ -18,7 +18,7 @@ import math
 
 import torch
 
-from nasa_farm.assim.kalman import (
+from nasa_farm.assimilation.kalman import (
     STATE_VARS, Observation, _get_var, _put_vars,
 )
 from nasa_farm.constants import DTYPE
