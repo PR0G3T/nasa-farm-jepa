@@ -29,7 +29,6 @@ from nasa_farm.hw import thermo as _thermo
 
 _OOM_PATTERNS = ("out of memory", "can't allocate", "cannot allocate",
                  "cudaerror memoryallocation")
-_MIN_PULL = 1             # plans; end-of-sweep granularity bound
 
 
 def is_oom(exc: BaseException) -> bool:
@@ -116,12 +115,17 @@ def run(lanes: list[Lane], plans: torch.Tensor,
     pos = [0]
 
     def take(lane: Lane) -> tuple[int, int]:
+        """Steady state: uniform pulls (max graph/ctx reuse). Tail zone
+        (remaining fits in one round of blocks): fair-share split so no
+        lane idles while another straggles."""
         with lock:
-            if pos[0] >= n_rows:
+            rem = n_rows - pos[0]
+            if rem <= 0:
                 return 0, 0
             live = max(1, sum(1 for l in lanes if l.alive))
-            k = min(lane.block_rows, n_rows - pos[0],
-                    max(_MIN_PULL, (n_rows - pos[0]) // (2 * live)))
+            k = (lane.block_rows if rem > lane.block_rows * live
+                 else max(1, rem // live))
+            k = min(k, rem)
             start = pos[0]
             pos[0] += k
             return start, k

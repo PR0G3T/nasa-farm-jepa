@@ -293,6 +293,9 @@ def _measure(lanes: list[sched.Lane], model: WorldModel,
             lane.rate, lane.use_graph = probe.measure(lane, pplans)
         finally:
             lane.ens = full
+            lane.ctx.clear()          # probe-horizon ctx must not leak
+            if lane.graphs is not None:
+                lane.graphs = type(lane.graphs)(lane.device)
         if lane.rate > 0:
             probe.store(sig, lane.name, lane.rate, lane.use_graph)
 

@@ -19,7 +19,7 @@ def _year30(warm_year) -> Forcing:
 class TestHLatent:
     def test_identity_at_init(self, field, warm_year):
         """Zero-init heads: hierarchical latent = the plain physics rollout."""
-        from nasa_farm.dynamics.hjepa import HLatent
+        from nasa_farm.dynamics.hierarchical import HLatent
         crops = CropLibrary.default()
         flat = WorldModel(crops, residual=False, latent_dim=4, seed=1)
         hier = WorldModel(crops, residual=False, latent_dim=4,
@@ -52,7 +52,7 @@ class TestHLatent:
         assert f3.state.z[0, 4:].abs().max() > 0.0
 
     def test_hjepa_loss_scalar(self):
-        from nasa_farm.dynamics.hjepa import HLatent, hjepa_loss
+        from nasa_farm.dynamics.hierarchical import HLatent, hjepa_loss
         h = HLatent(4, 8, (1, 4))
         z_traj = torch.randn(2, 10, 8, dtype=DTYPE)
         z_tgt = torch.randn(2, 10, 4, dtype=DTYPE)

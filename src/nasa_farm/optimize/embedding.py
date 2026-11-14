@@ -105,7 +105,7 @@ def jepa_fit(model, encoder, field: Field, forcing: Forcing,
         return z_pred, obs, obs
 
     def step_loss() -> torch.Tensor:
-        from nasa_farm.dynamics.hjepa import HLatent, hjepa_loss
+        from nasa_farm.dynamics.hierarchical import HLatent, hjepa_loss
         z_pred, targets, src = unroll()
         z_t = tgt(targets)
         if isinstance(model.latent, HLatent):

@@ -20,7 +20,7 @@ from __future__ import annotations
 import torch
 
 from nasa_farm.constants import DTYPE
-from nasa_farm.dynamics.interv import EDIT_VARS, edit_state
+from nasa_farm.dynamics.intervention import EDIT_VARS, edit_state
 from nasa_farm.exp.run import register
 from nasa_farm.exp.scene import calibrate, observe, scene
 from nasa_farm.exp.spec import Spec

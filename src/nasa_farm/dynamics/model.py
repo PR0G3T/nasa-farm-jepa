@@ -24,7 +24,7 @@ from nasa_farm.dynamics.atmosphere import (
     day_length, et0_penman_monteith, extraterrestrial_radiation,
 )
 from nasa_farm.dynamics.extra import EXTRAS, step_extra
-from nasa_farm.dynamics.hjepa import HLatent
+from nasa_farm.dynamics.hierarchical import HLatent
 from nasa_farm.dynamics.latent import OPS, FactorDyn, LatentDyn
 from nasa_farm.dynamics.residual import RESIDUAL_VARS, ResidualNet, featurize
 from nasa_farm.state.crops import IDX, CropLibrary

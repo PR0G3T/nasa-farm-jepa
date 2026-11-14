@@ -50,7 +50,7 @@ def test_condition_wires_ctx_and_latents(field, crops):
 # ── dynamics/interv ───────────────────────────────────────────────────
 
 def test_edit_state_sets_masked_only(field):
-    from nasa_farm.dynamics.interv import (
+    from nasa_farm.dynamics.intervention import (
         EDIT_VARS, edit_state, get_vars)
     s = field.state
     e = len(EDIT_VARS)
@@ -66,7 +66,7 @@ def test_edit_state_sets_masked_only(field):
 
 
 def test_edit_state_clamps_to_bounds(field):
-    from nasa_farm.dynamics.interv import (
+    from nasa_farm.dynamics.intervention import (
         EDIT_VARS, edit_state, get_vars)
     mask = torch.zeros(len(EDIT_VARS), dtype=torch.bool)
     mask[EDIT_VARS.index("sw0")] = True
@@ -76,7 +76,7 @@ def test_edit_state_clamps_to_bounds(field):
 
 
 def test_response_net_zero_init(field):
-    from nasa_farm.dynamics.interv import EDIT_VARS, ResponseNet
+    from nasa_farm.dynamics.intervention import EDIT_VARS, ResponseNet
     r = ResponseNet()
     e = len(EDIT_VARS)
     out = r(torch.randn(4, 14, dtype=DTYPE),
@@ -86,7 +86,7 @@ def test_response_net_zero_init(field):
 
 
 def test_whatif_holds_edit_and_runs(physics_model, field, warm_year):
-    from nasa_farm.dynamics.interv import EDIT_VARS, whatif
+    from nasa_farm.dynamics.intervention import EDIT_VARS, whatif
     mask = torch.zeros(len(EDIT_VARS), dtype=torch.bool)
     mask[EDIT_VARS.index("n_min")] = True
     vals = torch.zeros(1, len(EDIT_VARS), dtype=DTYPE)
@@ -97,7 +97,7 @@ def test_whatif_holds_edit_and_runs(physics_model, field, warm_year):
 
 
 def test_fit_response_learns(physics_model, field, warm_year):
-    from nasa_farm.dynamics.interv import ResponseNet, fit_response
+    from nasa_farm.dynamics.intervention import ResponseNet, fit_response
     from nasa_farm.types import FORCING_VARS, Forcing
     f120 = Forcing(*(getattr(warm_year, k)[:, :120] for k in FORCING_VARS))
     r = ResponseNet()

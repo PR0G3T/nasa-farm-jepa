@@ -6,7 +6,7 @@ import pytest
 import torch
 
 from nasa_farm.constants import DTYPE
-from nasa_farm.dynamics.cf import abduct, counterfactual
+from nasa_farm.dynamics.counterfactual import abduct, counterfactual
 from nasa_farm.dynamics.extra import EXTRAS, step_extra
 from nasa_farm.dynamics.latent import OPS, FactorDyn, LatentDyn
 from nasa_farm.optimize.jepa import rdmreg

@@ -18,6 +18,7 @@ dependencies = [
 hpo = ["optuna>=5.0.0"]
 gee = ["earthengine-api>=1.5.26"]
 serve = ["fastapi>=0.162.0", "granian>=2.8.5"]
+gpu = ["nvidia-ml-py>=12.0.0"]
 
 [project.scripts]
 nasa-farm = "nasa_farm.cli:main"

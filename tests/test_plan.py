@@ -129,8 +129,8 @@ class TestEvaluate:
 
 class TestWorkers:
     def test_auto_workers_positive(self):
-        from nasa_farm.plan import auto_workers
-        assert auto_workers() >= 1
+        from nasa_farm.hw.caps import cpu_workers
+        assert cpu_workers() >= 1
 
     def test_sharded_evaluate_bit_identical(self, physics_model, field, crops):
         """Thread-sharded rollout = serial rollout, bit for bit: rows are
@@ -176,9 +176,10 @@ class TestAdaptiveHardware:
 
     def test_oom_ladder_retries_then_succeeds(self, physics_model, field, crops,
                                             monkeypatch):
-        """A transient OOM halves the block and retries — never crashes."""
+        """A transient OOM halves the lane's pull and retries — never
+        crashes, results bit-identical to an unperturbed run."""
         import nasa_farm.plan as plan_mod
-        orig = plan_mod._eval_block
+        orig = plan_mod._rollout_metrics
         calls = {"n": 0}
 
         def flaky(*a, **kw):
@@ -187,7 +188,7 @@ class TestAdaptiveHardware:
                 raise MemoryError("simulated transient OOM")
             return orig(*a, **kw)
 
-        monkeypatch.setattr(plan_mod, "_eval_block", flaky)
+        monkeypatch.setattr(plan_mod, "_rollout_metrics", flaky)
         idx = [crops.index(n) for n in ("maize", "soybean", "wheat")]
         plans = enumerate_rotations(idx, 2)
         ens = climatology_ensemble(
@@ -200,13 +201,13 @@ class TestAdaptiveHardware:
 
     def test_non_oom_errors_propagate(self, physics_model, field, crops,
                                      monkeypatch):
-        """Bugs are never masked: non-OOM failures raise immediately."""
+        """Bugs are never masked: non-OOM failures abort the sweep."""
         import nasa_farm.plan as plan_mod
 
         def broken(*a, **kw):
             raise RuntimeError("a real bug, not OOM")
 
-        monkeypatch.setattr(plan_mod, "_eval_block", broken)
+        monkeypatch.setattr(plan_mod, "_rollout_metrics", broken)
         plans = enumerate_rotations([crops.index("maize")], 1)
         ens = climatology_ensemble([synthetic_year(42.0, seed=1)], 1)
         with pytest.raises(RuntimeError, match="a real bug"):
@@ -214,13 +215,13 @@ class TestAdaptiveHardware:
 
     def test_probe_short_circuits_small_workloads(self, physics_model, field,
                                                   crops):
-        """<500k field-days: CPU directly, zero probe cost — deterministic."""
-        import nasa_farm.plan as plan_mod
+        """<500k field-days: probing costs more than the run — skipped."""
+        from nasa_farm.hw import probe
         plans = enumerate_rotations([crops.index("maize")], 1)
         ens = climatology_ensemble([synthetic_year(42.0, seed=1)], 1)
-        dev = plan_mod._pick_device(physics_model, field, plans, ens, 1)
-        assert dev.type == "cpu"
+        r, s, days = plans.shape[0], ens.batch, ens.days
+        assert not probe.worth(r, s, days)
 
     def test_physical_cores_detected(self):
-        from nasa_farm.plan import _physical_cores
-        assert _physical_cores() >= 1
+        from nasa_farm.hw.topo import physical_cores
+        assert physical_cores() >= 1

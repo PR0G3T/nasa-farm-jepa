@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import torch
 
-from nasa_farm.dynamics.cf import counterfactual
+from nasa_farm.dynamics.counterfactual import counterfactual
 from nasa_farm.exp.run import register
 from nasa_farm.exp.scene import scene
 from nasa_farm.exp.spec import Spec
