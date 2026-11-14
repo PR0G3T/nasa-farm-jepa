@@ -347,13 +347,14 @@ def cmd_export(arguments) -> int:
 
 
 def cmd_traits(arguments) -> int:
-    """Fit one trait per crop against absolute yield targets — variational
-    (gradient) calibration of the physics core on regional statistics.
+    """Fit bounded traits per crop against absolute yield targets —
+    variational (gradient) calibration of the physics core on regional
+    statistics, using sigmoid reparameterisation inside --params bounds.
 
-    Forcing = the same real POWER years serving uses; each calendar year is
-    a rollout row, so one rollout prices every season at once. Only one
-    trait is fitted per crop — multi-trait fits are equifinal under a
-    yield-only channel (E2) and would not be identifiable."""
+    Forcing = the same real POWER years serving uses, rolled out as one
+    continuous n-year trajectory: an autumn-sown crop harvests inside the
+    next calendar year's metric cell, so year 0 is establishment and the
+    loss scores years 1..n−1."""
     from pathlib import Path
 
     crops = CropLibrary.default()

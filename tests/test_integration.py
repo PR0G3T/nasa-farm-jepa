@@ -68,6 +68,34 @@ def test_cli_plan_offline(capsys):
     assert all("rotation" in p for p in output["pareto"] + output["top"])
 
 
+def test_cli_traits_offline(tmp_path):
+    """Bounded joint calibration: fitted traits stay inside declared
+    bounds, yield channel is finite, report written to the output file."""
+    output = tmp_path / "traits.json"
+    code = main(["traits", "--latitude", "42.0", "--longitude", "-93.6",
+                 "--years", "3", "--target", "maize=9000",
+                 "--params", "rue=2.0:3.0,gdd_lai_max=400:800",
+                 "--epochs", "6", "--offline", "--soil", "silt_loam",
+                 "--output", str(output)])
+    assert code == 0
+    payload = json.loads(output.read_text())
+    fitted = payload["traits"]["maize"]
+    assert 2.0 <= fitted["rue"] <= 3.0
+    assert 400.0 <= fitted["gdd_lai_max"] <= 800.0
+    report = payload["report"]["maize"]
+    assert report["target"] == 9000.0
+    assert report["achieved"] > 0.0
+    assert report["loss"] >= 0.0
+
+
+def test_cli_traits_unknown_crop(tmp_path):
+    code = main(["traits", "--latitude", "42.0", "--longitude", "-93.6",
+                 "--years", "2", "--target", "rice=8000",
+                 "--epochs", "2", "--offline", "--output",
+                 str(tmp_path / "t.json")])
+    assert code == 2
+
+
 def test_cli_config_toml(tmp_path, capsys):
     """TOML supplies defaults; explicit CLI flags still win (later in argv)."""
     config = tmp_path / "p.toml"

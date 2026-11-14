@@ -1,0 +1,83 @@
+{
+  "name": "scale",
+  "specification": {
+    "latitude": 42.0,
+    "longitude": -93.6,
+    "soil": "silt_loam",
+    "depths": [
+      0.3,
+      1.5
+    ],
+    "crop": "maize",
+    "horizon": 1,
+    "years": [],
+    "realizations": 4,
+    "members": 16,
+    "cadence": 10,
+    "noise": 0.05,
+    "perturb": {
+      "rue": 0.8
+    },
+    "extra": [],
+    "observed_channels": [
+      "ndvi",
+      "sm1"
+    ],
+    "channels": [
+      "yield_kg"
+    ],
+    "alphas": [
+      0.1
+    ],
+    "latent_dimension": 8,
+    "hierarchy": [],
+    "ema": 0.996,
+    "sig_weight": 1.0,
+    "epochs": 60,
+    "rate": 0.05,
+    "seed": 0
+  },
+  "results": {
+    "sizes": [
+      {
+        "latent_dim": 4,
+        "params": 16388,
+        "cal_loss": 0.34684331,
+        "held_loss": 0.04443062063965578
+      },
+      {
+        "latent_dim": 8,
+        "params": 17416,
+        "cal_loss": 0.28325098,
+        "held_loss": 0.04043918958846553
+      },
+      {
+        "latent_dim": 16,
+        "params": 19472,
+        "cal_loss": 0.27188158,
+        "held_loss": 0.07543194554555314
+      }
+    ],
+    "power_slope": 3.3804
+  },
+  "seconds": 66.884,
+  "metadata": {
+    "python": "3.15.2",
+    "torch": "2.15.0+cu132",
+    "device": "cuda",
+    "argv": [
+      "exp",
+      "scale",
+      "--perturb",
+      "rue:0.8",
+      "--horizon",
+      "1",
+      "--realizations",
+      "4",
+      "--epochs",
+      "60",
+      "--output",
+      "results/scale.json"
+    ]
+  }
+}
