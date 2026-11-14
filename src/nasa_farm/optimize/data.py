@@ -13,9 +13,7 @@ from pathlib import Path
 import numpy as np
 import torch
 
-from nasa_farm.acquire.power import (
-    PARAMETERS, series_to_forcing, series_to_wet,
-)
+from nasa_farm.acquire.power import FORCING_VARS, vars_to_forcing
 from nasa_farm.lake import store
 from nasa_farm.types import Forcing
 
@@ -23,9 +21,9 @@ OBS_VARS = ("sm", "et", "lst", "ndvi")
 
 
 def _param_map(root: Path, fid: str) -> dict[str, dict[str, float]]:
-    """Lake forcing shards → POWER-style {param: {yyyymmdd: v}} dict."""
+    """Lake forcing shards → canonical {var: {yyyymmdd: v}} dict."""
     out: dict[str, dict[str, float]] = {}
-    for p in PARAMETERS:
+    for p in FORCING_VARS:
         if (s := store.get(root, fid, "forcing", p)) is not None:
             out[p] = {str(d): float(v) for d, v in zip(*s)}
     return out
@@ -35,7 +33,7 @@ def forcings(root: Path | str, fid: str, years: list[int]) -> list[Forcing]:
     root = Path(root)
     data = _param_map(root, fid)
     return [
-        series_to_forcing(
+        vars_to_forcing(
             {p: {k: v for k, v in s.items() if k.startswith(str(y))}
              for p, s in data.items()}, y)
         for y in years

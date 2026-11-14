@@ -152,6 +152,11 @@ def _history(series: list[Forcing], y0: int,
     return out
 
 
+def _in_nldas(p: Point) -> bool:
+    from nasa_farm.acquire.nldas import covers
+    return covers(p.lat, p.lon)
+
+
 def _forcings(req: PlanRequest, p: Point) -> tuple[list, torch.Tensor | None]:
     """Daily forcing years + observed soil wetness (lake first, else POWER)."""
     if req.offline:
@@ -165,6 +170,12 @@ def _forcings(req: PlanRequest, p: Point) -> tuple[list, torch.Tensor | None]:
             if series and (wet := wetness(Path(root), p.id)) is not None:
                 return series, torch.from_numpy(wet[:len(years) * 365])
         except (KeyError, FileNotFoundError, ValueError):
+            pass
+    if not req.offline and _in_nldas(p):
+        from nasa_farm.acquire.nldas import NldasClient
+        try:
+            return NldasClient().forcing_years(p.lat, p.lon, years), None
+        except (OSError, KeyError, ValueError):
             pass
     client = PowerClient()
     raw = client.data_years(p.lat, p.lon, years)

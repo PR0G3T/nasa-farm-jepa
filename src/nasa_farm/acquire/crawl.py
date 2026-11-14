@@ -26,7 +26,7 @@ from nasa_farm.acquire.base import BBox, Temporal
 from nasa_farm.acquire.earthdata import (
     ECOSTRESS_MET, ECOSTRESS_SEB, EarthdataSource, SMAP_L4,
 )
-from nasa_farm.acquire.power import PowerClient
+from nasa_farm.acquire.power import CANON, PowerClient
 from nasa_farm.acquire.soilgrids import SoilGridsClient
 from nasa_farm.lake import Catalog, store
 
@@ -55,7 +55,7 @@ def _power(fields: list[dict], root: Path, cat: Catalog,
                              for d, y in zip(raw, years) for k in keys[y]],
                             np.float32)
             grp, var = ("obs", "sm") if param == "GWETROOT" \
-                else ("forcing", param)
+                else ("forcing", CANON.get(param, param))
             n = store.put(root, f["id"], grp, var, dates, vals)
             cat.set_series(f["id"], grp, var,
                            int(dates[0]), int(dates[-1]), n, "power")
@@ -110,10 +110,44 @@ def sample(ds: xr.Dataset, var: str, lat: float, lon: float) -> float:
     """Nearest-point sample — regular (lat/lon dims) or 2-D grids."""
     da = ds[var]
     if "lat" in da.dims and "lon" in da.dims:
-        return float(da.sel(lat=lat, lon=lon, method="nearest").values)
+        return float(da.sel(lat=lat, lon=lon, method="nearest").values.ravel()[0])
     lats, lons = ds["lat"].values, ds["lon"].values
     flat = np.nanargmin((lats - lat) ** 2 + (lons - lon) ** 2)
     return float(da.values.flat[flat])
+
+
+def _nldas(fields: list[dict], root: Path, cat: Catalog,
+           years: list[int], log) -> None:
+    """NLDAS-3 daily forcing → canonical shards; one open per day feeds
+    every in-domain field (bbox slice per var, nearest in-memory)."""
+    from nasa_farm.acquire import nldas
+    na = [f for f in fields if nldas.covers(f["lat"], f["lon"])]
+    if not na:
+        log("nldas: no fields in domain")
+        return
+    fs = nldas._fs()
+    days = [dt.date(years[0], 1, 1) + dt.timedelta(i)
+            for i in range((dt.date(years[-1], 12, 31)
+                            - dt.date(years[0], 1, 1)).days + 1)]
+    for day in days:
+        key = nldas.day_url(day)
+        if cat.has_granule(key):
+            continue
+        try:
+            ds = nldas.open_day(day, fs)
+        except (OSError, KeyError, ValueError) as e:
+            log(f"nldas {day} skip ({e})")
+            continue
+        with ds:
+            for f in na:
+                raw = {v: nldas.sample(ds, v, f["lat"], f["lon"])
+                       for v in nldas.VARS if v in ds}
+                di = np.array([int(day.strftime("%Y%m%d"))], np.int32)
+                for var, val in nldas.convert(raw).items():
+                    store.put(root, f["id"], "forcing", var, di,
+                              np.array([val], np.float32))
+        cat.mark_granule(key, "nldas3")
+        log(f"nldas {day} ok")
 
 
 def _granules(spec: GranuleSpec, fields: list[dict], root: Path,
@@ -159,6 +193,8 @@ def crawl(fields: Iterable[dict], root: Path | str, years: list[int],
             _power(fields, root, cat, years, workers, log, power)
         if "soil" in sources:
             _soil(fields, root, cat, log, soil)
+        if "nldas" in sources:
+            _nldas(fields, root, cat, years, log)
         for name, spec in GRANULE_SPECS.items():
             if name in sources:
                 _granules(spec, fields, root, cat, temporal, log)

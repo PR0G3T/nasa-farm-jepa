@@ -20,6 +20,9 @@ from nasa_farm.types import Forcing
 BASE_URL = "https://power.larc.nasa.gov/api/temporal/daily/point"
 PARAMETERS = ("T2M_MIN", "T2M_MAX", "PRECTOTCORR", "ALLSKY_SFC_SW_DWN",
               "RH2M", "WS2M", "GWETROOT")
+CANON = {"T2M_MIN": "tmin", "T2M_MAX": "tmax", "ALLSKY_SFC_SW_DWN": "srad",
+         "PRECTOTCORR": "precip", "RH2M": "rh", "WS2M": "u2"}
+FORCING_VARS = ("tmin", "tmax", "srad", "precip", "rh", "u2")
 FILL_VALUE = -999.0
 
 
@@ -84,28 +87,33 @@ class PowerClient:
                 for d, y in zip(self.data_years(lat, lon, years, workers), years)]
 
 
-def series_to_forcing(data: dict[str, dict[str, float]], year: int) -> Forcing:
-    """POWER daily dicts → Forcing (1, 365); Feb 29 dropped, NaN→0-filled."""
+def vars_to_forcing(data: dict[str, dict[str, float]], year: int) -> Forcing:
+    """Canonical-name daily dicts → Forcing (1, 365); Feb 29 dropped."""
     ndays = (dt.date(year, 12, 31) - dt.date(year, 1, 1)).days + 1
     days = [dt.date(year, 1, 1) + dt.timedelta(d) for d in range(ndays)]
     days = [d for d in days if not (d.month == 2 and d.day == 29)]
     keys = [d.strftime("%Y%m%d") for d in days]
 
-    def col(param: str, default: float) -> torch.Tensor:
-        s = data.get(param, {})
+    def col(var: str, default: float) -> torch.Tensor:
+        s = data.get(var, {})
         vals = [s.get(k, float("nan")) for k in keys]
         t = torch.tensor(vals, dtype=DTYPE)
         return torch.nan_to_num(t, nan=default)
 
     return Forcing(
-        tmin=col("T2M_MIN", 5.0).unsqueeze(0),
-        tmax=col("T2M_MAX", 15.0).unsqueeze(0),
-        srad=col("ALLSKY_SFC_SW_DWN", 12.0).unsqueeze(0).clamp(min=0.1),
-        precip=col("PRECTOTCORR", 0.0).unsqueeze(0).clamp(min=0.0),
-        rh=col("RH2M", 70.0).unsqueeze(0).clamp(1.0, 100.0),
-        u2=col("WS2M", 2.0).unsqueeze(0).clamp(min=0.2),
+        tmin=col("tmin", 5.0).unsqueeze(0),
+        tmax=col("tmax", 15.0).unsqueeze(0),
+        srad=col("srad", 12.0).unsqueeze(0).clamp(min=0.1),
+        precip=col("precip", 0.0).unsqueeze(0).clamp(min=0.0),
+        rh=col("rh", 70.0).unsqueeze(0).clamp(1.0, 100.0),
+        u2=col("u2", 2.0).unsqueeze(0).clamp(min=0.2),
         doy=torch.arange(1, DAYS_PER_YEAR + 1, dtype=DTYPE).unsqueeze(0),
     )
+
+
+def series_to_forcing(data: dict[str, dict[str, float]], year: int) -> Forcing:
+    """POWER daily dicts → Forcing via canonical names."""
+    return vars_to_forcing({CANON.get(p, p): s for p, s in data.items()}, year)
 
 
 def series_to_wet(data: dict[str, dict[str, float]], year: int) -> torch.Tensor:

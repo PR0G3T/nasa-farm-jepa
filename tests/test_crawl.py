@@ -63,7 +63,7 @@ class TestCrawl:
               power=client, log=lambda m: None)
         d, v = get(tmp_path, "F1", "obs", "sm")
         assert len(d) == 730 and np.allclose(v, 0.6)
-        d, v = get(tmp_path, "F1", "forcing", "PRECTOTCORR")
+        d, v = get(tmp_path, "F1", "forcing", "precip")
         assert len(d) == 730 and "20240229" not in d.astype(str)
 
     def test_lake_forcing_matches_live(self, tmp_path):
