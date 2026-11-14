@@ -151,7 +151,7 @@ def _variant(sc, specification: Specification, forcing_time, tr_obs: dict, tr_st
     m = accumulate.result()                                    # (E, H, M)
     index = {n: i for i, n in enumerate(METRICS)}
     ch_scores = {}
-    for ch in specification.observed_channels:
+    for ch in specification.channels:
         i = index[ch]
         ch_scores[ch] = score_ens(m[:, :, i].t(), tr_season[:, i],
                                   specification.alphas)

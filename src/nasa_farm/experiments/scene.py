@@ -101,7 +101,7 @@ def observe(specification: Specification, sc: Scene) -> ObservedTrajectory:
     realization — the same `ObservedTrajectory` contract real
     yield/remote-sensing series fill."""
     return synthetic_observation(sc.truth, sc.field, sc.realization(0),
-                                 sc.actions, specification.observed_channels,
+                                 sc.actions, specification.channels,
                                  noise=specification.noise, seed=specification.seed)
 
 

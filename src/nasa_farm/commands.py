@@ -208,7 +208,7 @@ def _request(arguments, points: list[Point], **over) -> PlanRequest:
     keywords = dict(horizon=arguments.horizon, crops=arguments.crops.split(","),
               years=arguments.years, delta_t=arguments.delta_t,
               precip_scale=arguments.precip_scale, irrig=arguments.irrig,
-              fertilizer=arguments.fertilizer, co2=arguments.co2, soil=arguments.soil,
+              fertilizer=arguments.fert, co2=arguments.co2, soil=arguments.soil,
               source=getattr(arguments, "source", "power"),
               members=getattr(arguments, "members", 16),
               residual=not arguments.no_residual, offline=arguments.offline,
@@ -220,7 +220,7 @@ def _request(arguments, points: list[Point], **over) -> PlanRequest:
 
 
 def cmd_plan(arguments) -> int:
-    result = plan(_request(arguments, [Point(latitude=arguments.latitude, longitude=arguments.longitude)]),
+    result = plan(_request(arguments, [Point(latitude=arguments.lat, longitude=arguments.lon)]),
                workers=arguments.workers, device=arguments.device,
                compile=arguments.compile).results[0]
     if result.status != "ok":
@@ -268,7 +268,7 @@ def cmd_export(arguments) -> int:
            "generated": dt.datetime.now(dt.UTC).isoformat(timespec="seconds"),
            "request": {"horizon": arguments.horizon, "crops": arguments.crops.split(","),
                        "years": arguments.years, "irrig": arguments.irrig,
-                       "fert": arguments.fertilizer, "co2": arguments.co2,
+                       "fert": arguments.fert, "co2": arguments.co2,
                        "offline": arguments.offline},
            "fields": metadata, "scenarios": {}}
     for name, over in scenarios.items():
@@ -286,8 +286,8 @@ def cmd_export(arguments) -> int:
                 f"{r.point.id or r.point.latitude} {r.status}"
                 f"{f' — {r.detail}' if r.detail else ''}\n")
         output["scenarios"][name] = {"params": over, "fields": fields}
-    Path(arguments.output).write_text(json.dumps(output) + "\n")
-    sys.stderr.write(f"wrote {arguments.output}\n")
+    Path(arguments.out).write_text(json.dumps(output) + "\n")
+    sys.stderr.write(f"wrote {arguments.out}\n")
     return 0
 
 
@@ -304,11 +304,11 @@ def cmd_crawl(arguments) -> int:
     fields = [{"id": str(f["id"]), "lat": f["lat"], "lon": f["lon"],
                "name": f.get("name", "")} for f in items]
     last = dt.date.today().year - 1
-    crawl(fields, arguments.output,
+    crawl(fields, arguments.out,
           list(range(last - arguments.years + 1, last + 1)),
           sources=tuple(arguments.sources.split(",")), workers=arguments.workers,
           log=lambda m: sys.stderr.write(f"{m}\n"))
-    sys.stderr.write(f"wrote {arguments.output}\n")
+    sys.stderr.write(f"wrote {arguments.out}\n")
     return 0
 
 
@@ -352,8 +352,8 @@ def cmd_calibrate(arguments) -> int:
 
     soil = SoilProfile.preset("silt_loam")
     field = Field(initial_state(1, soil), soil,
-                  torch.tensor([arguments.latitude], dtype=DTYPE))
-    forcing = tile_to_horizon(synthetic_year(arguments.latitude, seed=0), 1)
+                  torch.tensor([arguments.lat], dtype=DTYPE))
+    forcing = tile_to_horizon(synthetic_year(arguments.lat, seed=0), 1)
     actions = _demo_actions(crops, forcing.days, arguments.crop)
     observed = synthetic_observation(truth, field, forcing, actions, (arguments.channel,))
 
@@ -368,7 +368,7 @@ def cmd_calibrate(arguments) -> int:
         return trajectory_loss(
             season_metrics(candidate, field, forcing, actions), observed)
 
-    result = gradient(loss, {"v": p}, epochs=arguments.epochs, rate=arguments.rate)
+    result = gradient(loss, {"v": p}, epochs=arguments.epochs, rate=arguments.lr)
     truth_v, start_v, fit_v = (float(tbl_t[i_c, i_p]),
                                float(base[i_c, i_p]), float(p.detach()))
     span = truth_v - start_v
@@ -390,8 +390,8 @@ def cmd_nas(arguments) -> int:
     crops = CropLibrary.default()
     soil = SoilProfile.preset("silt_loam")
     field = Field(initial_state(1, soil), soil,
-                  torch.tensor([arguments.latitude], dtype=DTYPE))
-    forcing = tile_to_horizon(synthetic_year(arguments.latitude, seed=0), 1)
+                  torch.tensor([arguments.lat], dtype=DTYPE))
+    forcing = tile_to_horizon(synthetic_year(arguments.lat, seed=0), 1)
     actions = _demo_actions(crops, forcing.days)
 
     reference = WorldModel(crops, residual=True)
@@ -434,8 +434,8 @@ def cmd_control(arguments) -> int:
     crops = CropLibrary.default()
     soil = SoilProfile.preset("silt_loam")
     field = Field(initial_state(1, soil), soil,
-                  torch.tensor([arguments.latitude], dtype=DTYPE))
-    ensemble = augment(synthetic_year(arguments.latitude, seed=arguments.seed),
+                  torch.tensor([arguments.lat], dtype=DTYPE))
+    ensemble = augment(synthetic_year(arguments.lat, seed=arguments.seed),
                   arguments.scenarios - 1, seed=arguments.seed)
     base = _demo_actions(crops, ensemble.days, arguments.crop)
     model = WorldModel(crops)
@@ -477,25 +477,25 @@ def cmd_exp(arguments) -> int:
     perturb = {k: float(v) for k, v in
                (p.split(":") for p in arguments.perturb.split(",") if p)}
     specification = Specification(
-        latitude=arguments.latitude, longitude=arguments.longitude, soil=arguments.soil, crop=arguments.crop,
+        latitude=arguments.lat, longitude=arguments.lon, soil=arguments.soil, crop=arguments.crop,
         horizon=arguments.horizon,
         years=tuple(int(y) for y in arguments.years.split(",") if y),
         realizations=arguments.realizations,
-        members=arguments.members, cadence=arguments.cadence,
+        members=arguments.members, cadence=arguments.obs_every,
         noise=arguments.noise, perturb=perturb,
         observed_channels=tuple(arguments.observed_channels.split(",")),
         channels=tuple(arguments.channels.split(",")),
         alphas=tuple(float(a) for a in arguments.alphas.split(",")),
-        latent_dimension=arguments.latent_dimension,
-        hierarchy=tuple(int(s) for s in arguments.hierarchy.split(",") if s),
+        latent_dimension=arguments.latent_dim,
+        hierarchy=tuple(int(s) for s in arguments.hier.split(",") if s),
         ema=arguments.ema,
         sig_weight=arguments.sig_weight,
-        epochs=arguments.epochs, rate=arguments.rate, seed=arguments.seed)
+        epochs=arguments.epochs, rate=arguments.lr, seed=arguments.seed)
     rep = exp_run(arguments.name, specification)
     output = {"experiment": rep.name, "seconds": rep.seconds,
            "spec": rep.specification, "meta": rep.metadata, "results": rep.results}
-    if arguments.output:
-        output["saved"] = str(rep.save(arguments.output))
+    if arguments.out:
+        output["saved"] = str(rep.save(arguments.out))
     json.dump(output, sys.stdout, indent=2)
     sys.stdout.write("\n")
     if arguments.latex:
