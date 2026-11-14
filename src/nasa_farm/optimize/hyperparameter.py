@@ -117,10 +117,10 @@ def optuna(objective: Callable[[dict, int], float],
                    n_trials=n_trials)
     multi = len(study.directions) > 1
     bt = study.best_trials[0] if multi else study.best_trial
-    trials = [Trial(t.parameters,
+    trials = [Trial(t.params,
                     (t.values[0] if multi else t.value)
                     if (t.values or t.value is not None) else float("inf"))
               for t in study.trials]
-    return Result(best_config=bt.parameters,
+    return Result(best_config=bt.params,
                      best_value=bt.values[0] if multi else bt.value,
                      trials=trials)
