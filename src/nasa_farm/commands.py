@@ -506,7 +506,7 @@ def cmd_exp(arguments) -> int:
 def main(argv: list[str] | None = None) -> int:
     argv = _arguments_with_config(list(sys.argv[1:] if argv is None else argv))
     arguments = _build_parser().parse_args(argv)
-    match arguments.command:
+    match arguments.cmd:
         case "plan":
             return cmd_plan(arguments)
         case "export":

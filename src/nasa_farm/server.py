@@ -46,7 +46,7 @@ class _TimedCache:
             return None
         ts, result = hit
         if time.monotonic() - ts > self.ttl:
-            self._d.population(key, None)
+            self._d.pop(key, None)
             return None
         self._d.move_to_end(key)
         return result

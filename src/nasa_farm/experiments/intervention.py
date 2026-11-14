@@ -87,7 +87,7 @@ def run(specification: Specification) -> dict:
             m1 = _metrics(model, sc, f_t, a2)
             dm = (m1 - m0).mean(0)                       # (M,) over years
             row[label] = dm
-        truth_d = row.population("oracle")
+        truth_d = row.pop("oracle")
         for label in ("prior", "cal"):
             for c in chans:
                 t, p = float(truth_d[index[c]]), float(row[label][index[c]])

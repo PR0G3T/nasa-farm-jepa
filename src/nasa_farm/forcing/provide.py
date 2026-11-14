@@ -136,7 +136,7 @@ def _wn3(latitude, longitude, years, horizon, members, seed, **keywords) -> Forc
     aggregation is already handled by `bands` daily means)."""
     return _engine_daily(
         latitude, longitude, years, horizon, members, seed,
-        collection=keywords.population("collection",
+        collection=keywords.pop("collection",
                           "GOOGLE/WEATHER_NEXT_3/ENSEMBLE/DAILY"),
         bands={"tmin": "temperature_2m_min", "tmax": "temperature_2m_max",
                "srad": "surface_solar_radiation_downwards_sum",
@@ -150,7 +150,7 @@ def _aifs(latitude, longitude, years, horizon, members, seed, **keywords) -> For
     """ECMWF AIFS-ENS open-data daily ensemble via Earth Engine."""
     return _engine_daily(
         latitude, longitude, years, horizon, members, seed,
-        collection=keywords.population("collection", "ECMWF/AIFS_ENS/DAILY"),
+        collection=keywords.pop("collection", "ECMWF/AIFS_ENS/DAILY"),
         bands={"tmin": "2m_temperature_min", "tmax": "2m_temperature_max",
                "srad": "surface_net_solar_radiation_sum",
                "precip": "total_precipitation",
