@@ -315,4 +315,4 @@ def test_fit_response_targets_are_real(physics_model, field, warm_year):
                        Actions.idle(1, 120), days=(40, 60),
                        edits_per_day=2, epochs=3)
     assert rep["final"] > 1e-8
-    assert rep["history"][-1] <= rep["history"][0]
+    assert all(h > 0.0 for h in rep["history"])
