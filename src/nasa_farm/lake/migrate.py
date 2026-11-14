@@ -72,7 +72,7 @@ def migrate_into(lake) -> dict:
                 if grp == "forcing":
                     var = CANON.get(var, var)
                 lake.put(fid, grp, var, data[0], data[1],
-                         src.get(key, ""))
+                         src.get((fid, *key), ""))
                 stats["series"] += 1
         for fid, lat, lon, name in fields:
             lake.field(fid, lat, lon, name or "")

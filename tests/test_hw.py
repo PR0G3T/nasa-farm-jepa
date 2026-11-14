@@ -9,7 +9,12 @@ import pytest
 import torch
 
 from nasa_farm.constants import DTYPE
-from nasa_farm.hardware import caps, graphs, mem, pipe, pool, probe, sched, topo
+from nasa_farm.hardware import capabilities as caps
+from nasa_farm.hardware import graphs, pool, probe
+from nasa_farm.hardware import memory as mem
+from nasa_farm.hardware import scheduler as sched
+from nasa_farm.hardware import streams as pipe
+from nasa_farm.hardware import topology as topo
 from nasa_farm.hardware.telemetry import Monitor
 
 
@@ -188,8 +193,7 @@ class TestSched:
         l = sched.Lane(name=name, device=torch.device("cpu"),
                        workers=workers, block_rows=block,
                        cap_rows=block)
-        l.fn = fn or (lambda lane, s, blk: blk.to(DTYPE)
-                      .unsqueeze(-1).expand(-1, 1, -1).clone())
+        l.fn = fn or (lambda lane, s, blk: blk.to(DTYPE).unsqueeze(1))
         return l
 
     def test_run_assembles_in_order(self):
@@ -246,7 +250,7 @@ class TestSched:
             state["n"] += 1
             if state["n"] == 1:
                 raise MemoryError("transient")
-            return b.to(DTYPE).unsqueeze(1).expand(-1, 1, -1).clone()
+            return b.to(DTYPE).unsqueeze(1)
 
         l = self._lane("flaky", fn=flaky, block=4)
         sched.run([l], plans, out, 1)

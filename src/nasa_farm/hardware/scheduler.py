@@ -22,10 +22,10 @@ from typing import Callable
 import torch
 
 from nasa_farm.hardware import graphs as _graphs
-from nasa_farm.hardware import mem
-from nasa_farm.hardware import pipe
+from nasa_farm.hardware import memory as mem
+from nasa_farm.hardware import streams as pipe
 from nasa_farm.hardware import pool as _pool
-from nasa_farm.hardware import thermo as _thermo
+from nasa_farm.hardware import telemetry as _thermo
 
 _OOM_PATTERNS = ("out of memory", "can't allocate", "cannot allocate",
                  "cudaerror memoryallocation")

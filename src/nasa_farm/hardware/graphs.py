@@ -100,6 +100,9 @@ class Cache:
             return self._d[key]
         if len(self._d) >= self.max:
             return None
-        rep = capture(fn, inputs, self.device, pool=self.pool)
+        try:
+            rep = capture(fn, inputs, self.device, pool=self.pool)
+        except Exception:
+            rep = None   # capture machinery itself failed → eager
         self._d[key] = rep
         return rep

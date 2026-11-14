@@ -13,7 +13,7 @@ from collections.abc import Callable
 
 import torch
 
-from nasa_farm.observe import optical, radiometer, sar
+from nasa_farm.observe import optical, radar, radiometer
 from nasa_farm.observe.detect import infer_actions, infer_irrigation
 from nasa_farm.observe.fetch import fetch
 from nasa_farm.observe.fill import fill_series, whittaker
@@ -57,8 +57,8 @@ CHANNELS: dict[str, Callable[[FieldState], torch.Tensor]] = {
     "sm1": lambda s: sm_vol(s, 0),
     "sm2": lambda s: sm_vol(s, 1),
     "vwc": vwc,
-    "s0v": lambda s: sar.sigma0(sm_vol(s), vwc(s)),
-    "s0c": lambda s: sar.sigma0(sm_vol(s), vwc(s), band="c"),
+    "s0v": lambda s: radar.sigma0(sm_vol(s), vwc(s)),
+    "s0c": lambda s: radar.sigma0(sm_vol(s), vwc(s), band="c"),
     "tb_v": lambda s: radiometer.tb(
         sm_vol(s), vwc(s), ts=s.tair + 273.15)[1],
     "tb_h": lambda s: radiometer.tb(

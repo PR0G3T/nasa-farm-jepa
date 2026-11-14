@@ -26,7 +26,11 @@ from nasa_farm.constants import DAYS_PER_YEAR, DTYPE
 from nasa_farm.dynamics.model import WorldModel
 from nasa_farm.heads import (METRICS, OBJECTIVE_DIRECTION,
                              SeasonAccumulator, objectives)
-from nasa_farm.hardware import caps, mem, probe, sched, thermo
+from nasa_farm.hardware import capabilities as caps
+from nasa_farm.hardware import memory as mem
+from nasa_farm.hardware import probe
+from nasa_farm.hardware import scheduler as sched
+from nasa_farm.hardware import telemetry as thermo
 from nasa_farm.state.crops import IDX
 from nasa_farm.state.field import Field
 from nasa_farm.state.soil import SoilProfile

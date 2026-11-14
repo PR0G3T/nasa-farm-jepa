@@ -6,13 +6,4 @@ __pycache__/
 dist/
 
 .env
-# Gros binaires régénérables (data-test)
-data-test/raw/*.h5
-data-test/raw/*.npy
-data-test/raw/*.tif
-data-test/raw/*.nc4
-data-test/raw/*.zip
-data-test/raw/*.npz
-data-test/raw/prism_tmin
-data-test/raw/prism_ppt
 /lake/

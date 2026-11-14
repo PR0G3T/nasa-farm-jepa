@@ -258,6 +258,8 @@ class TestMigrate:
             " last INT, n INT, source TEXT, PRIMARY KEY(fid, grp, var));")
         c.execute("INSERT INTO fields VALUES('F1', 48.0, 1.5, 'parcelle')")
         c.execute("INSERT INTO granules VALUES('G1', 'smap', datetime('now'))")
+        c.execute("INSERT INTO series VALUES('F1', 'obs', 'sm', 20240102,"
+                  " 20240102, 1, 'smap')")
         c.commit()
         c.close()
 
@@ -275,6 +277,8 @@ class TestMigrate:
             assert L.meta("F1")["soil"] == {"clay": 30}
             assert L.has_granule("G1")
             assert L.fields()[0]["lat"] == 48.0
+            assert ("F1", "obs", "sm", 20240102, 20240102, 1, "smap", 1) \
+                in L.coverage("F1")
 
     def test_auto_migrate_on_open(self, tmp_path):
         self._legacy(tmp_path)
