@@ -261,7 +261,9 @@ def cmd_export(args) -> int:
         fields = {}
         for i, r in enumerate(res.results):
             if r.point.id:
-                fields[r.point.id] = r.model_dump(exclude={"point"})
+                fields[r.point.id] = r.model_dump(exclude={"point", "history"})
+                if r.history and "history" not in out["fields"].get(r.point.id, {}):
+                    out["fields"].setdefault(r.point.id, {})["history"] = r.history
             sys.stderr.write(
                 f"{name} [{i + 1}/{len(res.results)}] "
                 f"{r.point.id or r.point.lat} {r.status}"

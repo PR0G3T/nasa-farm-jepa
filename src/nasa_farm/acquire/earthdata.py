@@ -35,7 +35,7 @@ class EarthdataSource:
             kw["cloud_cover"] = cloud_cover
         results = earthaccess.search_data(**kw)
         if download_dir is not None:
-            earthaccess.login()
+            earthaccess.login(strategy="environment")
             return earthaccess.download(results, download_dir)
         return results
 
@@ -45,6 +45,9 @@ SMAP_L4 = EarthdataSource("SPL3SMP_E", name="smap-l4-soil-moisture")
 GPM_IMERG_DAILY = EarthdataSource("GPM_3IMERGDF", name="gpm-imerg-daily")
 HLS_L30 = EarthdataSource("HLSL30", name="hls-landsat-30m")
 ECOSTRESS_ET = EarthdataSource("ECO_L3T_JET", name="ecostress-et")
+ECOSTRESS_SEB = EarthdataSource("ECO_L3G_SEB", name="ecostress-seb")
+ECOSTRESS_MET = EarthdataSource("ECO_L3G_MET", name="ecostress-met")
+NLDAS2_FORCING = EarthdataSource("NLDAS_FORA0125_H", name="nldas2-forcing")
 GRACE_MASCON = EarthdataSource("TELLUS_GRAC-GRFO_MASCON_CRI_GRID_RL06.3_V4",
                                name="grace-fo-mascon")
 NISAR_GCOV = EarthdataSource("NISAR_L2_GCOV_BETA_V1", name="nisar-l2-gcov")

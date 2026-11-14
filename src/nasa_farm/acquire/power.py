@@ -19,10 +19,8 @@ from nasa_farm.types import Forcing
 
 BASE_URL = "https://power.larc.nasa.gov/api/temporal/daily/point"
 PARAMETERS = ("T2M_MIN", "T2M_MAX", "PRECTOTCORR", "ALLSKY_SFC_SW_DWN",
-              "RH2M", "WS10M")
+              "RH2M", "WS2M", "GWETROOT")
 FILL_VALUE = -999.0
-WS10_TO_U2 = 0.748
-"""FAO-56 eq 47: u2 = u_z × (2/10)^0.2 ≈ u10 × 0.748."""
 
 
 def request_params(lat: float, lon: float, temporal: Temporal,
@@ -42,7 +40,7 @@ def parse_daily(payload: dict, parameters: tuple[str, ...] = PARAMETERS) -> dict
     raw = payload["properties"]["parameter"]
     return {
         p: {d: (float("nan") if v <= FILL_VALUE else float(v))
-            for d, v in raw[p].items()}
+            for d, v in raw.get(p, {}).items()}
         for p in parameters
     }
 
@@ -63,18 +61,27 @@ class PowerClient:
         resp.raise_for_status()
         return parse_daily(resp.json(), parameters)
 
+    def data_year(self, lat: float, lon: float, year: int) -> dict[str, dict[str, float]]:
+        """Raw daily series for one calendar year — all PARAMETERS."""
+        return self.fetch(None, Temporal(f"{year}-01-01", f"{year}-12-31"),
+                          lat=lat, lon=lon)
+
     def forcing_year(self, lat: float, lon: float, year: int) -> Forcing:
         """One 365-day Forcing for a calendar year (B=1)."""
-        data = self.fetch(None, Temporal(f"{year}-01-01", f"{year}-12-31"), lat=lat, lon=lon)
-        return series_to_forcing(data, year)
+        return series_to_forcing(self.data_year(lat, lon, year), year)
+
+    def data_years(self, lat: float, lon: float, years: list[int],
+                   workers: int = 8) -> list[dict[str, dict[str, float]]]:
+        """Fetch calendar years in parallel — pure I/O, near-linear speedup."""
+        if len(years) <= 2 or workers <= 1:
+            return [self.data_year(lat, lon, y) for y in years]
+        with ThreadPoolExecutor(max_workers=min(workers, len(years))) as pool:
+            return list(pool.map(lambda y: self.data_year(lat, lon, y), years))
 
     def forcing_years(self, lat: float, lon: float, years: list[int],
                       workers: int = 8) -> list[Forcing]:
-        """Fetch calendar years in parallel — pure I/O, near-linear speedup."""
-        if len(years) <= 2 or workers <= 1:
-            return [self.forcing_year(lat, lon, y) for y in years]
-        with ThreadPoolExecutor(max_workers=min(workers, len(years))) as pool:
-            return list(pool.map(lambda y: self.forcing_year(lat, lon, y), years))
+        return [series_to_forcing(d, y)
+                for d, y in zip(self.data_years(lat, lon, years, workers), years)]
 
 
 def series_to_forcing(data: dict[str, dict[str, float]], year: int) -> Forcing:
@@ -96,6 +103,18 @@ def series_to_forcing(data: dict[str, dict[str, float]], year: int) -> Forcing:
         srad=col("ALLSKY_SFC_SW_DWN", 12.0).unsqueeze(0).clamp(min=0.1),
         precip=col("PRECTOTCORR", 0.0).unsqueeze(0).clamp(min=0.0),
         rh=col("RH2M", 70.0).unsqueeze(0).clamp(1.0, 100.0),
-        u2=(col("WS10M", 3.0) * WS10_TO_U2).unsqueeze(0).clamp(min=0.2),
+        u2=col("WS2M", 2.0).unsqueeze(0).clamp(min=0.2),
         doy=torch.arange(1, DAYS_PER_YEAR + 1, dtype=DTYPE).unsqueeze(0),
     )
+
+
+def series_to_wet(data: dict[str, dict[str, float]], year: int) -> torch.Tensor:
+    """GWETROOT daily series → (365,) root-zone soil wetness fraction —
+    the NASA GEOS-assimilated soil moisture observation."""
+    ndays = (dt.date(year, 12, 31) - dt.date(year, 1, 1)).days + 1
+    days = [dt.date(year, 1, 1) + dt.timedelta(d) for d in range(ndays)]
+    days = [d for d in days if not (d.month == 2 and d.day == 29)]
+    keys = [d.strftime("%Y%m%d") for d in days]
+    s = data.get("GWETROOT", {})
+    t = torch.tensor([s.get(k, float("nan")) for k in keys], dtype=DTYPE)
+    return torch.nan_to_num(t, nan=0.5).clamp(0.0, 1.0)

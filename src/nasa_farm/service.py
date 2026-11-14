@@ -18,7 +18,7 @@ import torch
 from pydantic import BaseModel, Field as PField
 
 from nasa_farm import CropLibrary, Field, WorldModel, initial_state
-from nasa_farm.acquire.power import PowerClient
+from nasa_farm.acquire.power import PowerClient, series_to_forcing, series_to_wet
 from nasa_farm.acquire.soilgrids import SoilGridsClient
 from nasa_farm.constants import DTYPE
 from nasa_farm.forcing import climatology_ensemble, synthetic_year
@@ -128,36 +128,46 @@ def _runs(mask: torch.Tensor, min_len: int) -> list[list[int]]:
     return [[int(a), int(b)] for a, b in edges if int(b - a) >= min_len]
 
 
-def _history(series: list[Forcing], y0: int) -> dict[str, Any]:
+def _history(series: list[Forcing], y0: int,
+             sm: torch.Tensor | None = None) -> dict[str, Any]:
     """Observed anomaly windows from the daily forcing years → day ranges.
 
     Heat is site-relative (P90 of the series itself); dry spells follow the
-    WMO convention (runs of < 1 mm days); frost is every tmin < 0 day."""
+    WMO convention (runs of < 1 mm days); frost is every tmin < 0 day;
+    `sm` is the assimilated root-zone soil wetness (GWETROOT) curve."""
     tmax = torch.cat([f.tmax[0] for f in series])
     tmin = torch.cat([f.tmin[0] for f in series])
     pr = torch.cat([f.precip[0] for f in series])
-    return {
+    out = {
         "y0": y0,
         "years": len(series),
         "dry": _runs(pr < 1.0, 7),
         "heat": _runs(tmax > tmax.quantile(0.9), 2),
         "frost": _runs(tmin < 0.0, 1),
     }
+    if sm is not None:
+        out["sm"] = [round(float(v), 3) for v in sm]
+    return out
 
 
-def _forcings(req: PlanRequest, p: Point) -> list:
+def _forcings(req: PlanRequest, p: Point) -> tuple[list, torch.Tensor | None]:
+    """Daily forcing years + observed soil wetness series (None offline)."""
     if req.offline:
-        return [synthetic_year(p.lat, seed=y) for y in range(req.years)]
+        return [synthetic_year(p.lat, seed=y) for y in range(req.years)], None
     last = dt.date.today().year - 1
-    return PowerClient().forcing_years(
-        p.lat, p.lon, list(range(last - req.years + 1, last + 1)))
+    years = list(range(last - req.years + 1, last + 1))
+    client = PowerClient()
+    raw = client.data_years(p.lat, p.lon, years)
+    series = [series_to_forcing(d, y) for d, y in zip(raw, years)]
+    sm = torch.cat([series_to_wet(d, y) for d, y in zip(raw, years)])
+    return series, sm
 
 
 def _site(point: Point, req: PlanRequest, crops: CropLibrary,
           plans: torch.Tensor, depths: tuple[float, ...],
           workers: int, device: str, compile: str) -> SiteResult:
     try:
-        series = _forcings(req, point)
+        series, sm = _forcings(req, point)
         ens = climatology_ensemble(
             series, req.horizon,
             delta_t=req.delta_t, precip_scale=req.precip_scale)
@@ -192,7 +202,7 @@ def _site(point: Point, req: PlanRequest, crops: CropLibrary,
         return SiteResult(
             point=point, status="ok",
             plans_evaluated=int(plans.shape[0]), scenarios=int(ens.batch),
-            history=_history(series, dt.date.today().year - req.years),
+            history=_history(series, dt.date.today().year - req.years, sm),
             pareto=[
                 {"rotation": [crops.names[c] for c in plans[i].tolist()],
                  "rank": int((rec["ranking"] == i).nonzero().flatten()[0])
