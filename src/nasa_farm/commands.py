@@ -118,8 +118,8 @@ def _build_parser() -> argparse.ArgumentParser:
                     help="per-crop N kg/ha, crop=kg,... — else --fertilizer")
     traits.add_argument("--fertilizer", type=float, default=0.0,
                     help="fallback N kg/ha for crops not in --fert")
-    traits.add_argument("--param", default="rue",
-                    help="single trait fitted per crop")
+    traits.add_argument("--params", default="rue=1.5:4.5",
+                    help="joint bounded traits: name=lo:hi,... (sigmoid reparam)")
     traits.add_argument("--soil", default=None, help="texture preset")
     traits.add_argument("--offline", action="store_true",
                     help="synthetic forcing, no network")
@@ -197,6 +197,8 @@ def _build_parser() -> argparse.ArgumentParser:
                     help="JEPA target-encoder momentum")
     experiment.add_argument("--sig-weight", type=float, default=1.0,
                     help="SIGReg regularization strength")
+    experiment.add_argument("--extra", default="",
+                    help="truth-only extra processes (dynamics.EXTRAS), comma-sep")
     experiment.add_argument("--epochs", type=int, default=120)
     experiment.add_argument("--rate", type=float, default=0.05)
     experiment.add_argument("--seed", type=int, default=0)
@@ -359,6 +361,10 @@ def cmd_traits(arguments) -> int:
                (t.split("=") for t in arguments.target.split(","))}
     ferts = {c: float(v) for c, v in
              (t.split("=") for t in arguments.fert.split(",") if t)}
+    bounds = {}
+    for entry in arguments.params.split(","):
+        name, rng = entry.split("=")
+        bounds[name] = tuple(float(v) for v in rng.split(":"))
     unknown = [c for c in targets if c not in crops.names]
     if unknown:
         sys.stderr.write(f"unknown crops: {', '.join(unknown)}\n")
@@ -385,8 +391,20 @@ def cmd_traits(arguments) -> int:
     for crop, target in targets.items():
         model = WorldModel(crops, residual=False)
         base = model.crop_table.detach().clone()
-        row, col = crops.index(crop), INDEX[arguments.param]
-        parameter = leaf(base[row, col])
+        row = crops.index(crop)
+        fitted_params = {}
+        for name in bounds:
+            if name not in INDEX:
+                sys.stderr.write(f"unknown trait: {name}\n")
+                return 2
+            col = INDEX[name]
+            lo, hi = bounds[name]
+            start = base[row, col].clamp(lo + 1e-4, hi - 1e-4)
+            span = hi - lo
+            parameter = leaf(torch.logit((start - lo) / span))
+            fitted_params[name] = (col, parameter,
+                                   lambda p=parameter, lo=lo, span=span:
+                                   lo + span * torch.sigmoid(p))
         # One continuous n-year rollout — an autumn-sown crop harvests in
         # the next calendar year's metric cell, so year 0 is establishment
         # and stays unobserved; the loss scores years 1..n−1.
@@ -399,36 +417,43 @@ def cmd_traits(arguments) -> int:
 
         def loss() -> torch.Tensor:
             table = base.clone()
-            table[row, col] = parameter
+            for col, _, value in fitted_params.values():
+                table[row, col] = value()
             model.crop_table = table
             return trajectory_loss(
                 season_metrics(model, field, forcing, actions), observed)
 
-        result = gradient(loss, {"v": parameter},
-                          epochs=arguments.epochs, rate=arguments.rate)
+        result = gradient(
+            loss, {name: p for name, (col, p, _) in fitted_params.items()},
+            epochs=arguments.epochs, rate=arguments.rate)
         table = base.clone()
-        table[row, col] = parameter.detach()
+        for col, _, value in fitted_params.values():
+            table[row, col] = value().detach()
         model.crop_table = table
         with torch.inference_mode():
             achieved = float(season_metrics(
                 model, field, forcing, actions)[0, 1:, channel].mean())
-        fitted[crop] = {arguments.param: round(float(parameter.detach()), 6)}
+        fitted[crop] = {name: round(float(value().detach()), 6)
+                        for name, (_, _, value) in fitted_params.items()}
         report[crop] = {"target": target, "achieved": round(achieved, 1),
                         "fert": ferts.get(crop, arguments.fertilizer),
                         "loss": round(result.best_loss, 6)}
         sys.stderr.write(
-            f"{crop}: {arguments.param} {float(base[row, col]):.4g} → "
-            f"{float(parameter):.4g} · yield {achieved:.0f}/{target:.0f} kg/ha\n")
+            f"{crop}: {fitted[crop]} · yield "
+            f"{achieved:.0f}/{target:.0f} kg/ha\n")
 
+    output = Path(arguments.output)
+    existing = (json.loads(output.read_text()).get("traits", {})
+                if output.is_file() else {})
     payload = {"meta": {"latitude": arguments.latitude,
                         "longitude": arguments.longitude,
-                        "years": years, "param": arguments.param,
+                        "years": years, "params": sorted(bounds),
                         "fertilizer": arguments.fertilizer,
                         "offline": arguments.offline},
-               "traits": fitted, "report": report}
-    Path(arguments.output).parent.mkdir(parents=True, exist_ok=True)
-    Path(arguments.output).write_text(json.dumps(payload, indent=2) + "\n")
-    sys.stderr.write(f"wrote {arguments.output}\n")
+               "traits": {**existing, **fitted}, "report": report}
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(json.dumps(payload, indent=2) + "\n")
+    sys.stderr.write(f"wrote {output}\n")
     return 0
 
 
@@ -624,6 +649,7 @@ def cmd_exp(arguments) -> int:
         realizations=arguments.realizations,
         members=arguments.members, cadence=arguments.cadence,
         noise=arguments.noise, perturb=perturb,
+        extra=tuple(arguments.extra.split(",") if arguments.extra else ()),
         observed_channels=tuple(arguments.observed_channels.split(",")),
         channels=tuple(arguments.channels.split(",")),
         alphas=tuple(float(a) for a in arguments.alphas.split(",")),
