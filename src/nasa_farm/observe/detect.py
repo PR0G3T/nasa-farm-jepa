@@ -55,8 +55,8 @@ def infer_actions(ndvi: torch.Tensor, doy: torch.Tensor, crop_idx: int,
                   s0v: torch.Tensor | None = None) -> Actions:
     """(T,) NDVI (+ optional σ⁰) → detected Actions batch (1, T).
 
-    Only the sow channel is filled from detection; irrigation/fertilizer
-    stay zero — they are not reliably observable from vegetation indices.
+    sow and till are filled from detection; irrigation/fertilizer stay
+    zero — they are not reliably observable from vegetation indices.
     """
     t = days or ndvi.numel()
     sow = torch.full((1, t), -1, dtype=torch.long)

@@ -258,3 +258,22 @@ def test_mrv_creditable_lower_bound():
     lo = creditable(net, alpha=0.1)
     assert lo.shape == (4,)
     assert (lo <= net.mean(0)).all()
+
+
+# ── emulation pretraining & closed-loop policy ───────────────────────
+
+def test_emulate_shapes(physics_model, field, warm_year):
+    from nasa_farm.optimize.pretrain import emulate
+    obs = emulate(physics_model, [field], [warm_year],
+                  [Actions.idle(1, 365)], channels=("yield_kg",))
+    assert len(obs) == 1 and obs[0].values.shape[-1] > 0
+
+
+def test_policy_actions_closed_loop(physics_model, field, warm_year):
+    from nasa_farm.policy import PolicyNet, policy_actions
+    f = _short(warm_year, 20)
+    base = Actions.idle(1, 20)
+    out = policy_actions(PolicyNet(hidden=16, depth=1),
+                         physics_model, field, f, base)
+    assert out.irrigation.shape == (1, 20) and (out.irrigation >= 0).all()
+    assert (out.n_fert >= 0).all()
