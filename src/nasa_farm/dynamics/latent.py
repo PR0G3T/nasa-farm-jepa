@@ -74,13 +74,16 @@ class LatentDyn(nn.Module):
 
 class ObsEncoder(nn.Module):
     """obs-vector → z. Trained so `encode(obs_t)` is the JEPA target the
-    predictor `LatentDyn` chases along the rollout."""
+    predictor `LatentDyn` chases along the rollout. The LayerNorm keeps the
+    embedding scale O(1): the characteristic-function SIGReg saturates on
+    exploded embeddings (its gradient vanishes before it can pull the
+    scale back), so the bound must be architectural, not just a loss."""
 
     def __init__(self, obs_dim: int, z_dim: int, hidden: int = 64) -> None:
         super().__init__()
         self.net = nn.Sequential(
             nn.Linear(obs_dim, hidden), nn.SiLU(),
-            nn.Linear(hidden, z_dim),
+            nn.Linear(hidden, z_dim), nn.LayerNorm(z_dim),
         )
         self.to(torch.float64)
 
@@ -115,15 +118,71 @@ def sigreg(z: torch.Tensor, directions: torch.Tensor | None = None,
 
 def jepa_loss(z_obs: torch.Tensor, z_pred: torch.Tensor,
               sig_weight: float = 1.0, kl: torch.Tensor | float = 0.0,
-              kl_weight: float = 0.0, sig_seed: int = 0) -> torch.Tensor:
+              kl_weight: float = 0.0, sig_seed: int = 0,
+              z_reg: torch.Tensor | None = None) -> torch.Tensor:
     """Predictor loss + latent regularizer + stochastic-prior KL.
 
     z_pred: predictor outputs (B, K) or (T, B, K) for multi-step unrolls;
     z_obs: encoder targets, compared with a stop-gradient — the encoder
-    teaches the dynamics, never the reverse.
+    teaches the dynamics, never the reverse. SIGReg applies to `z_reg`
+    (the online embeddings) when given — LeJEPA regularizes the online
+    side since EMA targets carry no gradient — else falls back to z_obs.
     """
     pred = (z_pred - z_obs.detach()).pow(2).mean()
     kl_term = kl if isinstance(kl, torch.Tensor) else torch.tensor(
         float(kl), dtype=z_pred.dtype, device=z_pred.device)
-    return pred + sig_weight * sigreg(z_obs.reshape(-1, z_obs.shape[-1]),
+    reg = z_obs if z_reg is None else z_reg
+    return pred + sig_weight * sigreg(reg.reshape(-1, reg.shape[-1]),
                                       seed=sig_seed) + kl_weight * kl_term
+
+
+class TargetEncoder(nn.Module):
+    """EMA copy of an online encoder — the non-collapsing JEPA target.
+
+    Stop-gradient alone does not prevent representation collapse: a
+    shared encoder can map everything to a constant and satisfy the
+    prediction loss trivially. Chasing an exponential moving average of
+    its own weights makes the target a slowly drifting manifold instead —
+    the standard JEPA/BYOL stabilizer. Parameters are frozen; call
+    `update_from` after every optimizer step."""
+
+    def __init__(self, online: nn.Module, decay: float = 0.996) -> None:
+        super().__init__()
+        import copy
+        self.net = copy.deepcopy(online).requires_grad_(False)
+        self.decay = decay
+
+    @torch.no_grad()
+    def update_from(self, online: nn.Module) -> None:
+        for t, o in zip(self.net.parameters(), online.parameters()):
+            t.mul_(self.decay).add_(o, alpha=1.0 - self.decay)
+
+    def forward(self, obs: torch.Tensor) -> torch.Tensor:
+        with torch.no_grad():
+            return self.net(obs)
+
+
+class PatchEncoder(nn.Module):
+    """Spatial observation encoder: satellite patch (B, C, H, W) → z.
+
+    The column-scale `ObsEncoder` consumes already-aggregated channels;
+    this one embeds raw multi-band imagery — the high-dimensional input
+    regime where latent prediction actually adds information the physics
+    does not carry (texture, intra-field heterogeneity, sensor artifacts).
+    Strided convolutions + global mean pooling, so the output dimension is
+    independent of patch size."""
+
+    def __init__(self, bands: int, z_dim: int, width: int = 32) -> None:
+        super().__init__()
+        self.net = nn.Sequential(
+            nn.Conv2d(bands, width, 3, stride=2, padding=1), nn.SiLU(),
+            nn.Conv2d(width, width * 2, 3, stride=2, padding=1), nn.SiLU(),
+            nn.Conv2d(width * 2, width * 2, 3, stride=2, padding=1),
+            nn.SiLU(),
+            nn.AdaptiveAvgPool2d(1), nn.Flatten(),
+            nn.Linear(width * 2, z_dim), nn.LayerNorm(z_dim),
+        )
+        self.to(torch.float64)
+
+    def forward(self, patch: torch.Tensor) -> torch.Tensor:
+        return self.net(patch)

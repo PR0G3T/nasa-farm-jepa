@@ -129,6 +129,12 @@ def _build_parser() -> argparse.ArgumentParser:
                     help="satellite channels assimilated, comma-sep")
     ex.add_argument("--alphas", default="0.1",
                     help="interval levels for PICP/interval score")
+    ex.add_argument("--latent-dim", type=int, default=8,
+                    help="JEPA latent size")
+    ex.add_argument("--ema", type=float, default=0.996,
+                    help="JEPA target-encoder momentum")
+    ex.add_argument("--sig-weight", type=float, default=1.0,
+                    help="SIGReg regularization strength")
     ex.add_argument("--epochs", type=int, default=120)
     ex.add_argument("--lr", type=float, default=0.05)
     ex.add_argument("--seed", type=int, default=0)
@@ -380,6 +386,8 @@ def cmd_exp(args) -> int:
         obs_channels=tuple(args.obs_channels.split(",")),
         channels=tuple(args.channels.split(",")),
         alphas=tuple(float(a) for a in args.alphas.split(",")),
+        latent_dim=args.latent_dim, ema=args.ema,
+        sig_weight=args.sig_weight,
         epochs=args.epochs, lr=args.lr, seed=args.seed)
     rep = exp_run(args.name, spec)
     out = {"experiment": rep.name, "seconds": rep.seconds,

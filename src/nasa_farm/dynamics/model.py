@@ -46,7 +46,10 @@ class WorldModel(nn.Module):
         self.crops = crops or CropLibrary.default()
         self.register_buffer("crop_table", self.crops.table)
         self.nn_dtype = nn_dtype
-        self.residual = ResidualNet() if residual else None
+        # latent z conditions the residual: what the physics does not model
+        # gets to correct the physics — the physics-anchored JEPA contract.
+        self.residual = (ResidualNet(ctx_dim=latent_dim)
+                         if residual else None)
         self.latent = (LatentDyn(latent_dim, latent_hidden, stochastic, ctx_dim)
                        if latent_dim else None)
         self._gen = (torch.Generator().manual_seed(seed)
@@ -89,7 +92,7 @@ class WorldModel(nn.Module):
         )
 
     def _apply_residual(self, state: FieldState, soil, feats: torch.Tensor) -> FieldState:
-        delta = self._nn(self.residual, feats)
+        delta = self._nn(self.residual, feats, state.z)
         upd = dict(zip(RESIDUAL_VARS, delta.unbind(-1)))
         sw0 = (state.sw[:, 0] + upd["sw0"]).clamp(
             soil.air[:, 0], soil.sat[:, 0])

@@ -54,11 +54,16 @@ class ResidualNet(nn.Module):
 
     def __init__(self, hidden: int = 64, depth: int = 2,
                  activation: str = "silu", layernorm: bool = False,
-                 skip: bool = False, zero_init: bool = True) -> None:
+                 skip: bool = False, zero_init: bool = True,
+                 ctx_dim: int = 0) -> None:
+        """ctx_dim > 0 appends a context vector (the JEPA latent z) to the
+        input features — corrections can then react to what the latent
+        carries beyond the physics state."""
         super().__init__()
+        self.ctx_dim = ctx_dim
         act = ACTS[activation]
         layers: list[nn.Module] = []
-        d = N_FEATURES
+        d = N_FEATURES + ctx_dim
         for _ in range(depth):
             layers.append(nn.Linear(d, hidden))
             if layernorm:
@@ -69,7 +74,7 @@ class ResidualNet(nn.Module):
         self.body = nn.Sequential(*layers[:-1])
         self.head = layers[-1]
         # input → last-hidden shortcut (real projection, dims differ)
-        self.short = (nn.Linear(N_FEATURES, hidden, bias=False)
+        self.short = (nn.Linear(N_FEATURES + ctx_dim, hidden, bias=False)
                       if skip else None)
         if zero_init:
             nn.init.zeros_(self.head.weight)
@@ -84,7 +89,12 @@ class ResidualNet(nn.Module):
         """Full Sequential view (kept for tests/tooling)."""
         return nn.Sequential(*self.body, self.head)
 
-    def forward(self, feats: torch.Tensor) -> torch.Tensor:
+    def forward(self, feats: torch.Tensor,
+                ctx: torch.Tensor | None = None) -> torch.Tensor:
+        if self.ctx_dim:
+            if ctx is None:
+                ctx = feats.new_zeros(feats.shape[0], self.ctx_dim)
+            feats = torch.cat([feats, ctx.to(feats.dtype)], dim=-1)
         h = self.body(feats)
         if self.short is not None:
             h = h + self.short(feats)

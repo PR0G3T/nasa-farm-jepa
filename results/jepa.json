@@ -1,0 +1,107 @@
+{
+  "name": "jepa",
+  "spec": {
+    "lat": 42.0,
+    "lon": -93.6,
+    "soil": "silt_loam",
+    "depths": [
+      0.3,
+      1.5
+    ],
+    "crop": "maize",
+    "horizon": 2,
+    "years": [],
+    "realizations": 4,
+    "members": 16,
+    "obs_every": 10,
+    "noise": 0.05,
+    "perturb": {
+      "rue": 0.8,
+      "gdd_mat": 0.92
+    },
+    "obs_channels": [
+      "ndvi",
+      "sm1",
+      "vwc",
+      "lst"
+    ],
+    "channels": [
+      "yield_kg"
+    ],
+    "alphas": [
+      0.1
+    ],
+    "latent_dim": 8,
+    "ema": 0.996,
+    "sig_weight": 1.0,
+    "epochs": 60,
+    "lr": 0.05,
+    "seed": 0
+  },
+  "results": {
+    "latent": {
+      "dim": 8,
+      "sigreg_final": 0.09761,
+      "z_std_final": 0.920439,
+      "best_loss": 0.10568369,
+      "epochs_run": 60
+    },
+    "z_pred_rmse": 0.094397,
+    "channels": {
+      "ndvi": {
+        "prior": 0.094845,
+        "jepa_probe": 0.327446,
+        "residual": 0.065159,
+        "hybrid": 0.064561,
+        "hybrid_reduction_pct": 31.93
+      },
+      "sm1": {
+        "prior": 0.001108,
+        "jepa_probe": 0.032672,
+        "residual": 0.005467,
+        "hybrid": 0.002476,
+        "hybrid_reduction_pct": -123.47
+      },
+      "vwc": {
+        "prior": 0.114495,
+        "jepa_probe": 0.080593,
+        "residual": 0.029095,
+        "hybrid": 0.025808,
+        "hybrid_reduction_pct": 77.46
+      },
+      "lst": {
+        "prior": 0.127668,
+        "jepa_probe": 2.270174,
+        "residual": 0.876524,
+        "hybrid": 0.879016,
+        "hybrid_reduction_pct": -588.52
+      }
+    }
+  },
+  "seconds": 367.154,
+  "meta": {
+    "python": "3.15.2",
+    "torch": "2.15.0+cu132",
+    "device": "cuda",
+    "argv": [
+      "exp",
+      "jepa",
+      "--perturb",
+      "rue:0.8,gdd_mat:0.92",
+      "--horizon",
+      "2",
+      "--realizations",
+      "4",
+      "--obs-channels",
+      "ndvi,sm1,vwc,lst",
+      "--latent-dim",
+      "8",
+      "--epochs",
+      "60",
+      "--obs-every",
+      "10",
+      "--out",
+      "results/jepa.json"
+    ]
+  }
+}
