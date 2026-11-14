@@ -9,16 +9,21 @@
       1.5
     ],
     "crop": "maize",
-    "horizon": 1,
+    "horizon": 2,
     "years": [],
     "realizations": 4,
     "members": 16,
     "obs_every": 10,
     "noise": 0.05,
-    "perturb": {},
+    "perturb": {
+      "rue": 0.8,
+      "gdd_mat": 0.92
+    },
     "obs_channels": [
       "ndvi",
-      "sm1"
+      "sm1",
+      "vwc",
+      "lst"
     ],
     "channels": [
       "yield_kg"
@@ -41,26 +46,40 @@
   "results": {
     "latent": {
       "dim": 8,
-      "sigreg_final": 0.075192,
-      "z_std_final": 0.881505,
-      "best_loss": 0.07148821,
+      "sigreg_final": 0.067461,
+      "z_std_final": 0.792378,
+      "best_loss": 0.07061566,
       "epochs_run": 120
     },
-    "z_pred_rmse": 0.085876,
+    "z_pred_rmse": 0.06224,
     "channels": {
       "ndvi": {
-        "prior": 0.0,
-        "jepa_probe": 0.168532,
-        "residual": 0.012658,
-        "hybrid": 0.007492,
-        "hybrid_reduction_pct": 0.0
+        "prior": 0.094845,
+        "jepa_probe": 0.137804,
+        "residual": 0.065031,
+        "hybrid": 0.06658,
+        "hybrid_reduction_pct": 29.8
       },
       "sm1": {
-        "prior": 0.0,
-        "jepa_probe": 0.137529,
-        "residual": 0.012004,
-        "hybrid": 0.014144,
-        "hybrid_reduction_pct": 0.0
+        "prior": 0.001108,
+        "jepa_probe": 0.018299,
+        "residual": 0.005678,
+        "hybrid": 0.030499,
+        "hybrid_reduction_pct": -2652.62
+      },
+      "vwc": {
+        "prior": 0.114495,
+        "jepa_probe": 0.068736,
+        "residual": 0.024741,
+        "hybrid": 0.078564,
+        "hybrid_reduction_pct": 31.38
+      },
+      "lst": {
+        "prior": 0.127668,
+        "jepa_probe": 3.640288,
+        "residual": 0.263841,
+        "hybrid": 1.907257,
+        "hybrid_reduction_pct": -1393.92
       }
     },
     "hier": {
@@ -70,13 +89,15 @@
         16
       ],
       "channels": {
-        "ndvi": 0.126914,
-        "sm1": 0.226173
+        "ndvi": 0.088359,
+        "sm1": 0.040652,
+        "vwc": 0.040076,
+        "lst": 2.172588
       },
-      "best_loss": 0.09007879
+      "best_loss": 0.07299753
     }
   },
-  "seconds": 494.252,
+  "seconds": 794.605,
   "meta": {
     "python": "3.15.2",
     "torch": "2.15.0+cu132",
@@ -84,10 +105,14 @@
     "argv": [
       "exp",
       "jepa",
+      "--perturb",
+      "rue:0.8,gdd_mat:0.92",
+      "--obs-channels",
+      "ndvi,sm1,vwc,lst",
       "--realizations",
       "4",
       "--horizon",
-      "1",
+      "2",
       "--epochs",
       "120",
       "--hier",
