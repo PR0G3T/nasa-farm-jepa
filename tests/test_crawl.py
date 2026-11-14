@@ -33,7 +33,7 @@ class TestHelpers:
         assert len(keys[2024]) == 365 and "20240229" not in keys[2024]
         assert len(keys[2025]) == 365
 
-    def testgranule_day(self):
+    def test_granule_day(self):
         assert granule_day("SPL3SMP_E.007_20230115T120000.h5") == 20230115
         assert granule_day("ECO_L3G_SEB_doy2023180") == 20230629
 

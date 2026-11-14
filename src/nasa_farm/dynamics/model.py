@@ -219,12 +219,13 @@ class WorldModel(nn.Module):
         residue_in = torch.zeros_like(s.biomass)
 
         mature = cflux["mature"]
-        if mature.any():
-            y, r = cp.harvest(biomass, tr, heat_acc, cflux["frost"])
-            yield_event = torch.where(mature, y, yield_event)
-            residue_in = torch.where(mature, r, residue_in)
-            biomass = torch.where(mature, torch.zeros_like(biomass), biomass)
-            lai = torch.where(mature, torch.zeros_like(lai), lai)
+        # Unconditional compute + mask select: no .any() host syncs, so the
+        # step stays stream-capturable (CUDA graphs) — identical values.
+        y, r = cp.harvest(biomass, tr, heat_acc, cflux["frost"])
+        yield_event = torch.where(mature, y, yield_event)
+        residue_in = torch.where(mature, r, residue_in)
+        biomass = torch.where(mature, torch.zeros_like(biomass), biomass)
+        lai = torch.where(mature, torch.zeros_like(lai), lai)
 
         growing = s.growing & ~mature
         harvested = s.harvested | mature
@@ -232,25 +233,22 @@ class WorldModel(nn.Module):
         sow = action["sow"]
         sowing = sow >= 0
         z = s.z
-        if sowing.any():
-            # Terminating existing standing biomass (cover crop / perennial /
-            # immature crop) counts as harvest; retained fraction → litter.
-            y_t, r_t = cp.harvest(biomass, tr, heat_acc)
-            yield_event = torch.where(sowing, yield_event + y_t, yield_event)
-            residue_in = torch.where(sowing, residue_in + r_t, residue_in)
-            zero = torch.zeros_like(biomass)
-            biomass = torch.where(sowing, zero, biomass)
-            lai = torch.where(sowing, zero, lai)
-            gdd = torch.where(sowing, zero, gdd)
-            vern = torch.where(sowing, zero, vern)
-            heat_acc = torch.where(sowing, zero, heat_acc)
-            if z is not None:
-                z = torch.where(sowing.unsqueeze(-1), torch.zeros_like(z), z)
-            crop = torch.where(sowing, sow, s.crop)
-            growing = growing | sowing
-            harvested = torch.where(sowing, torch.zeros_like(harvested), harvested)
-        else:
-            crop = s.crop
+        # Terminating existing standing biomass (cover crop / perennial /
+        # immature crop) counts as harvest; retained fraction → litter.
+        y_t, r_t = cp.harvest(biomass, tr, heat_acc)
+        yield_event = torch.where(sowing, yield_event + y_t, yield_event)
+        residue_in = torch.where(sowing, residue_in + r_t, residue_in)
+        zero = torch.zeros_like(biomass)
+        biomass = torch.where(sowing, zero, biomass)
+        lai = torch.where(sowing, zero, lai)
+        gdd = torch.where(sowing, zero, gdd)
+        vern = torch.where(sowing, zero, vern)
+        heat_acc = torch.where(sowing, zero, heat_acc)
+        if z is not None:
+            z = torch.where(sowing.unsqueeze(-1), torch.zeros_like(z), z)
+        crop = torch.where(sowing, sow, s.crop)
+        growing = growing | sowing
+        harvested = torch.where(sowing, torch.zeros_like(harvested), harvested)
 
         # season_yield counts grain of the current crop cycle; the termination
         # yield emitted on a sowing day still lands in cum_yield and fluxes.

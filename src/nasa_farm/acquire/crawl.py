@@ -137,22 +137,24 @@ def _aoi(spec, fields: list[dict]) -> BBox | None:
 def _granule(work):
     """Range-read one granule → {fid: (v, w)}. Pure I/O — the caller
     serializes lake writes."""
+    import socket
+    socket.setdefaulttimeout(300)
     spec, g, fields = work
     from nasa_farm.observe import fetch
     try:
         ds = fetch(spec.source, g)
-    except (OSError, ValueError, KeyError) as e:
+        with ds:
+            if spec.var(ds) is None:
+                return g.id, "skip (no var)"
+            out = {}
+            for f in fields:
+                v, w = spec.read(ds, f["lat"], f["lon"]), \
+                    spec.coverage(ds, f["lat"], f["lon"])
+                if np.isfinite(v) and w > 0.0:
+                    out[f["id"]] = (float(v), float(w))
+            return g.id, (spec.day_of(ds), out)
+    except (OSError, ValueError, KeyError, RuntimeError) as e:
         return g.id, f"skip ({type(e).__name__})"
-    with ds:
-        if spec.var(ds) is None:
-            return g.id, "skip (no var)"
-        out = {}
-        for f in fields:
-            v, w = spec.read(ds, f["lat"], f["lon"]), \
-                spec.coverage(ds, f["lat"], f["lon"])
-            if np.isfinite(v) and w > 0.0:
-                out[f["id"]] = (float(v), float(w))
-        return g.id, (spec.day_of(ds), out)
 
 
 def _granules(spec, fields: list[dict], lake: Lake,
