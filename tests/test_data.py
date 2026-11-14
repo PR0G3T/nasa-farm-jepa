@@ -57,10 +57,8 @@ class TestEmb:
 
 class TestSoil:
     def _d(self):
-        import dataclasses
-        from nasa_farm.state.soil import SoilProfile
-        return dataclasses.asdict(
-            SoilProfile.preset("silt_loam")).copy()
+        return {"clay": 20.0, "sand": 30.0, "bd": 1.3, "soc": 15.0,
+                "ph": 6.5, "depth": 30.0}
 
     def test_dict_roundtrip(self):
         s = soil(self._d())
@@ -72,8 +70,7 @@ class TestSoil:
         assert soil_sample(None, self._d(), 4) is None
 
     def test_sample_ensemble(self):
-        lo, hi = self._d(), self._d()
-        hi["clay"] = (np.asarray(hi["clay"]) + 10.0).tolist()
+        lo, hi = self._d(), dict(self._d(), clay=30.0)
         s = soil_sample(lo, hi, 8, seed=0)
         assert s.batch == 8
         assert (s.clay >= 20.0).all() and (s.clay <= 30.0).all()

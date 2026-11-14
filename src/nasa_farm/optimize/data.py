@@ -5,7 +5,8 @@ the live path uses — so train and serve can never diverge. Observation
 series land under canonical names as (dates, values, weights) triples —
 weights come from the `{var}_w` coverage shards the crawler writes next
 to every footprint-sampled obs, so QA propagates into the loss rather
-than a plain mask.
+than a plain mask. The `soil` attr is the flat SoilGrid dict — converted
+through `soilgrid.profile`, the same mapping live serving uses.
 
 Reads open `lake.db` read-only (no files created); a missing lake raises
 `FileNotFoundError` — the callers' documented fallback to live sources.
@@ -20,6 +21,7 @@ import numpy as np
 import torch
 
 from nasa_farm.acquire.power import FORCING_VARS, vars_to_forcing
+from nasa_farm.acquire.soilgrid import profile
 from nasa_farm.constants import DTYPE
 from nasa_farm.lake import Lake
 from nasa_farm.state.soil import SoilProfile
@@ -101,19 +103,33 @@ def emb(root: Lake | Path | str, fid: str, name: str = "aef"
 
 
 def soil(d: dict | None) -> SoilProfile | None:
-    """Stored profile dict → SoilProfile; None passes through."""
+    """Stored soil dict → SoilProfile; None passes through.
+
+    Two on-disk shapes: the SoilGrids flat dict (`clay`/`sand`/`soc`
+    scalars) and a full `dataclasses.asdict(SoilProfile)` dump — both
+    land under field attrs, so dispatch on the `sat` discriminator key.
+    """
     if d is None:
         return None
-    return SoilProfile(**{k: torch.as_tensor(np.asarray(v), dtype=DTYPE)
-                          for k, v in d.items()})
+    if "sat" in d:
+        return SoilProfile(**{k: torch.as_tensor(
+            np.asarray(v), dtype=DTYPE) for k, v in d.items()})
+    return profile(d)
 
 
 def soil_sample(d_lo: dict | None, d_hi: dict | None, n: int, seed: int = 0
                 ) -> SoilProfile | None:
-    """Stored Q05/Q95 dicts → n-member uncertainty ensemble."""
+    """Stored Q05/Q95-bound dicts → n-member uncertainty ensemble."""
     lo, hi = soil(d_lo), soil(d_hi)
     return None if lo is None or hi is None \
         else SoilProfile.sample(lo, hi, n, seed)
+
+
+def _bound(d: dict | None, suffix: str) -> dict | None:
+    """`soil` flat dict → the {suffix}-swapped bound dict."""
+    return None if d is None else {
+        **d, "clay": d[f"clay{suffix}"], "sand": d[f"sand{suffix}"],
+        "bd": d[f"bd{suffix}"]}
 
 
 def dataset(root: Lake | Path | str, fids: list[str], years: list[int]
@@ -125,13 +141,13 @@ def dataset(root: Lake | Path | str, fids: list[str], years: list[int]
                       "obs": _targets(L, fid),
                       "emb": L.vec(fid),
                       "soil": (m := L.meta(fid)).get("soil"),
-                      "soil_lo": m.get("soil_lo"),
-                      "soil_hi": m.get("soil_hi")}
+                      "soil_lo": _bound(m.get("soil"), "_lo"),
+                      "soil_hi": _bound(m.get("soil"), "_hi")}
                 for fid in fids}
 
 
 def to_tensors(obs: dict[str, tuple]) -> dict[str, tuple]:
-    return {v: (torch.from_numpy(np.asarray(d)),
-                torch.from_numpy(np.asarray(x)),
-                None if w is None else torch.from_numpy(np.asarray(w)))
+    return {v: (torch.from_numpy(np.array(d)),
+                torch.from_numpy(np.array(x)),
+                None if w is None else torch.from_numpy(np.array(w)))
             for v, (d, x, w) in obs.items()}

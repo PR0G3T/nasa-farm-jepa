@@ -94,7 +94,7 @@ class Lake:
                 raise FileNotFoundError(self.db_path)
         if ro:
             self.db = sqlite3.connect(
-                f"file:{self.db_path}?mode=ro", uri=True,
+                f"file:{self.db_path}?mode=ro&immutable=1", uri=True,
                 isolation_level=None)
             self.db.execute("PRAGMA busy_timeout=5000")
             try:
@@ -106,6 +106,7 @@ class Lake:
             fresh = not self.db_path.exists()
             self.db = sqlite3.connect(self.db_path, isolation_level=None)
             self.db.execute("PRAGMA journal_mode=WAL")
+            self.db.execute("PRAGMA wal_autocheckpoint=1")
             self.db.execute("PRAGMA synchronous=NORMAL")
             self.db.execute("PRAGMA mmap_size=268435456")
             self.db.execute("PRAGMA busy_timeout=5000")

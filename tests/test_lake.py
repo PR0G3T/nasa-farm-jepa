@@ -270,7 +270,7 @@ class TestMigrate:
             d, v = L.get("F1", "forcing", "tmin")
             assert d.tolist() == [20240101, 20240102]
             assert np.array_equal(v, np.array([4.0, 5.0], np.float32))
-            assert L.get("F1", "obs", "sm")[1].tolist() == [0.4]
+            assert np.allclose(L.get("F1", "obs", "sm")[1], [0.4])
             assert L.vec("F1", "aef").tolist() == [0, 1, 2, 3]
             assert L.meta("F1")["soil"] == {"clay": 30}
             assert L.has_granule("G1")

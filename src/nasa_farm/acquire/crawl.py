@@ -1,15 +1,14 @@
 """Crawler — batch acquisition into the lake, resumable via granule marks.
 
 Two regimes, one sink:
-- point APIs (POWER, SoilGrids): per-field fetches, raw dumps land under
-  `forcing/` (+ `obs/smg` for GWETROOT — a model proxy, not a retrieval)
-  and `soil`/`soil_lo`/`soil_hi` attrs for profile-uncertainty sampling;
+- point APIs (POWER, SoilGrid): per-field fetches land under `forcing/`
+  (+ `obs/smg` for GWETROOT — a model proxy, not a retrieval) and the
+  `soil` attr for profile-uncertainty sampling;
 - granule products (SMAP, NISAR, ECOSTRESS, NLDAS-3): searched once over
-  the union bbox, each file downloaded once, every field extracted by
-  footprint-weighted sampling under the product's QA confidence map —
-  O(fields) extraction per O(1) download — then marked so re-runs skip
-  them. Each obs lands with a `{var}_w` coverage weight. Files are
-  deleted after sampling.
+  the field-union bbox, each file opened once by range-read, every field
+  extracted by footprint-weighted sampling under the product's QA
+  confidence map — O(fields) extraction per O(1) open — then marked so
+  re-runs skip them. Each obs lands with a `{var}_w` coverage weight.
 
 Every write lands inside `Lake.tx()` units sized so a crash can never
 leave data written but unmarked: one tx per POWER field, per NLDAS
@@ -21,23 +20,20 @@ merges, so re-crawls write nothing.
 
 from __future__ import annotations
 
-import dataclasses
 import datetime as dt
-import tempfile
 from concurrent.futures import ThreadPoolExecutor
 from itertools import groupby
 from pathlib import Path
 from typing import Callable, Iterable
 
 import numpy as np
-import xarray as xr
 
 from nasa_farm.acquire.base import BBox, Temporal
-from nasa_farm.acquire.earthdata import granule_day, granule_id
 from nasa_farm.acquire.power import CANON, PowerClient
-from nasa_farm.acquire.products import SPECS as GRANULE_SPECS, Spec
 from nasa_farm.acquire.soilgrid import SoilGridClient
 from nasa_farm.lake import Lake
+
+from .products import SPECS as GRANULE_SPECS
 
 
 def _day_keys(years: list[int]) -> dict[int, list[str]]:
@@ -75,13 +71,10 @@ def _power(fields: list[dict], lake: Lake, years: list[int],
 
 def _soil(fields: list[dict], lake: Lake, log,
           client: SoilGridClient | None = None) -> None:
-    """SoilGrids Q05/Q50/Q95 profiles → field attrs (profile dicts)."""
+    """SoilGrid flat dict (median + Q05/Q95 bounds) → `soil` attr."""
     client = client or SoilGridClient()
     for f in fields:
-        lo, mid, hi = client.bounds(f["lat"], f["lon"])
-        lake.attrs(f["id"], soil=dataclasses.asdict(mid),
-                   soil_lo=dataclasses.asdict(lo),
-                   soil_hi=dataclasses.asdict(hi))
+        lake.attrs(f["id"], soil=client.sample(f["lat"], f["lon"]))
         log(f"soil {f['id']} ok")
 
 
@@ -132,51 +125,57 @@ def _nldas(fields: list[dict], lake: Lake, years: list[int], log) -> None:
         log(f"nldas {y}-{m:02d} ok")
 
 
-def _granule(res, spec: Spec, fields: list[dict], tmp: str
-             ) -> tuple[int, dict[str, tuple[float, float]]] | None:
-    """Download + extract one granule → {fid: (v, w)}. Pure I/O — the
-    caller serializes lake writes."""
-    import earthaccess
-    gid = granule_id(res)
-    out = {}
-    for path in earthaccess.download([res], tmp) or []:
-        day = granule_day(gid)
-        kw = {"group": spec.source.group} if spec.source.group else {}
-        with xr.open_dataset(path, engine="h5netcdf",
-                             phony_dims="access", **kw) as ds:
-            if spec.var(ds) is None:
-                return None
-            for f in fields:
-                v = spec.read(ds, f["lat"], f["lon"])
-                w = spec.coverage(ds, f["lat"], f["lon"])
-                if np.isfinite(v) and w > 0.0:
-                    out[f["id"]] = (v, w)
-        Path(path).unlink(missing_ok=True)
-    return day, out
+def _aoi(spec, fields: list[dict]) -> BBox | None:
+    """Field-union bbox ∩ the product's domain — None when disjoint."""
+    w = max(min(f["lon"] for f in fields), spec.bbox[0])
+    s = max(min(f["lat"] for f in fields), spec.bbox[1])
+    e = min(max(f["lon"] for f in fields), spec.bbox[2])
+    n = min(max(f["lat"] for f in fields), spec.bbox[3])
+    return None if w > e or s > n else BBox(w, s, e, n)
 
 
-def _granules(spec: Spec, fields: list[dict], lake: Lake,
-              temporal: Temporal, log, workers: int = 4) -> None:
+def _granule(work):
+    """Range-read one granule → {fid: (v, w)}. Pure I/O — the caller
+    serializes lake writes."""
+    spec, g, fields = work
+    from nasa_farm.observe import fetch
+    try:
+        ds = fetch(spec.source, g)
+    except (OSError, ValueError, KeyError) as e:
+        return g.id, f"skip ({type(e).__name__})"
+    with ds:
+        if spec.var(ds) is None:
+            return g.id, "skip (no var)"
+        out = {}
+        for f in fields:
+            v, w = spec.read(ds, f["lat"], f["lon"]), \
+                spec.coverage(ds, f["lat"], f["lon"])
+            if np.isfinite(v) and w > 0.0:
+                out[f["id"]] = (float(v), float(w))
+        return g.id, (spec.day_of(ds), out)
+
+
+def _granules(spec, fields: list[dict], lake: Lake,
+              temporal: Temporal, log) -> None:
     """Satellite granules → obs series + coverage weights — one tx per
-    granule (all field puts + the mark), so re-crawl never re-downloads."""
-    import earthaccess
-    earthaccess.login(strategy="environment")
-    aoi = BBox(min(f["lon"] for f in fields), min(f["lat"] for f in fields),
-               max(f["lon"] for f in fields), max(f["lat"] for f in fields))
-    results = [r for r in spec.source.fetch(aoi, temporal, count=spec.limit)
-               if not lake.has_granule(granule_id(r))]
-    log(f"{spec.obs}: {len(results)} granules to fetch")
-    if not results:
+    granule (all field puts + the mark), so re-crawl never re-opens."""
+    aoi, span = _aoi(spec, fields), Temporal(
+        max(temporal.start, spec.span[0]),
+        min(temporal.end, spec.span[1]))
+    if aoi is None or span.start > span.end:
+        log(f"{spec.obs}: fields outside product domain")
+        return
+    todo = [g for g in spec.source.search(aoi, span, spec.limit)
+            if not lake.has_granule(g.id)]
+    log(f"{spec.obs}: {len(todo)} granules to fetch")
+    if not todo:
         return
 
-    def work(res):
-        with tempfile.TemporaryDirectory() as tmp:
-            return granule_id(res), _granule(res, spec, fields, tmp)
-
-    with ThreadPoolExecutor(max_workers=workers) as pool:
-        for gid, got in pool.map(work, results):
-            if got is None:
-                log(f"{spec.obs} {gid} skip (no var)")
+    def work(g): return _granule((spec, g, fields))
+    with ThreadPoolExecutor(max_workers=spec.workers) as pool:
+        for gid, got in pool.map(work, todo):
+            if not isinstance(got, tuple):
+                log(f"{spec.obs} {gid} {got}")
                 continue
             day, vals = got
             di = np.array([day], np.int32)
