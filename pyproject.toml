@@ -4,9 +4,8 @@ version = "0.1.0"
 description = "Physics-informed latent world model for NASA-data-driven crop rotation decision support"
 requires-python = ">=3.15"
 dependencies = [
-    "duckdb>=1.4.0",
     "earthaccess>=0.19.0",
-    "h5netcdf>=1.8.0",
+    "h5netcdf[h5py]>=1.8.0",
     "httpx2>=2.0.0",
     "pydantic>=2.14.3",
     "pystac-client>=0.9.1",
