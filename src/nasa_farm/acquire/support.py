@@ -53,28 +53,67 @@ def kernel(d: numpy.ndarray, radius_km: float) -> numpy.ndarray:
     return numpy.where(d <= radius_km, numpy.exp(-0.5 * (d / sigma) ** 2), 0.0)
 
 
-def prep(ds: xarray.Dataset, var: str,
-         confidence: numpy.ndarray | None = None,
-         bbox: tuple[float, float, float, float] | None = None) -> tuple:
-    """Pre-materialized (values, glat, glon, conf) grid — one dataset read
-    for any number of point queries via `at`. `bbox` (w, s, e, n) crops the
-    read to the rectangular index window covering the box — remote grids
-    then cost only the local slice instead of the whole domain."""
-    glat, glon = _coords(ds, var)
-    values = numpy.asarray(ds[var].values, numpy.float64)
-    c = None if confidence is None else numpy.asarray(confidence, numpy.float64)
-    if bbox is not None and glat.ndim == 2:
-        west, south, east, north = bbox
-        m = (glat >= south) & (glat <= north) \
-            & (glon >= west) & (glon <= east)
-        if m.any():
-            rows = numpy.where(m.any(axis=1))[0]
-            cols = numpy.where(m.any(axis=0))[0]
+def _window(ds: xarray.Dataset, var: str,
+            bbox: tuple[float, float, float, float]) -> tuple | None:
+    """(row slice, col slice, glat, glon) covering bbox — found on a strided
+    coordinate subsample so remote grids cost ~1/64th of a coord read."""
+    west, south, east, north = bbox
+    for la, lo in _COORD_NAMES:
+        if la not in ds or lo not in ds:
+            continue
+        la_da, lo_da = ds[la], ds[lo]
+        if la_da.ndim == 1 and lo_da.ndim == 1:
+            lat, lon = la_da.values, lo_da.values
+            rows = numpy.where((lat >= south) & (lat <= north))[0]
+            cols = numpy.where((lon >= west) & (lon <= east))[0]
+            if not rows.size or not cols.size:
+                return None
             rs = slice(rows[0], rows[-1] + 1)
             cs = slice(cols[0], cols[-1] + 1)
-            values, glat, glon = values[..., rs, cs], \
-                glat[rs, cs], glon[rs, cs]
-            c = None if c is None else c[..., rs, cs]
+            glat, glon = numpy.meshgrid(lat[rs], lon[cs], indexing="ij")
+            da = ds[var]
+            if da.dims.index(la) > da.dims.index(lo):
+                glat, glon = glat.T, glon.T
+            return rs, cs, glat, glon
+        step = max(1, min(la_da.shape) // 256)
+        slat = la_da[::step, ::step].values
+        slon = lo_da[::step, ::step].values
+        m = (slat >= south) & (slat <= north) \
+            & (slon >= west) & (slon <= east)
+        if not m.any():
+            return None
+        rows = numpy.where(m.any(axis=1))[0]
+        cols = numpy.where(m.any(axis=0))[0]
+        rs = slice(max(rows[0] * step - step, 0),
+                   min(rows[-1] * step + step + 1, la_da.shape[0]))
+        cs = slice(max(cols[0] * step - step, 0),
+                   min(cols[-1] * step + step + 1, la_da.shape[1]))
+        return rs, cs, la_da[rs, cs].values, lo_da[rs, cs].values
+    return None
+
+
+def prep(ds: xarray.Dataset, var: str,
+         confidence: numpy.ndarray | xarray.DataArray | None = None,
+         bbox: tuple[float, float, float, float] | None = None) -> tuple:
+    """Pre-materialized (values, glat, glon, conf) grid — one dataset read
+    for any number of point queries via `at`. `confidence` may be a ready
+    array or the QA-band DataArray itself — either way it is cropped with
+    `bbox` (w, s, e, n) so remote reads cost only the local slice."""
+    if bbox is not None and (win := _window(ds, var, bbox)) is not None:
+        rs, cs, glat, glon = win
+        values = ds[var][..., rs, cs].values.astype(numpy.float64)
+        if confidence is None:
+            c = None
+        elif isinstance(confidence, xarray.DataArray):
+            c = confidence[..., rs, cs].values
+        else:
+            c = confidence[..., rs, cs]
+        return values, glat, glon, c
+    c = None if confidence is None else numpy.asarray(
+        confidence.values if isinstance(confidence, xarray.DataArray)
+        else confidence, numpy.float64)
+    glat, glon = _coords(ds, var)
+    values = numpy.asarray(ds[var].values, numpy.float64)
     return values, glat, glon, c
 
 

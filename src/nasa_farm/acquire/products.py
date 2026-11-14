@@ -18,6 +18,7 @@ import urllib.request
 from dataclasses import dataclass, field
 from typing import Any
 
+import numpy as numpy
 import xarray as xarray
 
 from nasa_farm.acquire.base import Bounds, Temporal
@@ -64,10 +65,17 @@ class Specification:
              ) -> tuple | None:
         """Materialized grid for this product — one read, many points.
         `bbox` crops the read to the local window (footprint margin must
-        already be folded in by the caller)."""
+        already be folded in by the caller); the QA band is sliced with
+        the data var, then converted to confidence on the small window."""
         if (v := self.var(ds)) is None:
             return None
-        return _prep(ds, v, self._conf(ds), bbox)
+        band = self.quality.band(ds) if self.quality else None
+        values, glat, glon, raw = _prep(
+            ds, v, ds[band] if band else None, bbox)
+        conf = None if raw is None or self.quality is None \
+            else numpy.asarray(
+                self.quality.to_conf(raw), numpy.float64)
+        return values, glat, glon, conf
 
     def at(self, grid: tuple, latitude: float, longitude: float
            ) -> tuple[float, float]:

@@ -40,6 +40,10 @@ class Quality:
     vars: tuple[str, ...]
     to_conf: Callable[[numpy.ndarray], numpy.ndarray] = _strict_conf
 
+    def band(self, ds: xarray.Dataset) -> str | None:
+        """First QA band name present, so callers can slice before masking."""
+        return next((v for v in self.vars if v in ds), None)
+
     def mask(self, ds: xarray.Dataset) -> numpy.ndarray | None:
         """(H, W) confidence map, or None when the product has no QA band."""
         for v in self.vars:

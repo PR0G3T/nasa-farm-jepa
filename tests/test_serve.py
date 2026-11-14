@@ -86,7 +86,7 @@ def test_cli_plan_unchanged_shape(capsys):
                "--crops", "maize,fallow", "--years", "2", "--offline",
                "--top-k", "2"])
     assert code == 0
-    output = json.loads(capsys.readouterr().output)
+    output = json.loads(capsys.readouterr().out)
     assert set(output) == {"plans_evaluated", "scenarios", "pareto", "top"}
     assert output["plans_evaluated"] == 4
 

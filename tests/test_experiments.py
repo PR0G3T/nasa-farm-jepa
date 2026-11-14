@@ -107,7 +107,7 @@ class TestCli:
         code = main(["exp", "twin", "--perturb", "rue:0.8", "--epochs", "5",
                    "--members", "4"])
         assert code == 0
-        output = json.loads(capsys.readouterr().output)
+        output = json.loads(capsys.readouterr().out)
         assert output["experiment"] == "twin"
         assert output["results"]["calibration"]["params"]["rue"]["truth"] \
             == pytest.approx(3.9 * 0.8)

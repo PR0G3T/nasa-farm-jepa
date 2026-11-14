@@ -61,7 +61,7 @@ def test_cli_plan_offline(capsys):
                "--crops", "maize,soybean,fallow", "--years", "2", "--offline",
                "--top-k", "3"])
     assert code == 0
-    output = json.loads(capsys.readouterr().output)
+    output = json.loads(capsys.readouterr().out)
     assert output["plans_evaluated"] == 9
     assert output["scenarios"] == 2
     assert len(output["top"]) == 3
@@ -77,7 +77,7 @@ def test_cli_config_toml(tmp_path, capsys):
     code = main(["plan", "--lat", "42.0", "--lon", "-93.6",
                "--config", str(config), "--top-k", "2"])
     assert code == 0
-    output = json.loads(capsys.readouterr().output)
+    output = json.loads(capsys.readouterr().out)
     assert output["plans_evaluated"] == 4   # 2 crops ^ 2y from TOML
     assert output["scenarios"] == 2
     assert len(output["top"]) == 2          # CLI flag won over nothing → applied
