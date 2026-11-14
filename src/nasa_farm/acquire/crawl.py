@@ -165,43 +165,62 @@ def _nldas(fields: list[dict], root: Path, cat: Catalog,
         log(f"nldas {day} ok")
 
 
-def _granules(spec: GranuleSpec, fields: list[dict], root: Path,
-              cat: Catalog, temporal: Temporal, log) -> None:
+def _granule(res, spec: GranuleSpec, fields: list[dict], tmp: str
+             ) -> tuple[int, dict[str, tuple[float, float]]] | None:
+    """Download + extract one granule → {fid: (v, w)}. Pure I/O — the
+    caller serializes lake writes."""
     import earthaccess
+    gid = _granule_id(res)
+    out = {}
+    for path in earthaccess.download([res], tmp) or []:
+        day = _granule_date(gid)
+        kw = {"group": spec.group} if spec.group else {}
+        with xr.open_dataset(path, engine="h5netcdf", **kw) as ds:
+            var = _resolve(ds, spec.vars)
+            if var is None:
+                return None
+            conf = spec.qc.mask(ds) if spec.qc else None
+            for f in fields:
+                v = sample(ds, var, f["lat"], f["lon"],
+                           spec.radius_km, conf)
+                w = coverage(ds, var, f["lat"], f["lon"],
+                             spec.radius_km, conf)
+                if np.isfinite(v) and w > 0.0:
+                    out[f["id"]] = (v, w)
+        Path(path).unlink(missing_ok=True)
+    return day, out
+
+
+def _granules(spec: GranuleSpec, fields: list[dict], root: Path,
+              cat: Catalog, temporal: Temporal, log,
+              workers: int = 4) -> None:
+    import earthaccess
+    earthaccess.login(strategy="environment")
     aoi = BBox(min(f["lon"] for f in fields), min(f["lat"] for f in fields),
                max(f["lon"] for f in fields), max(f["lat"] for f in fields))
-    results = spec.source.fetch(aoi, temporal, count=10_000)
-    with tempfile.TemporaryDirectory() as tmp:
-        for res in results:
-            gid = _granule_id(res)
-            if cat.has_granule(gid):
+    results = [r for r in spec.source.fetch(aoi, temporal, count=10_000)
+               if not cat.has_granule(_granule_id(r))]
+    log(f"{spec.obs}: {len(results)} granules to fetch")
+    from concurrent.futures import ThreadPoolExecutor
+
+    def work(res):
+        with tempfile.TemporaryDirectory() as tmp:
+            return _granule_id(res), _granule(res, spec, fields, tmp)
+
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        for gid, got in pool.map(work, results):
+            if got is None:
+                log(f"{spec.obs} {gid} skip (no var)")
                 continue
-            earthaccess.login(strategy="environment")
-            for path in earthaccess.download([res], tmp) or []:
-                day = _granule_date(gid)
-                kw = {"group": spec.group} if spec.group else {}
-                with xr.open_dataset(path, engine="h5netcdf", **kw) as ds:
-                    var = _resolve(ds, spec.vars)
-                    if var is None:
-                        log(f"{spec.obs} {gid} skip (no var "
-                            f"{spec.vars})")
-                        continue
-                    conf = spec.qc.mask(ds) if spec.qc else None
-                    di = np.array([day], np.int32)
-                    for f in fields:
-                        v = sample(ds, var, f["lat"], f["lon"],
-                                   spec.radius_km, conf)
-                        w = coverage(ds, var, f["lat"], f["lon"],
-                                     spec.radius_km, conf)
-                        if np.isfinite(v) and w > 0.0:
-                            n = store.put(root, f["id"], "obs", spec.obs,
-                                          di, np.array([v], np.float32))
-                            store.put(root, f["id"], "obs",
-                                      f"{spec.obs}_w", di,
-                                      np.array([w], np.float32))
-                            cat.set_series(f["id"], "obs", spec.obs,
-                                           0, day, n, spec.source.short_name)
-                Path(path).unlink(missing_ok=True)
+            day, vals = got
+            di = np.array([day], np.int32)
+            for fid, (v, w) in vals.items():
+                n = store.put(root, fid, "obs", spec.obs, di,
+                              np.array([v], np.float32))
+                store.put(root, fid, "obs", f"{spec.obs}_w", di,
+                          np.array([w], np.float32))
+                cat.set_series(fid, "obs", spec.obs, 0, day, n,
+                               spec.source.short_name)
             cat.mark_granule(gid, spec.source.short_name)
             log(f"{spec.obs} {gid} ok")
 
