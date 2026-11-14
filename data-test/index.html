@@ -1,0 +1,254 @@
+<!DOCTYPE html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Field Shift — Données réelles · Nebraska 2025</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:system-ui,-apple-system,sans-serif;background:#0d1117;color:#e6edf3;padding:22px;max-width:1500px;margin:auto}
+h1{font-size:1.45rem} .sub{color:#8b949e;font-size:.9rem;margin:4px 0 16px}
+h2{font-size:1.12rem;margin:30px 0 10px;color:#58a6ff;border-bottom:1px solid #21262d;padding-bottom:6px}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(330px,1fr));gap:14px}
+.fig{background:#161b22;border:1px solid #21262d;border-radius:10px;padding:10px}
+.fig img{width:100%;border-radius:6px;cursor:zoom-in;background:#fff}
+.meta{width:100%;font-size:.72rem;border-collapse:collapse;margin:6px 0}
+.meta th{background:#21262d;color:#8b949e;text-align:left;padding:4px 7px;width:76px;font-weight:600;border:1px solid #30363d}
+.meta td{padding:4px 7px;border:1px solid #30363d;color:#c9d1d9}
+.mono{font-family:ui-monospace,monospace;font-size:.68rem}
+.what,.drv{font-size:.8rem;color:#9da7b3;line-height:1.5;margin:6px 0}
+.drv{color:#c9d1d9}
+.vd{display:inline-block;font-size:.66rem;font-weight:700;color:#fff;border-radius:4px;padding:3px 9px;margin-top:4px}
+table.big{border-collapse:collapse;font-size:.78rem;width:100%;margin:10px 0}
+table.big th,table.big td{border:1px solid #21262d;padding:5px 9px;text-align:left}
+table.big th{background:#161b22;color:#58a6ff} table.big tr:nth-child(even){background:#11161d}
+.pct{color:#8b949e;font-size:.7rem}
+.rot{background:#161b22;border:1px solid #2ea04355;border-left:4px solid #2ea043;border-radius:8px;padding:12px;margin:10px 0;font-size:.9rem}
+a{color:#58a6ff}
+.hi{background:#161b22;border-radius:10px;padding:14px;border:1px solid #21262d}
+.hi img{width:100%;border-radius:8px;cursor:zoom-in}
+</style></head><body>
+<h1>🛰️ Field Shift — Données réelles croisées sur une même parcelle</h1>
+<p class="sub">Point : <b>-99.05°E, 40.70°N</b> (Kearney, Nebraska · Ogallala) · Saison été 2025 · 100% données réelles récupérées le jour même · chaque carte porte ses axes lon/lat, son échelle et sa flèche nord.</p>
+<h2>🗺️ Toutes les emprises sur un même repère</h2>
+<div class="hi"><img src="charts/footprints.png" onclick="window.open(this.src)">
+<p class="drv" style="margin-top:8px">Réponse à "sont-ils tous de la même zone ?" : <b>non</b>. Les rasters Sentinel-2/Landsat/DEM sont calés sur la zone ~14×18 km, NAIP et S2-zoom sur la parcelle ~6×5 km, MODIS/ERA5 couvrent la région (~560 km et ~165 km), les tuiles GIBS tout le Nebraska (~1000 km), et les granules ECOSTRESS des bandes orbitales ~1.3°. La colonne « Emprise » de chaque fiche donne le détail exact.</p></div>
+<h2>📐 Tableau des emprises (insertion directe)</h2>
+<table class="big"><tr><th>Jeu de données</th><th>Emprise [Ouest, Sud, Est, Nord]</th><th>Résolution</th><th>Date / scène</th></tr><tr><td>s2</td><td class='mono'>[-99.1304, 40.62, -98.97, 40.7801]</td><td>10.0 m</td><td>2025-08-14</td></tr><tr><td>landsat</td><td class='mono'>[-99.1305, 40.6201, -98.9702, 40.7802]</td><td>30.0 m</td><td>2025-07-05</td></tr><tr><td>dem</td><td class='mono'>[-99.1301, 40.6201, -98.9701, 40.7801]</td><td>30 m</td><td>DEM statique</td></tr><tr><td>naip</td><td class='mono'>[-99.0901, 40.685, -99.01, 40.735]</td><td>1.2 m (décimé)</td><td>2022-07-18</td></tr><tr><td>modis</td><td class='mono'>[-102.2841, 40.0, -95.8169, 41.5]</td><td>231.7 m</td><td>2025-07 (16j)</td></tr><tr><td>era5</td><td class='mono'>[-100.0, 40.25, -98.5, 41.0]</td><td>0.25° (~28 km)</td><td>2025-07-15</td></tr><tr><td>s2zoom</td><td class='mono'>[-99.0901, 40.6851, -99.0101, 40.7351]</td><td>10.0 m</td><td>2025-08-14</td></tr><tr><td>cdl_2020</td><td class='mono'>[-99.45, 40.45, -98.65, 40.9]</td><td>30 m source / rendu WMS</td><td>2020</td></tr><tr><td>cdl_2021</td><td class='mono'>[-99.45, 40.45, -98.65, 40.9]</td><td>30 m source / rendu WMS</td><td>2021</td></tr><tr><td>cdl_2022</td><td class='mono'>[-99.45, 40.45, -98.65, 40.9]</td><td>30 m source / rendu WMS</td><td>2022</td></tr><tr><td>cdl_2023</td><td class='mono'>[-99.45, 40.45, -98.65, 40.9]</td><td>30 m source / rendu WMS</td><td>2023</td></tr><tr><td>cdl_2024</td><td class='mono'>[-99.45, 40.45, -98.65, 40.9]</td><td>30 m source / rendu WMS</td><td>2024</td></tr><tr><td>gibs_smap_rz</td><td class='mono'>[-104.0, 37.0, -94.0, 44.0]</td><td>tuile rendue (~native)</td><td>2025-07-15</td></tr><tr><td>gibs_smap_surf</td><td class='mono'>[-104.0, 37.0, -94.0, 44.0]</td><td>tuile rendue (~native)</td><td>2025-07-15</td></tr><tr><td>gibs_smap_gpp</td><td class='mono'>[-104.0, 37.0, -94.0, 44.0]</td><td>tuile rendue (~native)</td><td>2025-07-15</td></tr><tr><td>gibs_grace</td><td class='mono'>[-104.0, 37.0, -94.0, 44.0]</td><td>tuile rendue (~native)</td><td>dernier dispo</td></tr><tr><td>gibs_imerg</td><td class='mono'>[-104.0, 37.0, -94.0, 44.0]</td><td>tuile rendue (~native)</td><td>2025-07-15</td></tr><tr><td>gibs_modis_ndvi</td><td class='mono'>[-104.0, 37.0, -94.0, 44.0]</td><td>tuile rendue (~native)</td><td>2025-07-11</td></tr><tr><td>gibs_modis_lst</td><td class='mono'>[-104.0, 37.0, -94.0, 44.0]</td><td>tuile rendue (~native)</td><td>2025-07-11</td></tr><tr><td>gibs_viirs_ndvi</td><td class='mono'>[-104.0, 37.0, -94.0, 44.0]</td><td>tuile rendue (~native)</td><td>2025-07-11</td></tr><tr><td>landfire</td><td class='mono'>[-99.6, 40.3, -98.5, 41.1]</td><td>30 m (rendu WMS)</td><td>LF2024</td></tr></table>
+<h2 id="power">4. NASA POWER</h2><div class="grid"><div class="fig">
+      <img src="charts/power_daily.png" loading="lazy" onclick="window.open(this.src)">
+      <table class="meta"><tr><th>Provenance</th><td>API POWER daily · point -99.05, 40.70 · juin-août 2025 · 15 paramètres</td></tr>
+      </table>
+      <p class="what">🔎 <b>Ce que c'est :</b> Série temporelle météo complète d'un point : températures min/max/moy, pluie quotidienne, humidité du sol estimée (surface GWETTOP, racinaire GWETROOT, profil GWETPROF), rayonnement solaire.</p>
+      <p class="drv">💡 <b>Ce que j'en tire :</b> C'est LA source la plus simple du lot : un appel JSON, aucun login, couverture mondiale. On voit l'été 2025 : T max régulières >30°C, pluies épisodiques (~10-20 mm), sol racinaire souvent <50% de saturation en août — contexte idéal pour parler de stress hydrique et du choix de cultures tolérantes.</p>
+      <span class="vd" style="background:#238636">✅ INDISPENSABLE — base météo de l'app</span></div><div class="fig">
+      <img src="charts/power_10y.png" loading="lazy" onclick="window.open(this.src)">
+      <table class="meta"><tr><th>Provenance</th><td>API POWER monthly · même point · 2015-2025</td></tr>
+      </table>
+      <p class="what">🔎 <b>Ce que c'est :</b> Dix ans de mensuels : T2M, pluie, humidité racinaire. La ligne blanche est la moyenne mobile 12 mois.</p>
+      <p class="drv">💡 <b>Ce que j'en tire :</b> Permet de sortir du 'une seule année' : tendances long terme, hivers secs répétés, variabilité inter-annuelle forte des pluies d'été — argument clé du brief (s'adapter au changement climatique).</p>
+      <span class="vd" style="background:#238636">✅ UTILE — contexte décennal</span></div></div><h2 id="gpm">2. GPM / IMERG</h2><div class="grid"><div class="fig">
+      <img src="maps/gibs_imerg.png" loading="lazy" onclick="window.open(this.src)">
+      <table class="meta"><tr><th>Provenance</th><td>GIBS WMS · couche IMERG_Precipitation_Rate · 15/07/2025 · -104.000…-94.000°E · 37.000…44.000°N · ≈846 × 774 km · rés tuile rendue (~native)</td></tr>
+      </table>
+      <p class="what">🔎 <b>Ce que c'est :</b> Carte du taux de précipitation mesuré par la constellation GPM sur tout le Nebraska ce jour-là.</p>
+      <p class="drv">💡 <b>Ce que j'en tire :</b> Résolution ~10 km : trop grossier pour LA parcelle mais parfait pour situer un épisode pluvieux régional. En démo, c'est un fond de carte ; en prod, POWER (même grille) donne déjà la série chiffrée — IMERG sert surtout aux extrêmes (averse 30 min).</p>
+      <span class="vd" style="background:#9e6a03">🟡 CONTEXTUEL — belle carte, données par ailleurs</span></div></div><h2 id="landsat">3. Landsat / MODIS / VIIRS</h2><div class="grid"><div class="fig">
+      <img src="maps/s2_rgb.png" loading="lazy" onclick="window.open(this.src)">
+      <table class="meta"><tr><th>Provenance</th><td>Sentinel-2 L2A · scène S2B 2025-08-14 · nuages 0.2% · -99.130…-98.970°E · 40.620…40.780°N · ≈14 × 18 km · rés 10.0 m</td></tr>
+      </table>
+      <p class="what">🔎 <b>Ce que c'est :</b> Vraie couleur 10 m : ville de Kearney (gris), Platter River, parcelles agricoles, pivots d'irrigation.</p>
+      <p class="drv">💡 <b>Ce que j'en tire :</b> La scène du 14/08 couvre TOUTE la zone — après avoir découvert que d'autres granules du même tile étaient des datastrips partiels. Réalité du terrain : damier de ~160 ha, riverbottom irrigué.</p>
+      <span class="vd" style="background:#238636">✅ RÉFÉRENCE VISUELLE</span></div><div class="fig">
+      <img src="maps/s2_ndvi.png" loading="lazy" onclick="window.open(this.src)">
+      <table class="meta"><tr><th>Provenance</th><td>même scène · NDVI=(B08-B04)/(B08+B04)</td></tr>
+      </table>
+      <p class="what">🔎 <b>Ce que c'est :</b> NDVI 10 m : ville en rouge (pas de végétation), cultures vertes, sol nu/sénescent jaune-orange.</p>
+      <p class="drv">💡 <b>Ce que j'en tire :</b> Outil de diagnostic principal : hétérogénéité intra-parcellaire visible (pivots verts vs coins secs), riverbottom contrasté. C'est sur ça qu'on repère le stress végétal et qu'on valide les couverts.</p>
+      <span class="vd" style="background:#238636">✅ CŒUR DE L'APP</span></div><div class="fig">
+      <img src="maps/s2_ndre.png" loading="lazy" onclick="window.open(this.src)">
+      <table class="meta"><tr><th>Provenance</th><td>même scène · NDRE red-edge 20 m</td></tr>
+      </table>
+      <p class="what">🔎 <b>Ce que c'est :</b> Indice red-edge, plus sensible à la chlorophylle que le NDVI : détecte le stress AVANT qu'il soit visible en NDVI.</p>
+      <p class="drv">💡 <b>Ce que j'en tire :</b> Utile pour un signal d'alerte précoce (stress azote/eau). Bonus crédibilité scientifique — coûte rien, même scène.</p>
+      <span class="vd" style="background:#238636">✅ UTILE</span></div><div class="fig">
+      <img src="maps/s2_ndmi.png" loading="lazy" onclick="window.open(this.src)">
+      <table class="meta"><tr><th>Provenance</th><td>même scène · NDMI=(B08-B11)/(B08+B11) 20 m</td></tr>
+      </table>
+      <p class="what">🔎 <b>Ce que c'est :</b> Contenu en eau du couvert végétal (bande SWIR).</p>
+      <p class="drv">💡 <b>Ce que j'en tire :</b> Complément direct du stress hydrique : couplé à l'ET ECOSTRESS ça raconte qui transpire vraiment.</p>
+      <span class="vd" style="background:#238636">✅ UTILE</span></div><div class="fig">
+      <img src="maps/s2zoom_rgb.png" loading="lazy" onclick="window.open(this.src)">
+      <table class="meta"><tr><th>Provenance</th><td>même scène · -99.090…-99.010°E · 40.685…40.735°N · ≈7 × 6 km · rés 10.0 m</td></tr>
+      </table>
+      <p class="what">🔎 <b>Ce que c'est :</b> Zoom ~7 km sur la parcelle de démo : on distingue les limites de champs, chemins, pivots.</p>
+      <p class="drv">💡 <b>Ce que j'en tire :</b> Échelle de travail réelle du fermier — 10 m suffit pour suivre un champ.</p>
+      <span class="vd" style="background:#238636">✅ ÉCHELLE PARCELLE</span></div><div class="fig">
+      <img src="maps/s2zoom_ndvi.png" loading="lazy" onclick="window.open(this.src)">
+      <table class="meta"><tr><th>Provenance</th><td>même scène · NDVI zoom parcelle</td></tr>
+      </table>
+      <p class="what">🔎 <b>Ce que c'est :</b> NDVI sur la même emprise réduite : contraste entre parcelles irriguées rondes et coins anguleux secs.</p>
+      <p class="drv">💡 <b>Ce que j'en tire :</b> Montre ce que le scoring pourrait ingérer : NDVI moyen par champ, détection de zones faibles.</p>
+      <span class="vd" style="background:#238636">✅ ÉCHELLE PARCELLE</span></div><div class="fig">
+      <img src="maps/landsat_ndvi.png" loading="lazy" onclick="window.open(this.src)">
+      <table class="meta"><tr><th>Provenance</th><td>Landsat 9 L2 · LC09 2025-07-05 · -99.130…-98.970°E · 40.620…40.780°N · ≈14 × 18 km · rés 30.0 m</td></tr>
+      </table>
+      <p class="what">🔎 <b>Ce que c'est :</b> NDVI 30 m Landsat, même zone : signal identique à S2 mais plus grossier.</p>
+      <p class="drv">💡 <b>Ce que j'en tire :</b> Confirmé : mêmes patrons. Son vrai atout = l'archive 50 ans (rotations historiques avant CDL) + la thermique.</p>
+      <span class="vd" style="background:#9e6a03">🟡 REDONDANT avec S2 ici — atout = archive+LST</span></div><div class="fig">
+      <img src="maps/landsat_lst.png" loading="lazy" onclick="window.open(this.src)">
+      <table class="meta"><tr><th>Provenance</th><td>même scène · bande thermique lwir11 · -99.130…-98.970°E · 40.620…40.780°N · ≈14 × 18 km · rés 30.0 m</td></tr>
+      </table>
+      <p class="what">🔎 <b>Ce que c'est :</b> Température de surface le 5/07 : les zones sèches/nues chauffent (orange-blanc), l'irrigué et la rivière restent frais.</p>
+      <p class="drv">💡 <b>Ce que j'en tire :</b> Très parlant : carte de stress thermique des parcelles — directement lié au 'heat stress' du brief. Alternative si ECOSTRESS indisponible.</p>
+      <span class="vd" style="background:#238636">✅ UTILE</span></div><div class="fig">
+      <img src="maps/modis_ndvi.png" loading="lazy" onclick="window.open(this.src)">
+      <table class="meta"><tr><th>Provenance</th><td>MODIS 13Q1 · tuile h10v04 · composite 16 j · -102.284…-95.817°E · 40.000…41.500°N · ≈545 × 166 km · rés 231.7 m</td></tr>
+      </table>
+      <p class="what">🔎 <b>Ce que c'est :</b> NDVI 250 m sur une région ~560×165 km : le gradient est-ouest des grandes plaines.</p>
+      <p class="drv">💡 <b>Ce que j'en tire :</b> À 250 m on perd le champ mais on gagne la SÉRIE : 8/16 jours, 25 ans d'archive → phénologie et comparaison d'années. Contexte régional, pas parcelle.</p>
+      <span class="vd" style="background:#9e6a03">🟡 CONTEXTUEL (phénologie, historique)</span></div></div><h2 id="smap">1. SMAP</h2><div class="grid"><div class="fig">
+      <img src="maps/gibs_smap_rz.png" loading="lazy" onclick="window.open(this.src)">
+      <table class="meta"><tr><th>Provenance</th><td>GIBS WMS · SMAP_L4_Analyzed_Root_Zone_Soil_Moisture · 15/07/2025 · -104.000…-94.000°E · 37.000…44.000°N · ≈846 × 774 km · rés tuile rendue (~native)</td></tr>
+      </table>
+      <p class="what">🔎 <b>Ce que c'est :</b> Humidité du sol RACINAIRE (0-100 cm) assimilée, grille ~9 km : le Nebraska en bleu (humide) vs Kansas au sud plus sec.</p>
+      <p class="drv">💡 <b>Ce que j'en tire :</b> Le produit le plus pertinent du brief pour l'eau — racinaire = ce que boit la culture. MAIS 9 km = contexte régional, pas parcelle. En prod : valeurs via earthaccess+login ; ici les tuiles GIBS suffisent pour illustrer.</p>
+      <span class="vd" style="background:#9e6a03">✅ UTILE en contexte / ⚠️ jamais champ-level</span></div><div class="fig">
+      <img src="maps/gibs_smap_surf.png" loading="lazy" onclick="window.open(this.src)">
+      <table class="meta"><tr><th>Provenance</th><td>GIBS WMS · SMAP_L4 surface · 15/07/2025 · -104.000…-94.000°E · 37.000…44.000°N · ≈846 × 774 km · rés tuile rendue (~native)</td></tr>
+      </table>
+      <p class="what">🔎 <b>Ce que c'est :</b> Humidité des 5 cm de surface le même jour.</p>
+      <p class="drv">💡 <b>Ce que j'en tire :</b> La surface sèche plus vite que le racinaire — comparer les deux montre la structure verticale de la sécheresse. Même limite : 9 km.</p>
+      <span class="vd" style="background:#9e6a03">🟡 CONTEXTUEL</span></div><div class="fig">
+      <img src="maps/gibs_smap_gpp.png" loading="lazy" onclick="window.open(this.src)">
+      <table class="meta"><tr><th>Provenance</th><td>GIBS WMS · SMAP_L4_Mean_GPP · 15/07/2025 · -104.000…-94.000°E · 37.000…44.000°N · ≈846 × 774 km · rés tuile rendue (~native)</td></tr>
+      </table>
+      <p class="what">🔎 <b>Ce que c'est :</b> Production primaire brute (carbone fixé) estimée par le modèle SMAP L4.</p>
+      <p class="drv">💡 <b>Ce que j'en tire :</b> Proxy productivité végétale régional ; la famille carbone L4 (GPP/respiration/NEE) est un vrai sous-dataset distinct comme demandé — utile en argument 'santé des sols/biomasse' mais pas prioritaire.</p>
+      <span class="vd" style="background:#9e6a03">🟡 BONUS SCIENCE</span></div></div><h2 id="era5">24. ERA5</h2><div class="grid"><div class="fig">
+      <img src="charts/era5_profile.png" loading="lazy" onclick="window.open(this.src)">
+      <table class="meta"><tr><th>Provenance</th><td>ERA5 Zarr cloud · point -99.05, 40.70 · juillet 2025 · couches sol 1-4</td></tr>
+      </table>
+      <p class="what">🔎 <b>Ce que c'est :</b> Profil d'humidité du sol quotidien : 0-7 cm, 7-28, 28-100, 100-289 cm.</p>
+      <p class="drv">💡 <b>Ce que j'en tire :</b> Données BRUTES réelles (~0.20-0.24 m³/m³) : on voit la surface sécher après juillet pendant que les couches profondes restent stables — la réserve sur laquelle la culture compte. Accès libre, aucun login — meilleur substitut à NLDAS/GLDAS.</p>
+      <span class="vd" style="background:#238636">✅ TRÈS UTILE — profil sol</span></div><div class="fig">
+      <img src="maps/era5_sm_l1.png" loading="lazy" onclick="window.open(this.src)">
+      <table class="meta"><tr><th>Provenance</th><td>ERA5 · maille régionale 0.25° · 15/07/2025 · -100.000…-98.500°E · 40.250…41.000°N · ≈127 × 83 km · rés 0.25° (~28 km)</td></tr>
+      </table>
+      <p class="what">🔎 <b>Ce que c'est :</b> Carte de l'humidité 0-7 cm : mailles de ~28 km, le point est une maille.</p>
+      <p class="drv">💡 <b>Ce que j'en tire :</b> Illustre honnêtement la résolution : 1 maille ERA5 ≈ toute la zone de démo. À utiliser en série temporelle de contexte, jamais en carte de champ.</p>
+      <span class="vd" style="background:#9e6a03">🟡 CONTEXTUEL — honnêteté de résolution</span></div></div><h2 id="ecostress">6. ECOSTRESS</h2><div class="grid"><div class="fig">
+      <img src="maps/ecostress_ECO_L3T_JET.png" loading="lazy" onclick="window.open(this.src)">
+      <table class="meta"><tr><th>Provenance</th><td>Granule ECO_L3T_JET 2025-05-27 · image browse NASA · -100.199…-98.883°E · 40.557…41.552°N · ≈110 × 110 km · rés ?</td></tr>
+      </table>
+      <p class="what">🔎 <b>Ce que c'est :</b> Évapotranspiration journalière (PT-JPL) d'une bande orbitale ISS — le granule contient notre point.</p>
+      <p class="drv">💡 <b>Ce que j'en tire :</b> Produit phare du brief (stress hydrique réel à ~70 m). MAIS : passage ISS irrégulier, nuages, login Earthdata pour les valeurs. Les images browse (publiques) suffisent pour une démo crédible.</p>
+      <span class="vd" style="background:#9e6a03">✅ FORT EN DÉMO / ⚠️ dispo sporadique</span></div><div class="fig">
+      <img src="maps/ecostress_ECO_L4T_ESI.png" loading="lazy" onclick="window.open(this.src)">
+      <table class="meta"><tr><th>Provenance</th><td>Granule ECO_L4T_ESI · même date · -100.199…-98.883°E · 40.557…41.552°N · ≈110 × 110 km · rés ?</td></tr>
+      </table>
+      <p class="what">🔎 <b>Ce que c'est :</b> Indice de stress évaporatif : fraction d'ET réelle / ET potentielle — 1 = pas de stress.</p>
+      <p class="drv">💡 <b>Ce que j'en tire :</b> Encore plus direct que l'ET brute : un score de stress lisible par un agronome. Mêmes limites de dispo.</p>
+      <span class="vd" style="background:#9e6a03">✅ FORT EN DÉMO</span></div><div class="fig">
+      <img src="maps/ecostress_ECO_L2T_LSTE.png" loading="lazy" onclick="window.open(this.src)">
+      <table class="meta"><tr><th>Provenance</th><td>Granule ECO_L2T_LSTE 2025-05-20 · -100.199…-98.883°E · 40.557…41.552°N · ≈110 × 110 km · rés ?</td></tr>
+      </table>
+      <p class="what">🔎 <b>Ce que c'est :</b> Température de surface à ~70 m — encore plus fin que Landsat thermique.</p>
+      <p class="drv">💡 <b>Ce que j'en tire :</b> Confirmé dispo en browse ; en backup Landsat LST couvre le besoin de façon régulière.</p>
+      <span class="vd" style="background:#9e6a03">🟡 REDONDANT avec Landsat LST</span></div></div><h2 id="nwis">17. USGS NWIS</h2><div class="grid"><div class="fig">
+      <img src="charts/nwis_hydro.png" loading="lazy" onclick="window.open(this.src)">
+      <table class="meta"><tr><th>Provenance</th><td>API NWIS iv · site 06770200 Platte River near Kearney · juin-août 2025</td></tr>
+      </table>
+      <p class="what">🔎 <b>Ce que c'est :</b> Débit quotidien réel de la Platte : ~500-1500 cfs, moyenne 874 cfs (~25 m³/s).</p>
+      <p class="drv">💡 <b>Ce que j'en tire :</b> La Platte borde la zone au sud — c'est l'eau de surface qui alimente les canaux d'irrigation locaux. Lien direct eau↔irrigation du brief ; API REST gratuite sans clé.</p>
+      <span class="vd" style="background:#238636">✅ UTILE — volet eau de surface</span></div></div><h2 id="cdl">9. CDL / CropScape</h2><div class="grid"><div class="fig">
+      <img src="maps/cdl_map_2020.png" loading="lazy" onclick="window.open(this.src)">
+      <table class="meta"><tr><th>Provenance</th><td>WMS CropScape · cdl_2020 · -99.450…-98.650°E · 40.450…40.900°N · ≈68 × 50 km · rés 30 m source / rendu WMS</td></tr>
+      </table>
+      <p class="what">🔎 <b>Ce que c'est :</b> Carte nationale classée 30 m : maïs jaune, soja vert foncé, alfalfa rose, eau bleue, ville grise.</p>
+      <p class="drv">💡 <b>Ce que j'en tire :</b> Chaque année reclassée → on reconstruit l'HISTORIQUE de rotation champ par champ (voir tableau). Jaune dominant = maïs ~45% de la zone.</p>
+      <span class="vd" style="background:#238636">✅ CŒUR ROTATION</span></div><div class="fig">
+      <img src="maps/cdl_map_2021.png" loading="lazy" onclick="window.open(this.src)">
+      <table class="meta"><tr><th>Provenance</th><td>cdl_2021 · même emprise</td></tr>
+      </table>
+      <p class="what">🔎 <b>Ce que c'est :</b> Idem 2021.</p>
+      <p class="drv">💡 <b>Ce que j'en tire :</b> Comparaison pixel-par-pixel : les champs alternent jaune↔vert — la rotation maïs/soja est lisible directement.</p>
+      <span class="vd" style="background:#238636">✅</span></div><div class="fig">
+      <img src="maps/cdl_map_2022.png" loading="lazy" onclick="window.open(this.src)">
+      <table class="meta"><tr><th>Provenance</th><td>cdl_2022 · même emprise</td></tr>
+      </table>
+      <p class="what">🔎 <b>Ce que c'est :</b> Idem 2022.</p>
+      <p class="drv">💡 <b>Ce que j'en tire :</b> Confirme la stabilité du système maïs-soja + prairies permanentes.</p>
+      <span class="vd" style="background:#238636">✅</span></div><div class="fig">
+      <img src="maps/cdl_map_2023.png" loading="lazy" onclick="window.open(this.src)">
+      <table class="meta"><tr><th>Provenance</th><td>cdl_2023 · même emprise</td></tr>
+      </table>
+      <p class="what">🔎 <b>Ce que c'est :</b> Idem 2023.</p>
+      <p class="drv">💡 <b>Ce que j'en tire :</b> La ville de Kearney et la Platte servent de repères visuels.</p>
+      <span class="vd" style="background:#238636">✅</span></div><div class="fig">
+      <img src="maps/cdl_map_2024.png" loading="lazy" onclick="window.open(this.src)">
+      <table class="meta"><tr><th>Provenance</th><td>cdl_2024 · même emprise</td></tr>
+      </table>
+      <p class="what">🔎 <b>Ce que c'est :</b> Idem 2024 (plus récente dispo à l'écriture).</p>
+      <p class="drv">💡 <b>Ce que j'en tire :</b> Extension à 2025 possible : la couche cdl_2025 existe déjà.</p>
+      <span class="vd" style="background:#238636">✅</span></div></div><h2 id="dem">5. SRTM / DEM</h2><div class="grid"><div class="fig">
+      <img src="maps/dem.png" loading="lazy" onclick="window.open(this.src)">
+      <table class="meta"><tr><th>Provenance</th><td>Copernicus DEM GLO-30 · -99.130…-98.970°E · 40.620…40.780°N · ≈14 × 18 km · rés 0.0 m</td></tr>
+      </table>
+      <p class="what">🔎 <b>Ce que c'est :</b> Altitude 640-702 m : la vallée de la Platte (bas, au sud) et les plateaux de loess.</p>
+      <p class="drv">💡 <b>Ce que j'en tire :</b> Plat mais pas plat : le riverbottom est en creux — utile pour l'irrigation par gravité et le risque de gel/nocturne.</p>
+      <span class="vd" style="background:#238636">✅ UTILE</span></div><div class="fig">
+      <img src="maps/slope.png" loading="lazy" onclick="window.open(this.src)">
+      <table class="meta"><tr><th>Provenance</th><td>dérivé du même DEM</td></tr>
+      </table>
+      <p class="what">🔎 <b>Ce que c'est :</b> Pente en degrés : la plupart des champs <2°, les berges de rivière et breaks plus raides.</p>
+      <p class="drv">💡 <b>Ce que j'en tire :</b> Proxy érosion/ruissellement immédiat pour le scoring 'soil health' — là où ça penche, couverture végétale obligatoire.</p>
+      <span class="vd" style="background:#238636">✅ UTILE — entrée du scoring</span></div></div><h2 id="naip">12. NAIP</h2><div class="grid"><div class="fig">
+      <img src="maps/naip.png" loading="lazy" onclick="window.open(this.src)">
+      <table class="meta"><tr><th>Provenance</th><td>NAIP Planetary Computer · tuile 2022-07-18 · -99.090…-99.010°E · 40.685…40.735°N · ≈7 × 6 km · rés 1.2 m (décimé)</td></tr>
+      </table>
+      <p class="what">🔎 <b>Ce que c'est :</b> Photo aérienne 1 m : pivot d'irrigation, bâtiments de ferme, routes, texture des champs.</p>
+      <p class="drv">💡 <b>Ce que j'en tire :</b> Résolution maximale du lot : on voit les traces de machinisme, les coins non irrigués, l'état du couvert. Sert de 'photo de référence' pour l'agriculteur qui reconnaît SA parcelle.</p>
+      <span class="vd" style="background:#238636">✅ FORT impact utilisateur</span></div><div class="fig">
+      <img src="maps/naip_ndvi.png" loading="lazy" onclick="window.open(this.src)">
+      <table class="meta"><tr><th>Provenance</th><td>même tuile · canal CIR</td></tr>
+      </table>
+      <p class="what">🔎 <b>Ce que c'est :</b> NDVI calculé à 1 m depuis l'infra-rouge NAIP : chaque plante presque.</p>
+      <p class="drv">💡 <b>Ce que j'en tire :</b> Démo bluffante de précision ; limite : couverture ~1 an sur 3, pas de série temporelle dense.</p>
+      <span class="vd" style="background:#9e6a03">🟡 IMPRESSIONNANT mais sporadique</span></div></div><h2 id="grace">25. GRACE (bonus)</h2><div class="grid"><div class="fig">
+      <img src="maps/gibs_grace.png" loading="lazy" onclick="window.open(this.src)">
+      <table class="meta"><tr><th>Provenance</th><td>GIBS · GRACE mascon CRI · dernier mois dispo · -104.000…-94.000°E · 37.000…44.000°N · ≈846 × 774 km · rés tuile rendue (~native)</td></tr>
+      </table>
+      <p class="what">🔎 <b>Ce que c'est :</b> Anomalie d'eau totale (sol+nappes) sur mailles de ~300 km.</p>
+      <p class="drv">💡 <b>Ce que j'en tire :</b> L'histoire Ogallala : la nappe qui irrigue la région s'épuise depuis 20 ans — c'est LE narratif eau long-terme du brief. Totalement hors échelle parcelle : narratif/contexte uniquement.</p>
+      <span class="vd" style="background:#9e6a03">🟡 NARRATIF RÉGIONAL</span></div></div><h2 id="landfire">21. LANDFIRE</h2><div class="grid"><div class="fig">
+      <img src="maps/landfire_evt.png" loading="lazy" onclick="window.open(this.src)">
+      <table class="meta"><tr><th>Provenance</th><td>WMS GeoServer USGS · LF2024_EVT_CONUS · -99.600…-98.500°E · 40.300…41.100°N · ≈93 × 88 km · rés 30 m (rendu WMS)</td></tr>
+      </table>
+      <p class="what">🔎 <b>Ce que c'est :</b> Types de végétation existante 30 m : cultures, prairies, riverbottom boisé.</p>
+      <p class="drv">💡 <b>Ce que j'en tire :</b> Chevauche CDL pour l'agri mais apporte le non-cultivé (zones naturelles, ripisylves). Priorité basse pour la rotation — gardez-le pour les habitats/bords de champ.</p>
+      <span class="vd" style="background:#9e6a03">🟡 SECONDAIRE</span></div></div><h2 id="modisg">(divers) MODIS/VIIRS via GIBS</h2><div class="grid"><div class="fig">
+      <img src="maps/gibs_modis_ndvi.png" loading="lazy" onclick="window.open(this.src)">
+      <table class="meta"><tr><th>Provenance</th><td>GIBS · MODIS_Terra_NDVI_8Day · 11/07/2025 · -104.000…-94.000°E · 37.000…44.000°N · ≈846 × 774 km · rés tuile rendue (~native)</td></tr>
+      </table>
+      <p class="what">🔎 <b>Ce que c'est :</b> NDVI régional 8 jours.</p>
+      <p class="drv">💡 <b>Ce que j'en tire :</b> Fond de carte instantané sans traitement — pratique, remplacé par MODIS natif pour l'analyse.</p>
+      <span class="vd" style="background:#9e6a03">🟡 VUE RAPIDE</span></div><div class="fig">
+      <img src="maps/gibs_modis_lst.png" loading="lazy" onclick="window.open(this.src)">
+      <table class="meta"><tr><th>Provenance</th><td>GIBS · MODIS LST 8j jour · 11/07/2025 · -104.000…-94.000°E · 37.000…44.000°N · ≈846 × 774 km · rés tuile rendue (~native)</td></tr>
+      </table>
+      <p class="what">🔎 <b>Ce que c'est :</b> Température de surface régionale 8 jours.</p>
+      <p class="drv">💡 <b>Ce que j'en tire :</b> Montre l'anomalie de chaleur régionale en un clin d'œil.</p>
+      <span class="vd" style="background:#9e6a03">🟡 VUE RAPIDE</span></div><div class="fig">
+      <img src="maps/gibs_viirs_ndvi.png" loading="lazy" onclick="window.open(this.src)">
+      <table class="meta"><tr><th>Provenance</th><td>GIBS · VIIRS_SNPP_NDVI_8Day · 11/07/2025 · -104.000…-94.000°E · 37.000…44.000°N · ≈846 × 774 km · rés tuile rendue (~native)</td></tr>
+      </table>
+      <p class="what">🔎 <b>Ce que c'est :</b> NDVI VIIRS — le successeur de MODIS.</p>
+      <p class="drv">💡 <b>Ce que j'en tire :</b> Même rôle que MODIS, prolonge la série au-delà de la fin de vie des satellites Terra/Aqua.</p>
+      <span class="vd" style="background:#9e6a03">🟡 VUE RAPIDE</span></div></div>
+<h2>🌽 Rotation réelle décodée (CDL × palette officielle)</h2>
+<div class="rot">Pixel central (-99.05, 40.675) : <b>2020</b>&nbsp;Corn → <b>2021</b>&nbsp;Soybeans → <b>2022</b>&nbsp;Corn → <b>2023</b>&nbsp;Corn → <b>2024</b>&nbsp;Grassland/Pasture — <b>la rotation maïs↔soja classique du Nebraska, puis mise en prairie</b>. Le décodage corrige un bug uint8 qui faisait passer le soja pour du millet.</div>
+<table class="big"><tr><th>Année</th><th>1ʳᵉ classe</th><th>2ᵉ</th><th>3ᵉ</th><th>4ᵉ</th><th>5ᵉ</th></tr><tr><td>2020</td><td>Corn <span class='pct'>(47.3%)</span></td><td>Grassland/Pasture <span class='pct'>(20.5%)</span></td><td>Soybeans <span class='pct'>(17.8%)</span></td><td>Autre <span class='pct'>(6.3%)</span></td><td>Open Water <span class='pct'>(3.6%)</span></td></tr><tr><td>2021</td><td>Corn <span class='pct'>(44.6%)</span></td><td>Soybeans <span class='pct'>(21.0%)</span></td><td>Grassland/Pasture <span class='pct'>(19.8%)</span></td><td>Autre <span class='pct'>(6.6%)</span></td><td>Open Water <span class='pct'>(3.6%)</span></td></tr><tr><td>2022</td><td>Corn <span class='pct'>(44.1%)</span></td><td>Soybeans <span class='pct'>(21.6%)</span></td><td>Grassland/Pasture <span class='pct'>(19.8%)</span></td><td>Autre <span class='pct'>(6.5%)</span></td><td>Open Water <span class='pct'>(3.7%)</span></td></tr><tr><td>2023</td><td>Corn <span class='pct'>(46.7%)</span></td><td>Grassland/Pasture <span class='pct'>(20.0%)</span></td><td>Soybeans <span class='pct'>(18.3%)</span></td><td>Autre <span class='pct'>(6.7%)</span></td><td>Open Water <span class='pct'>(3.6%)</span></td></tr><tr><td>2024</td><td>Corn <span class='pct'>(46.5%)</span></td><td>Grassland/Pasture <span class='pct'>(25.5%)</span></td><td>Soybeans <span class='pct'>(17.4%)</span></td><td>Autre <span class='pct'>(5.3%)</span></td><td>Alfalfa <span class='pct'>(1.8%)</span></td></tr></table>
+<h2>🪨 Sols SSURGO (SDA — même base que Web Soil Survey)</h2>
+<table class="big"><tr><th>Symbole</th><th>Série de sol</th><th>Part</th><th>Pente %</th><th>Taxonomie</th><th>Drainage</th><th>MO %</th><th>AWC</th></tr><tr><td>8493</td><td>Gothenburg</td><td>100.0%</td><td>1.0</td><td>Entisols</td><td>Poorly drained</td><td>0.42</td><td>0.07</td></tr><tr><td>9983</td><td>Pits</td><td>100.0%</td><td>15.0</td><td></td><td>Excessively drai</td><td>—</td><td>—</td></tr><tr><td>8932</td><td>Simeon</td><td>100.0%</td><td>2.0</td><td>Entisols</td><td>Excessively drai</td><td>0.5</td><td>0.11</td></tr><tr><td>9999</td><td>Water</td><td>100.0%</td><td>None</td><td></td><td></td><td>—</td><td>—</td></tr><tr><td>8435</td><td>Cass</td><td>100.0%</td><td>1.0</td><td>Mollisols</td><td>Well drained</td><td>1.0</td><td>0.153</td></tr><tr><td>3710</td><td>Cass</td><td>100.0%</td><td>2.0</td><td>Mollisols</td><td>Well drained</td><td>0.83</td><td>0.14</td></tr><tr><td>1038</td><td>Grigston</td><td>100.0%</td><td>1.0</td><td>Mollisols</td><td>Well drained</td><td>1.33</td><td>0.163</td></tr><tr><td>9983</td><td>Pits</td><td>100.0%</td><td>15.0</td><td></td><td>Excessively drai</td><td>—</td><td>—</td></tr><tr><td>8841</td><td>Hall</td><td>100.0%</td><td>2.0</td><td>Mollisols</td><td>Well drained</td><td>1.75</td><td>0.203</td></tr><tr><td>8872</td><td>Hord</td><td>100.0%</td><td>4.0</td><td>Mollisols</td><td>Well drained</td><td>1.33</td><td>0.207</td></tr></table>
+<h3 style="color:#58a6ff">Rendements potentiels NRCS (bu/ac — *tonnes)</h3>
+<table class="big"><tr><th>Culture</th><th>Non-irrigué</th><th>Irrigué</th></tr><tr><td>Corn</td><td>51.5</td><td>123.6</td></tr><tr><td>Grain sorghum</td><td>64.5</td><td>102.2</td></tr><tr><td>Winter wheat</td><td>35.9</td><td>—</td></tr><tr><td>Alfalfa hay</td><td>3.6</td><td>4.4</td></tr><tr><td>Dry pinto beans</td><td>—</td><td>—</td></tr><tr><td>Sugar beets</td><td>—</td><td>—</td></tr><tr><td>Soybeans</td><td>37.0</td><td>47.2</td></tr><tr><td>Oats</td><td>60.0</td><td>—</td></tr><tr><td>Pasture</td><td>2.6</td><td>9.9</td></tr></table>
+<p class="drv">Le contraste non-irrigué/irrigué (maïs 51.5 → 123.6 bu/ac) quantifie exactement ce que vaut l'eau ici — argument central pour les rotations économes en eau.</p>
+<p class="sub" style="margin-top:24px">Tout est local : <code>data-test/</code> (raw = données brutes, maps = cartes géoréférencées, charts = graphiques). <a href="../ressources-field-shift.html">→ Analyse des 24 ressources</a></p>
+</body></html>
