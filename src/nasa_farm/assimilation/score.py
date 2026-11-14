@@ -1,23 +1,27 @@
 """Ensemble Score Filter — Bao, Zhang & Zhang (2023), arXiv:2309.00983.
 
-The analysis draws new members by integrating a backward diffusion SDE in
-pseudo-time tau in [0,1] with a *training-free* Monte-Carlo score. The
-forecast ensemble plays the role of the reference sample set:
+Each analysis member is resampled by integrating a backward diffusion SDE
+in pseudo-time tau in [0,1] with a *training-free* Monte-Carlo score
+(Eq. 21-22, minibatch size one: each path carries its designated forecast
+member as reference set — the choice used in the reference code):
 
   forward marginals   q(z_tau | x_j) = N(alpha_tau x_j, beta_tau^2 I)
-  alpha_tau  = 1 - tau (1 - eps_a)
-  beta_tau^2 = eps_b + tau (1 - eps_b)
-  prior score S(z,tau) = sum_j w_j (alpha x_j - z)/beta^2 ,
-      w_j softmax over -||z - alpha x_j||^2 / (2 beta^2)
+  alpha_tau  = 1 - tau (1 - eps_a)      (Eq. 20)
+  beta_tau^2 = eps_b + tau (1 - eps_b)  (Eq. 20)
+  prior score S(z,tau) = (alpha_tau x_j - z) / beta_tau^2
   posterior score      S + h(tau) * grad_z log p(y|z),  h(tau) = 1 - tau
-  backward SDE (Euler-Maruyama, tau: 1 -> 0):
-      z <- z - [b z - s^2 S] dtau + s dW,
+  backward SDE (Euler-Maruyama, tau: 1 -> 0, Eq. 23):
+      z <- z - [b z - s^2 S] dtau + s dW
       b(t) = alpha'/alpha,  s^2(t) = beta2' - 2 beta^2 alpha'/alpha
 
 The likelihood gradient is exact when `channels` is given: an autograd
-jacobian of the observation operator at the diffused point. Without
-channel names it falls back to the ensemble-linearized operator
-H = cov(Y,X) cov(X)^{-1} — the standard reduced-rank surrogate.
+jacobian of the observation operator at the diffused point (the paper's
+"via automatic differentiation" option). Without channel names it falls
+back to the ensemble-linearized operator H = cov(Y,X) cov(X)^{-1}.
+
+Note the paper's own caveat: the damped-likelihood posterior score is not
+the exact posterior filtering score — EnSF is an approximate sampler,
+most accurate for informative observations.
 """
 
 from __future__ import annotations
@@ -32,10 +36,11 @@ from nasa_farm.state.field import FieldState
 
 _EPS_ALPHA = 0.05
 _EPS_BETA = 0.01
+_CLIP = 1000.0
 
 
 def _linearize(x: torch.Tensor, y_pred: torch.Tensor) -> torch.Tensor:
-    """Ensemble-linearized obs operator H: (B,C),(B,V) -> (C,V)."""
+    """Ensemble-linearized obs operator H: (B,V),(B,C) -> (C,V)."""
     xa = x - x.mean(0)
     ya = y_pred - y_pred.mean(0)
     cxx = xa.t() @ xa / (x.shape[0] - 1)
@@ -45,7 +50,7 @@ def _linearize(x: torch.Tensor, y_pred: torch.Tensor) -> torch.Tensor:
 
 
 def _likelihood_grad(z: torch.Tensor, state: FieldState,
-                     names: tuple[str, ...], channels: tuple[str, ...],
+                     names: tuple[str, ...], channels: tuple[str, ...] | None,
                      y: torch.Tensor, r_inv: torch.Tensor,
                      h_lin: torch.Tensor, y_mean: torch.Tensor,
                      x_mean: torch.Tensor) -> torch.Tensor:
@@ -74,10 +79,10 @@ def score_update(state: FieldState, observed_prediction: torch.Tensor,
                  ) -> FieldState:
     """EnSF analysis: resample the posterior by backward-SDE paths.
 
-    state/obs_pred: (B,) ensemble and (B, C) predicted observations;
-    observed: (C,); r: obs-error variance (scalar, (C,) diag or (C,C)).
-    `perturb` is accepted for interface symmetry with the EnKF — EnSF is
-    intrinsically stochastic (its members are drawn, not shifted).
+    state/observed_prediction: (B,) ensemble and (B, C) predicted
+    observables; observed: (C,); r: obs-error variance (scalar, (C,)
+    diagonal or (C, C) full). `perturb` is accepted for interface
+    symmetry — EnSF is intrinsically stochastic.
     """
     x = torch.stack([_get_variable(state, n) for n in names], dim=-1)
     b, v = x.shape
@@ -87,7 +92,10 @@ def score_update(state: FieldState, observed_prediction: torch.Tensor,
     else:
         r_inv = torch.diag(1.0 / r_t.expand(observed.numel()))
     h_lin = _linearize(x, observed_prediction)
-    z = torch.randn(b, v, generator=generation, dtype=x.dtype, device=x.device)
+    y_mean, x_mean = observed_prediction.mean(0), x.mean(0)
+    z = torch.randn(b, v, generator=generation, dtype=x.dtype,
+                    device=x.device)
+    z = (z - z.mean(0)) / z.std(0).clamp(min=1e-9)
     dtau = 1.0 / steps
     for k in range(steps, 0, -1):
         tau = k * dtau
@@ -95,14 +103,10 @@ def score_update(state: FieldState, observed_prediction: torch.Tensor,
         beta2 = eps_beta + tau * (1.0 - eps_beta)
         drift = -(1.0 - eps_alpha) / alpha
         diff2 = (1.0 - eps_beta) + 2.0 * beta2 * (1.0 - eps_alpha) / alpha
-
-        d = z.unsqueeze(1) - alpha * x.unsqueeze(0)          # (B, B, V)
-        w = torch.softmax(-0.5 * d.pow(2).sum(-1) / beta2, dim=1)
-        mu = w @ (alpha * x)
-        s_prior = (mu - z) / beta2
+        s_prior = (alpha * x - z) / beta2
         s_like = _likelihood_grad(
             z, state, names, channels, observed, r_inv,
-            h_lin, observed_prediction.mean(0), x.mean(0))
+            h_lin, y_mean, x_mean).clamp(-_CLIP, _CLIP)
         s_post = s_prior + (1.0 - tau) * s_like
         noise = torch.randn(z.shape, generator=generation,
                             dtype=z.dtype, device=z.device)
