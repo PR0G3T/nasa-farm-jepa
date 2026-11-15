@@ -21,8 +21,9 @@ merges, so re-crawls write nothing.
 from __future__ import annotations
 
 import datetime as dt
-from concurrent.futures import ThreadPoolExecutor
-from itertools import groupby
+import multiprocessing
+from concurrent.futures import ProcessPoolExecutor
+from itertools import batched, groupby
 from pathlib import Path
 from typing import Callable, Iterable
 
@@ -134,12 +135,24 @@ def _aoi(specification, fields: list[dict]) -> Bounds | None:
     return None if w > e or s > n else Bounds(w, s, e, n)
 
 
-def _granule(work):
-    """Range-read one granule → {fid: (v, w)}. Pure I/O — the caller
-    serializes lake writes."""
+# --- granule worker: fork pool, dataset inherited copy-on-write ----------
+# Workers recycle every TASKS_PER_CHILD tasks: whatever the h5netcdf /
+# fsspec / earthaccess stack retains per granule is returned to the OS with
+# the process, so resident memory stays bounded over a long crawl.
+_PRELOAD: dict = {}
+TASKS_PER_CHILD = 16
+
+
+def _init() -> None:
     import socket
     socket.setdefaulttimeout(300)
-    specification, g, fields = work
+
+
+def _granule(i: int):
+    """Range-read granule `todo[i]` → {fid: (v, w)}. Pure I/O — the caller
+    serializes lake writes."""
+    specification, fields = _PRELOAD["specification"], _PRELOAD["fields"]
+    g = _PRELOAD["todo"][i]
     from nasa_farm.observe import fetch
     try:
         with fetch(specification.source, g) as ds:
@@ -178,24 +191,35 @@ def _granules(specification, fields: list[dict], lake: Lake,
     if not todo:
         return
 
-    def work(g): return _granule((specification, g, fields))
     n_workers = min(specification.workers, workers) or specification.workers
-    with ThreadPoolExecutor(max_workers=n_workers) as pool:
-        for gid, got in pool.map(work, todo, buffersize=n_workers):
-            if not isinstance(got, tuple):
-                log(f"{specification.observed} {gid} {got}")
-                continue
-            day, values = got
-            di = numpy.array([day], numpy.int32)
-            source = specification.source.short_name
-            with lake.transaction():
-                for fid, (v, w) in values.items():
-                    lake.put(fid, "obs", specification.observed, di,
-                             numpy.array([v], numpy.float32), source)
-                    lake.put(fid, "obs", f"{specification.observed}_w", di,
-                             numpy.array([w], numpy.float32), source)
-                lake.mark_granule(gid, source)
-            log(f"{specification.observed} {gid} ok")
+    _PRELOAD.update(specification=specification, fields=fields, todo=todo)
+    try:
+        # Fresh fork pool per batch: whatever the h5netcdf / fsspec /
+        # earthaccess stack retains per granule exits with the workers, so
+        # resident memory stays bounded over a long crawl.
+        for batch in batched(range(len(todo)),
+                             n_workers * TASKS_PER_CHILD):
+            ctx = multiprocessing.get_context("fork")
+            with ProcessPoolExecutor(max_workers=n_workers, mp_context=ctx,
+                                     initializer=_init) as pool:
+                for gid, got in pool.map(_granule, batch,
+                                         buffersize=n_workers):
+                    if not isinstance(got, tuple):
+                        log(f"{specification.observed} {gid} {got}")
+                        continue
+                    day, values = got
+                    di = numpy.array([day], numpy.int32)
+                    source = specification.source.short_name
+                    with lake.transaction():
+                        for fid, (v, w) in values.items():
+                            lake.put(fid, "obs", specification.observed, di,
+                                     numpy.array([v], numpy.float32), source)
+                            lake.put(fid, "obs", f"{specification.observed}_w",
+                                     di, numpy.array([w], numpy.float32), source)
+                        lake.mark_granule(gid, source)
+                    log(f"{specification.observed} {gid} ok")
+    finally:
+        _PRELOAD.clear()
 
 
 def crawl(fields: Iterable[dict], root: Path | str, years: list[int],
