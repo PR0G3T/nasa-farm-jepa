@@ -141,7 +141,8 @@ class TestTrainer:
         pa, pb = leaf(torch.tensor([5.0])), leaf(torch.tensor([5.0]))
         ra = fit(lambda: (pa - 2.0) ** 2, {"p": pa}, epochs=200, rate=0.1)
         rb = fit_batch(
-            lambda: ((pb - 2.0) ** 2, {"p": 2 * (pb - 2.0).detach()}),
+            lambda: (float((pb - 2.0).detach() ** 2),
+                     {"p": 2 * (pb - 2.0).detach()}),
             {"p": pb}, epochs=200, rate=0.1)
         assert float(pb) == pytest.approx(float(pa), abs=1e-5)
         assert rb.best_loss == pytest.approx(ra.best_loss, abs=1e-5)
@@ -265,3 +266,45 @@ class TestNAS:
         assert result.best_config["depth"] in (1, 2, 3, 4)
         assert torch.isfinite(torch.tensor(result.best_value))
         assert len(result.leaderboard) <= 3
+
+
+def _lake(tmp_path, fid: str, year: int, obs_days: int = 40):
+    """Minimal real lake: 365 forcing days + `obs_days` SMAP-like obs."""
+    import datetime as _dt
+
+    import numpy as _numpy
+
+    from nasa_farm.lake import Lake
+    dates = _numpy.array([
+        int((_dt.date(year, 1, 1) + _dt.timedelta(days=i)).strftime("%Y%m%d"))
+        for i in range(365)])
+    with Lake(tmp_path) as L:
+        for var, val in (("tmin", 5.0), ("tmax", 15.0), ("srad", 20.0),
+                         ("precip", 2.0), ("rh", 70.0), ("u2", 3.0)):
+            L.put(fid, "forcing", var, dates, _numpy.full(365, val))
+        obs = dates[::5][:obs_days]
+        L.put(fid, "obs", "sm", obs, _numpy.full(len(obs), 0.25))
+
+
+class TestLakeTrain:
+    def test_serial_and_pool_agree(self, tmp_path):
+        """One residual, one dataset — the pool and the serial path must
+        land on the same loss: gradient reduction is order-deterministic."""
+        from nasa_farm.optimize.lake import train
+        _lake(tmp_path, "F1", 2021)
+        serial = train(tmp_path, ["F1"], [2021], epochs=3, workers=1)
+        pooled = train(tmp_path, ["F1"], [2021], epochs=3, workers=2)
+        assert serial["runs"] == pooled["runs"] == 1
+        assert serial["best_loss"] == pytest.approx(pooled["best_loss"])
+        assert serial["loss"]["F1/2021"] >= 0.0
+
+    def test_output_and_missing_obs(self, tmp_path):
+        from nasa_farm.optimize.lake import train
+        _lake(tmp_path, "F1", 2021)
+        _lake(tmp_path, "F2", 2021, obs_days=10)     # below MIN_OBS → skipped
+        out = tmp_path / "residual.pt"
+        result = train(tmp_path, ["F1", "F2"], [2021], epochs=2, workers=1,
+                       output=out)
+        assert result["runs"] == 1 and out.is_file()
+        state = torch.load(out, weights_only=True)
+        assert all(torch.isfinite(v).all() for v in state.values())

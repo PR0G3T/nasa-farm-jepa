@@ -120,6 +120,7 @@ def _build_parser() -> argparse.ArgumentParser:
     train.add_argument("--rate", type=float, default=0.02)
     train.add_argument("--workers", type=int, default=None,
                     help="parallel field processes (default: cpu count)")
+    train.add_argument("--seed", type=int, default=0)
 
     serve = subparsers.add_parser("serve", help="HTTP API (granian + fastapi)")
     serve.add_argument("--host", default="127.0.0.1")
@@ -574,7 +575,8 @@ def cmd_train(arguments) -> int:
     result = train(root, fids,
                    list(range(last - arguments.years + 1, last + 1)),
                    epochs=arguments.epochs, rate=arguments.rate,
-                   workers=arguments.workers, output=root / "residual.pt")
+                   workers=arguments.workers, seed=arguments.seed,
+                   output=root / "residual.pt")
     sys.stderr.write(f"train: {result['runs']} runs "
                      f"(best_loss={result['best_loss']}, "
                      f"{result['epochs']} epochs)\n")

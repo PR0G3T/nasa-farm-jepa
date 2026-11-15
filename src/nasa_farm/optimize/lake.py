@@ -115,12 +115,16 @@ def _grad(payload: tuple[int, dict]) -> tuple[int, float, dict]:
 
 def train(root: Path | str, fids: list[str], years: list[int],
           epochs: int = 60, rate: float = 0.02, workers: int | None = None,
+          seed: int | None = 0,
           output: Path | str | None = None) -> dict:
     """Joint full-batch training: every epoch evaluates every sample's
     gradient at the shared parameters — in a fork pool when workers > 1 —
     reduces the mean, and takes one Adam step. One residual serving the
-    whole lake, not a per-field curriculum."""
+    whole lake, not a per-field curriculum. `seed` makes init and the
+    whole trajectory reproducible; None leaves RNG untouched."""
     global _PRELOAD
+    if seed is not None:
+        torch.manual_seed(seed)
     crops = CropLibrary.default()
     model = WorldModel(crops, residual=True)
     parameters = {n: p for n, p in model.residual.named_parameters()
@@ -132,6 +136,7 @@ def train(root: Path | str, fids: list[str], years: list[int],
         return {"runs": 0, "loss": {}, "best_loss": None, "epochs": 0}
     n_workers = max(1, min(workers or os.cpu_count() or 1, len(samples)))
     _PRELOAD = samples
+    pool: ProcessPoolExecutor | None = None
     if n_workers > 1:
         ctx = multiprocessing.get_context("fork")
         pool = ProcessPoolExecutor(max_workers=n_workers, mp_context=ctx,
@@ -155,7 +160,7 @@ def train(root: Path | str, fids: list[str], years: list[int],
                           parameters.items()}) for i in range(len(samples))])
     finally:
         _PRELOAD = []
-        if n_workers > 1:
+        if pool is not None:
             pool.shutdown()
     losses = {f"{s['fid']}/{s['year']}": v
               for s, (i, v, _) in zip(samples, final)}
@@ -163,14 +168,3 @@ def train(root: Path | str, fids: list[str], years: list[int],
         torch.save(model.residual.state_dict(), output)
     return {"runs": len(losses), "loss": losses,
             "best_loss": result.best_loss, "epochs": result.epochs_run}
-
-
-if __name__ == "__main__":
-    import sys
-    from nasa_farm.lake import Lake
-    root = Path(sys.argv[1] if len(sys.argv) > 1 else "lake")
-    workers = int(sys.argv[2]) if len(sys.argv) > 2 else None
-    with Lake(root) as L:
-        fids = L.fids()
-    print(train(root, fids, list(range(2021, 2026)), workers=workers,
-                output=root / "residual.pt"))
