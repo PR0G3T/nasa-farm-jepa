@@ -1,7 +1,7 @@
 """Experiment harness — reproducible, serialized research runs.
 
 Registered runners (`twin`, `bench`, `assim`, `jepa`, `interv`, `adapt`,
-`cf`, `discover`, `scale`) each consume one `Spec` and return a metrics
+`cf`, `discover`, `scale`, `design`) each consume one `Spec` and return a metrics
 tree; `run` wraps it in a `Report` with full provenance.
 """
 
@@ -14,6 +14,7 @@ from nasa_farm.experiments import (
     discover,
     embedding,
     intervention,
+    realdata,
     scale,
     twin,
 )
@@ -32,6 +33,7 @@ __all__ = [
     "embedding",
     "experiments",
     "intervention",
+    "realdata",
     "register",
     "run",
     "scale",

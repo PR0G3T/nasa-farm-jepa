@@ -36,20 +36,25 @@ def _kde_transport(
 ) -> torch.Tensor:
     """Analysis members in obs space: Langevin on log [KDE prior · N(obs,R)].
 
-    y (B, C) forecast obs members → (B, C) analysis members."""
+    y (B, C) forecast obs members → (B, C) analysis members.
+    The diffusion runs in whitened units x/√r so a single rate stays
+    stable across channels with different noise scales."""
     b = y.shape[0]
-    scale = y.std(0).clamp(min=1e-6)
+    s = r.clamp(min=1e-12).sqrt()
+    y_w = y / s
+    o_w = observed / s
+    scale = y_w.std(0).clamp(min=1e-6)
     h = (bandwidth if bandwidth is not None else 1.0) * scale * b ** (-1.0 / (y.shape[1] + 4))
-    x = y.clone()
+    x = y_w.clone()
     for _ in range(steps):
         d = (x.unsqueeze(1) - x.unsqueeze(0)) / h
         dens = torch.exp(-0.5 * (d**2).sum(-1))
         density = dens.sum(1, keepdim=True).clamp(min=1e-9)
         prior = (dens / density).unsqueeze(-1) * d * h
         score_prior = prior.sum(1) - prior.sum(0)
-        score_like = (observed - x) / r
+        score_like = o_w - x
         x = x + rate * (score_prior + score_like)
-    return torch.nan_to_num(x)
+    return torch.nan_to_num(x * s)
 
 
 def ensf_lr_update(

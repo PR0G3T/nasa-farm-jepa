@@ -46,6 +46,9 @@ class Specification:
     epochs: int = 120
     rate: float = 0.05
     latent_rate: float = 3e-3  # JEPA self-supervised fit Adam rate
+    lake: str | None = None
+    """Lake root for real-data experiments (loco/stream/tws/imerg); the
+    synthetic twins ignore it."""
     seed: int = 0
 
     def as_dict(self) -> dict:

@@ -127,7 +127,11 @@ def _build_parser() -> argparse.ArgumentParser:
     crawl.add_argument("--output", default="lake", help="lake root dir")
     crawl.add_argument("--years", type=int, default=5)
     crawl.add_argument(
-        "--sources", default="power,soil", help="power,soil,smap,ecostress-seb,ecostress-met"
+        "--sources",
+        default="power,soil",
+        help="power,soil,nldas,"
+        + ",".join(__import__("nasa_farm.acquire.products", fromlist=["SPECS"]).SPECS)
+        + ",mascon",
     )
     crawl.add_argument("--workers", type=int, default=8)
 
@@ -136,6 +140,21 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     train.add_argument("--output", default="lake", help="lake root dir")
     train.add_argument("--years", type=int, default=5)
+    train.add_argument(
+        "--channels",
+        default="sm",
+        help="lake obs vars in the loss, comma-sep (sm,sme2,et,lst,ndvi,fapar,tws,vwc)",
+    )
+    train.add_argument(
+        "--holdout-years",
+        default="",
+        help="years scored but never trained, comma-sep (LOYO)",
+    )
+    train.add_argument(
+        "--holdout-fields",
+        default="",
+        help="field ids scored but never trained, comma-sep",
+    )
     train.add_argument("--epochs", type=int, default=60)
     train.add_argument("--rate", type=float, default=0.02)
     train.add_argument(
@@ -155,7 +174,13 @@ def _build_parser() -> argparse.ArgumentParser:
     traits.add_argument("--latitude", type=float, required=True)
     traits.add_argument("--longitude", type=float, required=True)
     traits.add_argument("--years", type=int, default=5)
-    traits.add_argument("--target", required=True, help="crop=kg/ha,... e.g. maize=9000,wheat=7400")
+    traits.add_argument(
+        "--target",
+        default="",
+        help="crop=kg/ha,... e.g. maize=9000,wheat=7400; empty → NASS county yields",
+    )
+    traits.add_argument("--county", default=None, help="county name for NASS targets")
+    traits.add_argument("--state", default=None, help="state alpha (e.g. IA) for NASS targets")
     traits.add_argument(
         "--fert", default="", help="per-crop N kg/ha, crop=kg,... — else --fertilizer"
     )
@@ -264,6 +289,11 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     experiment.add_argument("--epochs", type=int, default=120)
     experiment.add_argument("--rate", type=float, default=0.05)
+    experiment.add_argument(
+        "--lake",
+        default=None,
+        help="lake root for real-data experiments (loco, stream, tws, imerg)",
+    )
     experiment.add_argument("--seed", type=int, default=0)
     experiment.add_argument("--output", default=None, help="save report JSON here")
     experiment.add_argument(
@@ -504,7 +534,28 @@ def cmd_traits(arguments) -> int:
     from pathlib import Path
 
     crops = CropLibrary.default()
-    targets = {c: float(v) for c, v in (t.split("=") for t in arguments.target.split(","))}
+    last = dt.date.today().year - 1
+    years = list(range(last - arguments.years + 1, last + 1))
+    if arguments.target:
+        targets = {
+            c: float(v) for c, v in (t.split("=") for t in arguments.target.split(","))
+        }
+    elif arguments.county and arguments.state:
+        from nasa_farm.acquire.nass import yields
+
+        targets = {}
+        for crop in ("maize", "soybean", "wheat"):
+            if series := yields(
+                arguments.county, arguments.state, crop, (years[0], years[-1])
+            ):
+                targets[crop] = sum(series.values()) / len(series)
+        sys.stderr.write(f"NASS {arguments.county},{arguments.state} targets: {targets}\n")
+        if not targets:
+            sys.stderr.write("NASS returned no yields for this county/crops\n")
+            return 2
+    else:
+        sys.stderr.write("either --target or --county/--state is required\n")
+        return 2
     ferts = {c: float(v) for c, v in (t.split("=") for t in arguments.fert.split(",") if t)}
     bounds = {}
     for entry in arguments.params.split(","):
@@ -515,8 +566,6 @@ def cmd_traits(arguments) -> int:
         sys.stderr.write(f"unknown crops: {', '.join(unknown)}\n")
         return 2
 
-    last = dt.date.today().year - 1
-    years = list(range(last - arguments.years + 1, last + 1))
     if arguments.offline:
         series = [synthetic_year(arguments.latitude, seed=y) for y in years]
     else:
@@ -654,9 +703,31 @@ def cmd_crawl(arguments) -> int:
 
     source = sys.stdin.read() if arguments.fields == "-" else Path(arguments.fields).read_text()
     raw = json.loads(source)
-    items = raw if isinstance(raw, list) else raw.get("fields", raw.get("points", []))
+    if isinstance(raw, dict) and raw.get("type") == "FeatureCollection":
+        items = [
+            {
+                "id": f["properties"]["id"],
+                "name": f["properties"].get("name", ""),
+                "county": f["properties"].get("county"),
+                "kind": f["properties"].get("kind"),
+                "lat": sum(p[1] for p in f["geometry"]["coordinates"][0])
+                / len(f["geometry"]["coordinates"][0]),
+                "lon": sum(p[0] for p in f["geometry"]["coordinates"][0])
+                / len(f["geometry"]["coordinates"][0]),
+            }
+            for f in raw["features"]
+        ]
+    else:
+        items = raw if isinstance(raw, list) else raw.get("fields", raw.get("points", []))
     fields = [
-        {"id": str(f["id"]), "lat": f["lat"], "lon": f["lon"], "name": f.get("name", "")}
+        {
+            "id": str(f["id"]),
+            "lat": f["lat"],
+            "lon": f["lon"],
+            "name": f.get("name", ""),
+            "county": f.get("county"),
+            "kind": f.get("kind"),
+        }
         for f in items
     ]
     last = dt.date.today().year - 1
@@ -686,6 +757,11 @@ def cmd_train(arguments) -> int:
         root,
         fids,
         list(range(last - arguments.years + 1, last + 1)),
+        channels=tuple(arguments.channels.split(",")),
+        holdout_years=tuple(
+            int(y) for y in arguments.holdout_years.split(",") if y
+        ),
+        holdout_fids=tuple(f for f in arguments.holdout_fields.split(",") if f),
         epochs=arguments.epochs,
         rate=arguments.rate,
         workers=arguments.workers,
@@ -695,7 +771,8 @@ def cmd_train(arguments) -> int:
     sys.stderr.write(
         f"train: {result['runs']} runs "
         f"(best_loss={result['best_loss']}, "
-        f"{result['epochs']} epochs)\n"
+        f"{result['epochs']} epochs, "
+        f"held={len(result['held'])})\n"
     )
     return 0 if result["runs"] else 1
 
@@ -922,6 +999,7 @@ def cmd_exp(arguments) -> int:
         latent_rate=arguments.latent_rate,
         epochs=arguments.epochs,
         rate=arguments.rate,
+        lake=arguments.lake,
         seed=arguments.seed,
     )
     rep = exp_run(arguments.name, specification)

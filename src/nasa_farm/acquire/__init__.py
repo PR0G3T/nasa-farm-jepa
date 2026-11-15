@@ -1,6 +1,6 @@
 from nasa_farm.acquire.base import Bounds, DataSource, Temporal
 from nasa_farm.acquire.earthdata import (
-    ECOSTRESS_ET,
+    ECOSTRESS_JET,
     GPM_IMERG_DAILY,
     GRACE_MASCON,
     HLS_L30,
@@ -21,7 +21,7 @@ from nasa_farm.acquire.soilgrid import SoilGrids
 
 __all__ = [
     "ALPHA_EARTH",
-    "ECOSTRESS_ET",
+    "ECOSTRESS_JET",
     "FTW",
     "GPM_IMERG_DAILY",
     "GRACE_MASCON",

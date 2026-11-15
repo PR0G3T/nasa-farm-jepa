@@ -60,6 +60,7 @@ class WorldModel(nn.Module):
         super().__init__()
         self.crops = crops or CropLibrary.default()
         self.register_buffer("crop_table", self.crops.table)
+        self.register_buffer("k_tws", torch.tensor(K_TWS, dtype=DTYPE))
         self.nn_dtype = nn_dtype
         # Variety embeddings (G×E): a learnable per-crop vector appended to
         # the latent ctx each step, so cultivar identity conditions residual
@@ -232,7 +233,7 @@ class WorldModel(nn.Module):
             s.sw, field.soil, infiltration, evaporation, transpiration, rw
         )
         et = wflux["es"] + wflux["t"].sum(-1)
-        tws = s.tws * (1.0 - K_TWS) + wflux["deep"]
+        tws = s.tws * (1.0 - self.k_tws) + wflux["deep"]
 
         biology = bg.bio_factor(forcing_day["tmin"], forcing_day["tmax"], pawf)
         n_demand = traits[:, INDEX["n_demand"]] * cflux["delta_b"]

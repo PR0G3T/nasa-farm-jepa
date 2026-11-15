@@ -331,7 +331,7 @@ class TestExpNew:
     def test_registry(self):
         from nasa_farm.experiments import experiments
 
-        for n in ("cf", "discover", "scale"):
+        for n in ("cf", "design", "discover", "scale"):
             assert n in experiments()
 
     def test_cf_experiment(self):
@@ -341,3 +341,25 @@ class TestExpNew:
         rep = run("cf", S(horizon=1, cadence=10, noise=0.0, realizations=1))
         ch = rep.results["channels"]["ndvi"]
         assert "improvement_pct" in ch
+
+    def test_design_experiment(self):
+        from nasa_farm.experiments import run
+        from nasa_farm.experiments.specification import Specification as S
+
+        rep = run(
+            "design",
+            S(
+                horizon=1,
+                cadence=15,
+                noise=0.05,
+                realizations=1,
+                members=4,
+                epochs=2,
+                perturb={"rue": 0.8, "gdd_mat": 0.92},
+                channels=("yield_kg",),
+            ),
+        )
+        r = rep.results
+        assert len(r["designed"]) == 2
+        assert r["spectra"]["seasonal"]["singular"]
+        assert set(r["arms"]) == {"seasonal", "series", "union"}

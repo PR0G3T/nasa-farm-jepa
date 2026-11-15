@@ -18,8 +18,9 @@ from __future__ import annotations
 
 import torch
 
-from nasa_farm.dynamics.latent import ObservationEncoder
+from nasa_farm.dynamics.latent import Autoencoder, ObservationEncoder, fit_autoencoder
 from nasa_farm.dynamics.model import WorldModel
+from nasa_farm.dynamics.residual import N_FEATURES
 from nasa_farm.experiments.hybrid import obs_fit, trace
 from nasa_farm.experiments.run import register
 from nasa_farm.experiments.scene import scene
@@ -85,6 +86,75 @@ def _eval(
             for j, ch in enumerate(specification.observed_channels):
                 output.setdefault(ch, []).append(float(rmse(predicted[:, j], obs_true[0, :, j])))
     return {ch: round(sum(v) / len(v), 6) for ch, v in output.items()}
+
+
+def _audit(
+    model,
+    rep: dict,
+    obs_true: torch.Tensor,
+    channels: tuple[str, ...],
+) -> dict:
+    """Top-k SAE audit of the committed latent stream.
+
+    Two questions, answered in numbers rather than asserted: (i) does the
+    sparse decomposition stay lossless and alive — reconstruction error
+    and dead-unit count; (ii) which units the fitted residual actually
+    reads — drive = E[f_k]·‖W₁·d_k‖ over the ctx input block — and how
+    localized the observable content is on the sparse units (per-channel
+    R² of the f → obs_true probe and its top-unit share). The audit is
+    pure post-hoc analysis: the RNG state is preserved so reported
+    metrics are bit-identical with or without it."""
+    z = rep["z_pred"]  # (B, N, K) committed latent trajectory
+    k = z.shape[-1]
+    state = torch.get_rng_state()
+    try:
+        ae = Autoencoder(dim=k, feature_count=4 * k, topk=max(2, k // 4), seed=0)
+        sae = fit_autoencoder(ae, z.reshape(-1, k), epochs=200, rate=1e-3)
+        with torch.no_grad():
+            f = ae.features(z.reshape(-1, k))
+            target = obs_true.reshape(-1, obs_true.shape[-1])
+            w_probe = _ridge(f, target)
+            decoded = f @ w_probe
+            r2 = {}
+            for i, c in enumerate(channels):
+                variance = float(target[:, i].var())
+                r2[c] = (
+                    round(
+                        1.0 - float((decoded[:, i] - target[:, i]).pow(2).mean()) / variance,
+                        4,
+                    )
+                    if variance > 1e-12
+                    else None
+                )
+            share = w_probe.abs() / w_probe.abs().sum(0, keepdim=True).clamp(min=1e-9)
+            drive = None
+            if model.residual is not None and model.residual.context_dimension:
+                w1 = model.residual.body[0].weight[:, N_FEATURES:]
+                effective = w1 @ ae.decoder.weight  # (hidden, F): unit → first hidden
+                importance = f.mean(0) * effective.norm(dim=0)
+                order = importance.argsort(descending=True)
+                total = importance.sum().clamp(min=1e-12)
+                drive = {
+                    "top_units": [int(i) for i in order[:5]],
+                    "top_share": round(float(importance[order[0]] / total), 4),
+                    "top5_share": round(float(importance[order[:5]].sum() / total), 4),
+                }
+            return {
+                "sae": {
+                    "dim": k,
+                    "features": int(f.shape[1]),
+                    "topk": ae.topk,
+                    "recon_mse": sae["best_loss"],
+                    "dead": int((sae["rate"] <= 0).sum()),
+                },
+                "obs_r2": r2,
+                "decode_top_share": {
+                    c: round(float(s), 4) for c, s in zip(channels, share.max(0).values)
+                },
+                "residual_drive": drive,
+            }
+    finally:
+        torch.set_rng_state(state)
 
 
 @register("jepa")
@@ -169,6 +239,12 @@ def run(specification: Specification) -> dict:
 
     ev_prior = _eval(scenario.prior, scenario, specification)
     ev_hyb = _eval(m_j, scenario, specification, encoder=encoder)
+
+    # Audit arm: sparse-autoencoder decomposition of the committed latent —
+    # which units the fitted residual reads and whether the observable
+    # content localizes on few units. Pure post-hoc: RNG is preserved.
+    audit = _audit(m_j, rep, obs_true_cal, ch)
+
     per_ch = {
         name: {
             "prior": ev_prior[name],
@@ -230,6 +306,7 @@ def run(specification: Specification) -> dict:
         "trajectory": trajectory,
         "z_pred_rmse": round(z_rmse, 6),
         "channels": per_ch,
+        "audit": audit,
     }
     if ev_hier is not None:
         output["hier"] = {

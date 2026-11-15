@@ -118,6 +118,9 @@ class Boundary:
     ring: list[tuple[float, float]]
     x: float
     y: float
+    county: str | None = None
+    """CSB administrative_area_level_2 label — the grouping key leave-one-
+    county-out splits and per-county trait calibration consume."""
 
 
 def _wkb(blob: bytes) -> list[list[tuple[float, float]]]:
@@ -234,7 +237,12 @@ def _ring(blob: bytes) -> list[tuple[float, float]]:
 
 
 def _boundary(
-    fid: str, code: int, name: str, ring: list[tuple[float, float]], transform
+    fid: str,
+    code: int,
+    name: str,
+    ring: list[tuple[float, float]],
+    transform,
+    county: str | None = None,
 ) -> Boundary:
     """One Albers ring → reprojected WGS84 boundary."""
     x, y = _centroid(ring)
@@ -250,6 +258,7 @@ def _boundary(
         ring=wgs,
         x=x,
         y=y,
+        county=county,
     )
 
 
@@ -293,7 +302,7 @@ def fields(
     stem = county or "Field"
     transform = Transformer.from_crs(ALBERS, 4326, always_xy=True)
     return [
-        _boundary(str(fid), code, f"{stem} {rank + 1}", ring, transform)
+        _boundary(str(fid), code, f"{stem} {rank + 1}", ring, transform, county)
         for rank, (fid, code, _ha, ring) in enumerate(candidates)
     ]
 
@@ -331,6 +340,7 @@ def feature(boundary: Boundary, rotation: list[int] | None = None) -> dict:
         "crop": boundary.crop,
         "kind": boundary.kind,
         "ha": boundary.ha,
+        "county": boundary.county,
     }
     if rotation is not None:
         properties["sequence"] = [label(code) for code in rotation]

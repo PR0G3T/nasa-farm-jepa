@@ -23,6 +23,7 @@ from __future__ import annotations
 import torch
 
 from nasa_farm.assimilation.kalman import STATE_VARS, _get_variable, kalman_update
+from nasa_farm.assimilation.latent import ensf_lr_update
 from nasa_farm.assimilation.score import score_update
 from nasa_farm.constants import DAYS_PER_YEAR, DTYPE
 from nasa_farm.dynamics.latent import ObservationEncoder
@@ -336,6 +337,7 @@ def run(specification: Specification) -> dict:
         ("open", None, physics, None),
         ("enkf", kalman_update, physics, None),
         ("ensf", score_update, physics, None),
+        ("ensf_lr", ensf_lr_update, physics, None),
     ]
     hybrid = _hybrid_arm(scenario, specification)
     if hybrid is not None:

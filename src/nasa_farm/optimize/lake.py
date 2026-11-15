@@ -1,11 +1,14 @@
 """Residual training on lake observations — differentiable rollout vs
-observed wetness (retrieval `sm`).
+every retrieval channel the field carries (SMAP `sm`, HLS `ndvi`,
+ECOSTRESS `et`/`lst`, GLDAS `tws`…).
 
-Loss: observation-weighted MSE between model `sm_vol` root mean and the
-observed channel at matching dates, over each field's forcing years.
-Weights come straight from the `{var}_w` coverage shards — cloudy or
-uncertain retrievals count fractionally. Optimizes the ResidualNet leaves
-via `optimize.trainer.fit`; saves state_dict for serving (`--residual`).
+Loss: per-channel observation-weighted MSE between the model's matching
+observation operator and the retrieval at matching dates, summed across
+channels after per-channel MAD normalization so mm and °C and unitless
+vegetation indices coexist without manual scale tuning. Weights come
+straight from the `{var}_w` coverage shards — cloudy or uncertain
+retrievals count fractionally. Optimizes the ResidualNet leaves via
+`optimize.trainer.fit`; saves state_dict for serving (`--residual`).
 """
 
 from __future__ import annotations
@@ -21,7 +24,7 @@ import torch
 
 from nasa_farm import CropLibrary, Field, WorldModel, initial_state
 from nasa_farm.constants import DTYPE
-from nasa_farm.observe import sm_vol
+from nasa_farm.observe import CHANNELS, sm_vol
 from nasa_farm.optimize.data import dataset
 from nasa_farm.optimize.data import soil as soil_of
 from nasa_farm.optimize.trainer import fit_batch
@@ -29,25 +32,37 @@ from nasa_farm.plan import expand_actions
 from nasa_farm.state.soil import SoilProfile
 
 MIN_OBS = 30
+CHANNEL_ORDER = ("sm", "sme2", "et", "lst", "ndvi", "fapar", "tws", "vwc")
 
 
-def _loss(
-    model: WorldModel,
-    field: Field,
-    forcing,
-    target: torch.Tensor,
-    days: torch.Tensor,
-    w: torch.Tensor,
-) -> torch.Tensor:
-    predicted = []
+def _sm(state) -> torch.Tensor:
+    """SMAP's surface+root retrieval ≈ depth-weighted column VSM."""
+    return torch.stack(
+        [sm_vol(state, i) for i in range(state.sw.shape[1])]
+    ).mean(0)
+
+
+def _operator(name: str):
+    """Obs var → per-day state observable (scalar at batch 1)."""
+    if name == "sm":
+        return _sm
+    return CHANNELS[name]
+
+
+def _loss(model: WorldModel, field: Field, forcing, channels: dict) -> torch.Tensor:
+    predicted = {name: [] for name in channels}
 
     def observed(t, state, _fx):
-        predicted.append(torch.stack([sm_vol(state, i) for i in range(state.sw.shape[1])]).mean())
+        for name in channels:
+            predicted[name].append(_operator(name)(state).mean())
 
     plan = torch.zeros(1, 1, dtype=torch.long)
     model.rollout(field, forcing, expand_actions(plan, model.crop_table), observer=observed)
-    r = (torch.stack(predicted)[days] - target) ** 2 * w
-    return r.sum() / w.sum().clamp(min=1.0)
+    total = torch.zeros((), dtype=DTYPE)
+    for name, (target, days, w, scale) in channels.items():
+        r = (torch.stack(predicted[name])[days] - target) / scale
+        total = total + (r * r * w).sum() / w.sum().clamp(min=1.0)
+    return total / len(channels)
 
 
 def _day_index(d: int, start: int) -> int:
@@ -55,37 +70,58 @@ def _day_index(d: int, start: int) -> int:
     return dt.date(d // 10000, d // 100 % 100, d % 100).toordinal() - start
 
 
-def _samples(root: Path | str, fids: list[str], years: list[int]) -> list[dict]:
-    """(fid, year) training samples — each with ≥ MIN_OBS observed days."""
+def _samples(
+    root: Path | str, fids: list[str], years: list[int], channels: tuple[str, ...]
+) -> list[dict]:
+    """(fid, year) samples — ≥MIN_OBS primary-channel days, every other
+    available channel joined on its own dates. Per-channel `scale` is the
+    retrieval MAD so residuals are dimensionless."""
     ds = dataset(root, fids, years)
     out = []
     for fid in fids:
         d = ds[fid]
-        observed = d["obs"].get("sm")
-        if not d["forcings"] or observed is None:
+        if not d["forcings"] or not d["obs"]:
             continue
         soil = soil_of(d["soil"]) or SoilProfile.preset("loam")
-        obs_d, obs_v, obs_w = observed
-        w = np.ones_like(obs_v) if obs_w is None else np.asarray(obs_w)
+        primary = next((v for v in channels if v in d["obs"]), None)
+        if primary is None:
+            continue
         for fi, forcing in enumerate(d["forcings"]):
             start = dt.date(years[fi], 1, 1).toordinal()
-            keep = [
-                (i, _day_index(int(d_), start))
-                for i, d_ in enumerate(obs_d)
-                if 0 <= _day_index(int(d_), start) < 365
-            ]
-            if len(keep) < MIN_OBS:
+
+            def pack(v):
+                obs = d["obs"].get(v)
+                if obs is None:
+                    return None
+                od, ov, ow = obs
+                w = np.ones_like(ov) if ow is None else np.asarray(ow)
+                keep = [
+                    (i, _day_index(int(d_), start))
+                    for i, d_ in enumerate(od)
+                    if 0 <= _day_index(int(d_), start) < 365
+                ]
+                if not keep:
+                    return None
+                rows, days = zip(*keep, strict=True)
+                values = np.asarray(ov)[list(rows)]
+                scale = max(float(np.abs(values - np.median(values)).mean()) * 1.4826, 1e-3)
+                return (
+                    torch.tensor(values, dtype=DTYPE),
+                    torch.tensor(days, dtype=torch.long),
+                    torch.tensor(w[list(rows)], dtype=DTYPE),
+                    scale,
+                )
+
+            joined = {v: p for v in channels if (p := pack(v)) is not None}
+            if primary not in joined or len(joined[primary][1]) < MIN_OBS:
                 continue
-            rows, days = zip(*keep, strict=True)
             out.append(
                 {
                     "fid": fid,
                     "year": years[fi],
                     "soil": soil,
                     "forcing": forcing,
-                    "target": torch.tensor(obs_v[list(rows)], dtype=DTYPE),
-                    "w": torch.tensor(w[list(rows)], dtype=DTYPE),
-                    "days": torch.tensor(days, dtype=torch.long),
+                    "channels": joined,
                 }
             )
     return out
@@ -117,7 +153,7 @@ def _grad(payload: tuple[int, dict]) -> tuple[int, float, dict]:
     field = Field(
         state=initial_state(1, s["soil"]), soil=s["soil"], latitude=torch.zeros(1, dtype=DTYPE)
     )
-    loss = _loss(model, field, s["forcing"], s["target"], s["days"], s["w"])
+    loss = _loss(model, field, s["forcing"], s["channels"])
     if not torch.isfinite(loss):
         return i, float("nan"), {}
     loss.backward()
@@ -136,6 +172,9 @@ def train(
     root: Path | str,
     fids: list[str],
     years: list[int],
+    channels: tuple[str, ...] = ("sm",),
+    holdout_years: tuple[int, ...] = (),
+    holdout_fids: tuple[str, ...] = (),
     epochs: int = 60,
     rate: float = 0.02,
     workers: int | None = None,
@@ -146,24 +185,39 @@ def train(
     gradient at the shared parameters — in a fork pool when workers > 1 —
     reduces the mean, and takes one Adam step. One residual serving the
     whole lake, not a per-field curriculum. `seed` makes init and the
-    whole trajectory reproducible; None leaves RNG untouched."""
+    whole trajectory reproducible; None leaves RNG untouched.
+
+    `channels` picks which lake obs vars join the loss (first present is
+    primary for the MIN_OBS gate). Samples whose year is in
+    `holdout_years` or fid in `holdout_fids` never see an update — they
+    are evaluated once at the final parameters and reported under
+    `held`, the honest spatial/temporal transfer metric."""
     global _PRELOAD
     if seed is not None:
         torch.manual_seed(seed)
     crops = CropLibrary.default()
     model = WorldModel(crops, residual=True)
     parameters = {n: p for n, p in model.residual.named_parameters() if p.requires_grad}
-    samples = _samples(root, fids, years)
-    if not samples:
+    samples = _samples(root, fids, years, channels)
+    held_out = {
+        i
+        for i, s in enumerate(samples)
+        if s["year"] in holdout_years or s["fid"] in holdout_fids
+    }
+    trained = [s for i, s in enumerate(samples) if i not in held_out]
+    if not trained:
         if output:
             torch.save(model.residual.state_dict(), output)
-        return {"runs": 0, "loss": {}, "best_loss": None, "epochs": 0}
-    n_workers = max(1, min(workers or os.cpu_count() or 1, len(samples)))
+        return {"runs": 0, "loss": {}, "held": {}, "best_loss": None, "epochs": 0}
+    n_workers = max(1, min(workers or os.cpu_count() or 1, len(trained)))
     _PRELOAD = samples
     pool: ProcessPoolExecutor | None = None
     if n_workers > 1:
-        ctx = multiprocessing.get_context("fork")
-        pool = ProcessPoolExecutor(max_workers=n_workers, mp_context=ctx, initializer=_init)
+        pool = ProcessPoolExecutor(
+            max_workers=n_workers,
+            mp_context=multiprocessing.get_context("fork"),
+            initializer=_init,
+        )
 
         def run(tasks):
             return list(pool.map(_grad, tasks, chunksize=1))
@@ -173,11 +227,12 @@ def train(
         def run(tasks):
             return [_grad(t) for t in tasks]
 
+    trained_index = [i for i in range(len(samples)) if i not in held_out]
     try:
 
         def evaluate() -> tuple[float, dict]:
             state = {n: p.detach().clone() for n, p in parameters.items()}
-            out = run([(i, state) for i in range(len(samples))])
+            out = run([(i, state) for i in trained_index])
             valid = [r for r in out if r[2]]
             if not valid:
                 return float("nan"), {}
@@ -197,12 +252,21 @@ def train(
         _PRELOAD = []
         if pool is not None:
             pool.shutdown()
-    losses = {f"{s['fid']}/{s['year']}": v for s, (i, v, _) in zip(samples, final, strict=True)}
+    scored = {i: v for i, v, _ in final}
+    losses = {
+        f"{samples[i]['fid']}/{samples[i]['year']}": scored[i]
+        for i in range(len(samples))
+        if i not in held_out
+    }
+    held = {
+        f"{samples[i]['fid']}/{samples[i]['year']}": scored[i] for i in held_out
+    }
     if output:
         torch.save(model.residual.state_dict(), output)
     return {
         "runs": len(losses),
         "loss": losses,
+        "held": held,
         "best_loss": result.best_loss,
         "epochs": result.epochs_run,
         "history": result.history,

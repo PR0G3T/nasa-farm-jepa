@@ -60,6 +60,15 @@ def seeded(field: Field, z0: torch.Tensor, hidden_dimension: int) -> Field:
     return replace(field, state=s.replace(z=z0, zh=zh))
 
 
+def _masked(residual: torch.Tensor, mask: torch.Tensor | None) -> torch.Tensor:
+    """Squared-error mean over observed frames only; unmasked = plain MSE."""
+    square = residual.pow(2)
+    if mask is None:
+        return square.mean()
+    w = mask.unsqueeze(-1).to(square.dtype)
+    return (square * w).sum() / w.sum().clamp(min=1.0) / square.shape[-1]
+
+
 def embedding_fit(
     model,
     encoder,
@@ -69,6 +78,7 @@ def embedding_fit(
     channels: tuple[str, ...],
     *,
     targets: torch.Tensor | None = None,
+    mask: torch.Tensor | None = None,
     every: int = 5,
     ema: float = 0.996,
     sig_weight: float = 1.0,
@@ -88,7 +98,12 @@ def embedding_fit(
     epoch — the collapse monitor.
 
     obs_tgt: (B, N, C) external target stream at the JEPATrace cadence;
-    index 0 seeds the latent and is excluded from the loss."""
+    index 0 seeds the latent and is excluded from the loss. `mask`
+    (B, N) marks frames that carry at least one real retrieval — masked
+    frames roll the latent forward (they still predict, dynamics keeps
+    propagating) but never enter the predict or SIGReg terms, so a
+    sparse asynchronous stream trains honestly instead of fabricating
+    daily supervision."""
     if model.latent is None:
         raise ValueError("jepa_fit needs a model built with latent_dim > 0")
     k, h = model.latent.dim, model.latent.hidden_dimension
@@ -106,11 +121,12 @@ def embedding_fit(
         """(z_pred (B,N,K*), targets (B,N,C), online-embed source).
         K* = K for a flat latent, L·K packed for a hierarchical one."""
         if targets is not None:
-            f = seeded(field, model.latent.seed(encoder(targets[:, 0])), h)
+            clean = torch.nan_to_num(targets)
+            f = seeded(field, model.latent.seed(encoder(clean[:, 0])), h)
             traits = EmbeddingTrace(forcing.days, k, channels, every=every)
             model.rollout(f, forcing, actions, observer=traits)
             _, z_pred = traits.result()
-            return z_pred, targets, targets
+            return z_pred, clean, clean
         f = seeded(field, model.latent.seed(encoder(observables(field.state, channels))), h)
         traits = EmbeddingTrace(forcing.days, k, channels, every=every)
         model.rollout(f, forcing, actions, observer=traits)
@@ -125,11 +141,14 @@ def embedding_fit(
         if isinstance(model.latent, Hierarchy):
             predicted = hierarchical_loss(z_pred, z_t, model.latent, every)
         else:
-            predicted = (z_pred[:, 1:] - z_t[:, 1:]).pow(2).mean()
+            predicted = _masked(z_pred[:, 1:] - z_t[:, 1:], None if mask is None else mask[:, 1:])
             # dense multi-horizon supervision: each committed latent also
             # matches targets 2..dense steps ahead, weight 1/h.
             for hh in range(2, dense + 1):
-                predicted = predicted + (z_pred[:, :-hh] - z_t[:, hh:]).pow(2).mean() / hh
+                predicted = predicted + _masked(
+                    z_pred[:, :-hh] - z_t[:, hh:],
+                    None if mask is None else mask[:, hh:],
+                ) / hh
         kl = model.latent.kl if kl_weight else torch.zeros((), dtype=DTYPE)
         encoded = encoder(source)
         penalty = (

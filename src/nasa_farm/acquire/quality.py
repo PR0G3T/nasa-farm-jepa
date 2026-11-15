@@ -60,3 +60,25 @@ SMAP_QC = Quality(
 
 FLAG_QC = Quality(variables=("QC", "qc", "quality_flag", "mask"))
 """Generic single-band QA (ECOSTRESS, NISAR): clean → 1.0, flagged → 0.4."""
+
+
+def _fmask_conf(flag: np.ndarray) -> np.ndarray:
+    """HLS Fmask bits: 1 cloud, 2 adjacent, 3 shadow, 4 snow/ice."""
+    f = np.asarray(flag, np.int64)
+    return np.where(
+        (f >> 1) & 1, 0.0, np.where(((f >> 3) & 1) | ((f >> 4) & 1) | ((f >> 2) & 1), 0.4, 1.0)
+    )
+
+
+def _cloud_conf(flag: np.ndarray) -> np.ndarray:
+    """ECOSTRESS final cloud mask / QC: 0 clear → 1.0; cloudy → 0."""
+    f = np.asarray(flag, np.float64)
+    return np.where(f == 0, 1.0, 0.0)
+
+
+FMASK_QC = Quality(variables=("Fmask", "fmask"), to_conf=_fmask_conf)
+"""HLSL30_VI/HLSS30_VI Fmask: clear land → 1.0, shadow/snow/adjacent →
+0.4, cloud → 0."""
+CLOUD_QC = Quality(variables=("cloud", "cloud_mask", "Cloud"), to_conf=_cloud_conf)
+"""ECOSTRESS JET/LSTE cloud mask: clear → 1.0, else 0 (an instantaneous
+TIR retrieval through cloud is unusable, not just degraded)."""

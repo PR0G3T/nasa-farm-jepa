@@ -22,14 +22,24 @@ lazy import ee
 
 from nasa_farm.acquire.base import Bounds, Temporal
 from nasa_farm.acquire.earthdata import (
-    ECOSTRESS_MET,
-    ECOSTRESS_SEB,
+    ECOSTRESS_JET,
+    ECOSTRESS_LSTE,
+    GLDAS_DA,
+    GPM_IMERG_DAILY,
+    HLS_L30_VI,
+    HLS_S30_VI,
     NISAR_SME,
     SMAP_L4,
     Earthdata,
     granule_day,
 )
-from nasa_farm.acquire.quality import FLAG_QC, SMAP_QC, Quality
+from nasa_farm.acquire.quality import (
+    CLOUD_QC,
+    FMASK_QC,
+    FLAG_QC,
+    SMAP_QC,
+    Quality,
+)
 from nasa_farm.acquire.support import (
     at as _at,
 )
@@ -65,6 +75,22 @@ class Specification:
     limit: int = 10_000
     bbox: tuple[float, float, float, float] = WORLD
     span: tuple[str, str] = ("2015-01-01", "2030-01-01")
+    engine: str = "h5"
+    """"h5" opens the granule as one HDF/netCDF dataset; "cog" treats it as
+    a bundle of per-band GeoTIFFs read through `acquire.cog` (HLS-VI,
+    ECOSTRESS tiled)."""
+    group: str = "obs"
+    """Lake group the series lands under — "obs" for retrievals,
+    "forcing" for alternate forcing inputs (IMERG precip)."""
+    scale: float = 1.0
+    offset: float = 0.0
+    months: tuple[int, ...] = ()
+    """Calendar months to keep (1-12); empty = whole year. Growing-season
+    products skip winter granules — no crop signal, pure cost."""
+    shared: bool = False
+    """True when several specs read the same granules into different obs
+    vars — granule marks are namespaced per obs so one spec never marks
+    the granule done for its siblings."""
 
     def variable(self, ds: xarray.Dataset) -> str | None:
         return next((v for v in self.variables if v in ds), None)
@@ -128,23 +154,81 @@ NISAR_SM = Specification(
     span=("2025-06-01", "2030-01-01"),
 )
 ECO_ET = Specification(
-    ECOSTRESS_SEB,
+    ECOSTRESS_JET,
     observed="et",
-    variables=("ETdaily", "EVAPOTRANSPIRATION"),
+    variables=("ETdaily", "ETinst", "EVAPOTRANSPIRATION"),
     radius_km=0.5,
-    quality=FLAG_QC,
+    quality=CLOUD_QC,
     span=("2018-07-01", "2030-01-01"),
+    engine="cog",
+    months=(4, 5, 6, 7, 8, 9, 10),
 )
 ECO_LST = Specification(
-    ECOSTRESS_MET,
+    ECOSTRESS_LSTE,
     observed="lst",
     variables=("LST", "LST_Day", "LST_Night"),
     radius_km=0.5,
-    quality=FLAG_QC,
+    quality=CLOUD_QC,
     span=("2018-07-01", "2030-01-01"),
+    engine="cog",
+    offset=-273.15,
+    months=(4, 5, 6, 7, 8, 9, 10),
 )
 
-SPECS = {"smap": SMAP_SM, "nisar": NISAR_SM, "ecostress-seb": ECO_ET, "ecostress-met": ECO_LST}
+
+def _hls(source: Earthdata) -> Specification:
+    """HLS *_VI granules: NDVI precomputed at 30 m, Fmask QA, growing
+    season only — the dense real optical stream the JEPA reads."""
+    return Specification(
+        source,
+        observed="ndvi",
+        variables=("NDVI",),
+        radius_km=0.15,
+        quality=FMASK_QC,
+        engine="cog",
+        scale=1.0e-4,
+        months=(4, 5, 6, 7, 8, 9, 10),
+    )
+
+
+GPM_PR = Specification(
+    GPM_IMERG_DAILY,
+    observed="precip_gpm",
+    variables=("precipitation", "precipitationCal"),
+    radius_km=11.0,
+    span=("2000-06-01", "2030-01-01"),
+    group="forcing",
+    scale=24.0,  # IMERG daily reports the day-mean rate (mm/h) → mm/day
+    shared=True,
+)
+GLDAS_TWS = Specification(
+    GLDAS_DA,
+    observed="tws",
+    variables=("TWS_tavg",),
+    radius_km=28.0,
+    span=("2003-02-01", "2030-01-01"),
+    shared=True,
+)
+GLDAS_SMP = Specification(
+    GLDAS_DA,
+    observed="smp",
+    variables=("SoilMoist_P_tavg",),
+    radius_km=28.0,
+    span=("2003-02-01", "2030-01-01"),
+    shared=True,
+)
+
+SPECS = {
+    "smap": SMAP_SM,
+    "nisar": NISAR_SM,
+    "ecostress-et": ECO_ET,
+    "ecostress-lst": ECO_LST,
+    "hls-l30": _hls(HLS_L30_VI),
+    "hls-s30": _hls(HLS_S30_VI),
+    "gpm": GPM_PR,
+    "gldas-tws": GLDAS_TWS,
+    "gldas-smp": GLDAS_SMP,
+}
 
 
 @dataclass(frozen=True, slots=True)

@@ -172,17 +172,28 @@ def _granule(i: int):
     serializes lake writes."""
     specification, fields = _PRELOAD["specification"], _PRELOAD["fields"]
     g = _PRELOAD["todo"][i]
-    from nasa_farm.observe import fetch
-
+    margin = specification.radius_km / 111.0 + 0.05
+    box = (
+        min(f["lon"] for f in fields) - margin,
+        min(f["lat"] for f in fields) - margin,
+        max(f["lon"] for f in fields) + margin,
+        max(f["lat"] for f in fields) + margin,
+    )
     try:
+        if specification.engine == "cog":
+            from nasa_farm.acquire.cog import day_of, prep
+
+            if (grid := prep(specification, g, box)) is None:
+                return g.id, "skip (no var)"
+            output = {}
+            for f in fields:
+                v, w = specification.at(grid, f["lat"], f["lon"])
+                if np.isfinite(v) and w > 0.0:
+                    output[f["id"]] = (v, w)
+            return g.id, (day_of(g), output)
+        from nasa_farm.observe import fetch
+
         with fetch(specification.source, g) as ds:
-            margin = specification.radius_km / 111.0 + 0.05
-            box = (
-                min(f["lon"] for f in fields) - margin,
-                min(f["lat"] for f in fields) - margin,
-                max(f["lon"] for f in fields) + margin,
-                max(f["lat"] for f in fields) + margin,
-            )
             if (grid := specification.prep(ds, box)) is None:
                 return g.id, "skip (no var)"
             output = {}
@@ -211,10 +222,18 @@ def _granules(
     if area is None or span.start > span.end:
         log(f"{specification.observed}: fields outside product domain")
         return
+    from nasa_farm.acquire.cog import month_of
+
+    mark = (
+        (lambda g: g.id)
+        if not specification.shared
+        else (lambda g: f"{g.id}#{specification.observed}")
+    )
     todo = [
         g
         for g in specification.source.search(area, span, specification.limit)
-        if not lake.has_granule(g.id)
+        if not lake.has_granule(mark(g))
+        and (not specification.months or month_of(g) in specification.months)
     ]
     log(f"{specification.observed}: {len(todo)} granules to fetch")
     if not todo:
@@ -242,7 +261,7 @@ def _granules(
                         for fid, (v, w) in values.items():
                             lake.put(
                                 fid,
-                                "obs",
+                                specification.group,
                                 specification.observed,
                                 di,
                                 np.array([v], np.float32),
@@ -250,13 +269,13 @@ def _granules(
                             )
                             lake.put(
                                 fid,
-                                "obs",
+                                specification.group,
                                 f"{specification.observed}_w",
                                 di,
                                 np.array([w], np.float32),
                                 source,
                             )
-                        lake.mark_granule(gid, source)
+                        lake.mark_granule(mark(gid), source)
                     log(f"{specification.observed} {gid} ok")
     finally:
         _PRELOAD.clear()
@@ -280,6 +299,10 @@ def crawl(
         with lake.transaction():
             for f in fields:
                 lake.field(f["id"], f["lat"], f["lon"], f.get("name", ""))
+                if f.get("county"):
+                    lake.attrs(f["id"], county=f["county"])
+                if f.get("kind"):
+                    lake.attrs(f["id"], kind=f["kind"])
         if "power" in sources:
             _power(fields, lake, years, workers, log, power)
         if "soil" in sources:
@@ -289,3 +312,7 @@ def crawl(
         for name, specification in GRANULE_SPECS.items():
             if name in sources:
                 _granules(specification, fields, lake, temporal, log, workers=workers)
+        if "mascon" in sources:
+            from nasa_farm.acquire.mascon import crawl as mascon
+
+            mascon(fields, lake, log)

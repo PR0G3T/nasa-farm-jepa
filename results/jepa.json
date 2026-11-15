@@ -2354,32 +2354,62 @@
         "hybrid": 2.372091,
         "hybrid_reduction_pct": -1088.96
       }
+    },
+    "audit": {
+      "sae": {
+        "dim": 8,
+        "features": 32,
+        "topk": 2,
+        "recon_mse": 0.10273958,
+        "dead": 27
+      },
+      "obs_r2": {
+        "ndvi": 0.3371,
+        "sm1": 0.0826,
+        "vwc": 0.2858,
+        "lst": 0.7494
+      },
+      "decode_top_share": {
+        "ndvi": 0.2611,
+        "sm1": 0.3132,
+        "vwc": 0.2524,
+        "lst": 0.3054
+      },
+      "residual_drive": {
+        "top_units": [
+          5,
+          14,
+          23,
+          28,
+          29
+        ],
+        "top_share": 0.699,
+        "top5_share": 1.0
+      }
     }
   },
-  "seconds": 369.209,
+  "seconds": 339.068,
   "metadata": {
     "python": "3.15.2",
-    "torch": "2.15.0+cu132",
-    "device": "cuda",
+    "torch": "2.15.0+cpu",
+    "device": "cpu",
     "argv": [
       "exp",
       "jepa",
+      "--perturb",
+      "rue:0.8,gdd_mat:0.92",
+      "--obs-channels",
+      "ndvi,sm1,vwc,lst",
       "--horizon",
       "2",
       "--realizations",
       "4",
-      "--members",
-      "16",
-      "--cadence",
-      "10",
-      "--obs-channels",
-      "ndvi,sm1,vwc,lst",
-      "--perturb",
-      "rue:0.8,gdd_mat:0.92",
       "--epochs",
       "60",
+      "--latent-dimension",
+      "8",
       "--output",
-      "/tmp/jepa_new.json"
+      "results/jepa_new.json"
     ]
   }
 }

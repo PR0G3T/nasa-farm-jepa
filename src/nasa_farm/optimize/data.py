@@ -27,7 +27,11 @@ from nasa_farm.lake import Lake
 from nasa_farm.state.soil import SoilProfile
 from nasa_farm.types import Forcing
 
-OBS_VARS = ("sm", "sme2", "et", "lst", "ndvi")
+OBS_VARS = ("sm", "sme2", "et", "lst", "ndvi", "fapar", "tws", "smp", "mascon")
+"""Every lake obs channel the crawler may land — `smp` is GLDAS
+percentile soil moisture (rank, not volume) and `mascon` the GRACE-FO
+regional monthly anomaly; both are loss-eligible through `CHANNELS` in
+`optimize.lake` where units line up, and stream features elsewhere."""
 PROXY_VARS = ("smg",)
 """Model-produced context series — never a training target."""
 
