@@ -56,7 +56,7 @@ explicit = true
 [tool.uv.sources]
 # PyPI torch = universal CUDA+CPU wheel (GPU auto-detected at runtime).
 # For a slim CPU-only env: uncomment the line below to pin the cpu index.
-# torch = { index = "pytorch-cpu" }
+torch = { index = "pytorch-cpu" }
 
 [dependency-groups]
 dev = [
