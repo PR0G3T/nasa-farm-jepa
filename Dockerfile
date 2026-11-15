@@ -4,10 +4,7 @@ ENV UV_COMPILE_BYTECODE=1 \
     UV_LINK_MODE=copy \
     UV_PYTHON_INSTALL_DIR=/opt/python \
     UV_PYTHON_PREFERENCE=only-managed \
-    UV_CONCURRENT_BUILDS=1 \
-    MAKEFLAGS="-j1" \
-    CMAKE_BUILD_PARALLEL_LEVEL=1 \
-    MAX_JOBS=1 \
+    UV_FIND_LINKS=/app/wheels \
     CRC32C_PURE_PYTHON=1 \
     HDF5_INCLUDEDIR=/usr/include/hdf5/serial \
     HDF5_LIBDIR=/usr/lib/x86_64-linux-gnu/hdf5/serial \
@@ -20,30 +17,26 @@ WORKDIR /app
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
-    build-essential \
-    pkg-config \
     libhdf5-dev \
     libaec-dev \
     zlib1g-dev \
     libyaml-dev \
-    ninja-build \
     git \
     && ln -sf /usr/include/hdf5/serial/* /usr/include/ \
     && ln -sf /usr/lib/*/hdf5/serial/lib* /usr/lib/ \
     && ldconfig \
-    && printf '#!/bin/sh\nexec /usr/bin/ninja -j1 "$@"\n' > /usr/local/bin/ninja \
-    && chmod +x /usr/local/bin/ninja \
     && rm -rf /var/lib/apt/lists/*
 
 COPY pyproject.toml uv.lock .python-version ./
+COPY wheels ./wheels
 
 RUN uv python install 3.15t
 
-RUN uv sync --frozen --no-dev --no-install-project --extra serve 1>&2
+RUN uv sync --frozen --no-dev --no-install-project --extra serve --find-links ./wheels
 
 COPY src ./src
 
-RUN uv sync --frozen --no-dev --extra serve 1>&2
+RUN uv sync --frozen --no-dev --extra serve --find-links ./wheels
 
 FROM debian:bookworm-slim AS runtime
 
