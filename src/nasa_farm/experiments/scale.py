@@ -74,6 +74,7 @@ def run(specification: Specification) -> dict:
             ema=specification.ema,
             sig_weight=specification.sig_weight,
             epochs=max(20, specification.epochs // 3),
+            rate=specification.latent_rate,
             targets=cal,
         )
         n_par = sum(p.numel() for p in m.latent.parameters())

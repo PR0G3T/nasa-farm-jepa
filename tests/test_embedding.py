@@ -138,7 +138,7 @@ class TestJepaFit:
         rep = embedding_fit(
             m, encoder, _field(), forcing, actions, ("ndvi", "sm1"), every=15, epochs=8, rate=1e-2
         )
-        assert rep["best_loss"] < rep["history"][0]
+        assert rep["best_loss"] < rep["history"][0]["loss"]
         assert rep["z_std_final"] > 0.01  # SIGReg prevents collapse
 
     def test_external_targets(self):

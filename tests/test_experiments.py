@@ -79,11 +79,14 @@ class TestAssim:
     def test_variants_and_enkf_gain(self):
         r = run("assim", specification(members=8, cadence=20))
         result = r.results
-        assert {"open", "enkf", "ensf", "reduction_pct"} <= set(result)
-        for name in ("open", "enkf", "ensf"):
+        assert {"open", "enkf", "ensf", "jepa", "jepa_enkf", "reduction_pct"} <= set(result)
+        for name in ("open", "enkf", "ensf", "jepa", "jepa_enkf"):
             v = result[name]
-            assert {"obs_rmse", "obs_crps", "spread", "state_rmse", "channels"} <= set(v)
+            assert {"obs_rmse", "obs_crps", "spread", "state_rmse", "channels", "series"} <= set(v)
             assert set(v["state_rmse"]) == {"sw0", "swr", "n_min", "lai", "biomass"}
+            s = v["series"]
+            n_obs = len(s["day"])
+            assert n_obs and len(s["state_rmse_post"]["swr"]) == n_obs
         # filtering must beat open-loop on end-of-season yield
         assert (
             result["enkf"]["channels"]["yield_kg"]["rmse"]

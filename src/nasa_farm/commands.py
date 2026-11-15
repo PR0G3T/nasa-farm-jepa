@@ -254,6 +254,9 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     experiment.add_argument("--ema", type=float, default=0.996, help="JEPA target-encoder momentum")
     experiment.add_argument(
+        "--latent-rate", type=float, default=3e-3, help="JEPA self-supervised fit Adam rate"
+    )
+    experiment.add_argument(
         "--sig-weight", type=float, default=1.0, help="SIGReg regularization strength"
     )
     experiment.add_argument(
@@ -916,6 +919,7 @@ def cmd_exp(arguments) -> int:
         hierarchy=tuple(int(s) for s in arguments.hierarchy.split(",") if s),
         ema=arguments.ema,
         sig_weight=arguments.sig_weight,
+        latent_rate=arguments.latent_rate,
         epochs=arguments.epochs,
         rate=arguments.rate,
         seed=arguments.seed,

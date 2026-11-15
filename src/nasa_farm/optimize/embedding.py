@@ -83,7 +83,9 @@ def embedding_fit(
     """Fit encoder + LatentDyn so predicted latents track the EMA-encoded
     observation manifold along the rollout. Adam + clip + early stop +
     best-parameter restore — same contract as trainer.fit plus the
-    momentum-target update after each step.
+    momentum-target update after each step. `history` logs the loss and
+    its components (predict, sigreg, kl) plus the encoder's z_std each
+    epoch — the collapse monitor.
 
     obs_tgt: (B, N, C) external target stream at the JEPATrace cadence;
     index 0 seeds the latent and is excluded from the loss."""
@@ -115,7 +117,7 @@ def embedding_fit(
         observed, z_pred = traits.result()
         return z_pred, observed, observed
 
-    def step_loss() -> torch.Tensor:
+    def step_loss() -> tuple[torch.Tensor, dict[str, float]]:
         from nasa_farm.dynamics.hierarchical import Hierarchy, hierarchical_loss
 
         z_pred, targets, source = unroll()
@@ -135,11 +137,17 @@ def embedding_fit(
             if sparse
             else regularization(encoded.reshape(-1, encoded.shape[-1]))
         )
-        return predicted + sig_weight * penalty + kl_weight * kl
+        record = {
+            "predict": round(float(predicted.detach()), 8),
+            "sigreg": round(float(penalty.detach()), 8),
+            "kl": round(float(kl.detach()), 8),
+            "z_std": round(float(encoded.detach().std()), 6),
+        }
+        return predicted + sig_weight * penalty + kl_weight * kl, record
 
     for evaporation in range(1, epochs + 1):
         opt.zero_grad(set_to_none=True)
-        loss = step_loss()
+        loss, record = step_loss()
         if not torch.isfinite(loss):
             break
         loss.backward()
@@ -147,7 +155,7 @@ def embedding_fit(
         opt.step()
         target.update_from(encoder)
         v = float(loss.detach())
-        history.append(v)
+        history.append({"loss": v, **record})
         if verbose and evaporation % 10 == 0:
             print(f"  epoch {evaporation}: jepa {v:.5f}")
         if v < best - 1e-9:

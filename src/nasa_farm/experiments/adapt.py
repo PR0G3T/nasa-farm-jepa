@@ -23,7 +23,7 @@ import torch
 from nasa_farm.constants import DTYPE
 from nasa_farm.control import metric_reward, path_integral
 from nasa_farm.dynamics.model import WorldModel
-from nasa_farm.experiments.embedding import _trace
+from nasa_farm.experiments.hybrid import trace
 from nasa_farm.experiments.run import register
 from nasa_farm.experiments.scene import scene
 from nasa_farm.experiments.specification import Specification
@@ -48,8 +48,22 @@ def _obs_rmse(model, f_true: Field, f_pred: Field, scenario, specification: Spec
     with torch.inference_mode():
         for i in scenario.held_indices():
             f_t = scenario.realization(i)
-            ot, _ = _trace(model, f_true, f_t, scenario.actions, specification)
-            op, _ = _trace(model, f_pred, f_t, scenario.actions, specification)
+            ot, _ = trace(
+                model,
+                f_true,
+                f_t,
+                scenario.actions,
+                specification.observed_channels,
+                every=specification.cadence,
+            )
+            op, _ = trace(
+                model,
+                f_pred,
+                f_t,
+                scenario.actions,
+                specification.observed_channels,
+                every=specification.cadence,
+            )
             errors.append(float((op - ot).pow(2).mean().sqrt()))
     return round(sum(errors) / len(errors), 6)
 
@@ -85,7 +99,14 @@ def run(specification: Specification) -> dict:
     )
 
     with torch.inference_mode():
-        calibration_observed, _ = _trace(model, truth_f, f0, a0, specification)
+        calibration_observed, _ = trace(
+            model,
+            truth_f,
+            f0,
+            a0,
+            specification.observed_channels,
+            every=specification.cadence,
+        )
         calibration_observed = calibration_observed * (
             1.0
             + specification.noise
