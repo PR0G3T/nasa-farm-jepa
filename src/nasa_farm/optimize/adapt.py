@@ -22,20 +22,31 @@ import torch
 
 from nasa_farm.constants import DTYPE
 from nasa_farm.optimize.targets import (
-    ObservedTrajectory, season_metrics, trajectory_loss,
+    ObservedTrajectory,
+    season_metrics,
+    trajectory_loss,
 )
 from nasa_farm.optimize.trainer import fit, leaf
 from nasa_farm.state.field import Field
 from nasa_farm.types import Actions, Forcing
 
 
-def adapt(model, field: Field, forcing: Forcing, actions: Actions,
-          observed: ObservedTrajectory | None = None, *,
-          loss_fn: Callable[[Field], torch.Tensor] | None = None,
-          z: bool = True, context: bool = True,
-          state_vars: tuple[str, ...] = (),
-          task: Callable | None = None, task_w: float = 0.0,
-          epochs: int = 40, rate: float = 0.05) -> tuple[Field, dict]:
+def adapt(
+    model,
+    field: Field,
+    forcing: Forcing,
+    actions: Actions,
+    observed: ObservedTrajectory | None = None,
+    *,
+    loss_fn: Callable[[Field], torch.Tensor] | None = None,
+    z: bool = True,
+    context: bool = True,
+    state_vars: tuple[str, ...] = (),
+    task: Callable | None = None,
+    task_w: float = 0.0,
+    epochs: int = 40,
+    rate: float = 0.05,
+) -> tuple[Field, dict]:
     """Fit the environment on observed data, model frozen.
 
     obs: ObservedTrajectory scored by trajectory_loss (default path).
@@ -55,18 +66,25 @@ def adapt(model, field: Field, forcing: Forcing, actions: Actions,
     if loss_fn is None:
         if observed is None:
             raise ValueError("adapt needs `obs` or a custom `loss_fn`")
-        loss_fn = lambda f: trajectory_loss(
-            season_metrics(model, f, forcing, actions), observed)
+
+        def loss_fn(f):
+            return trajectory_loss(season_metrics(model, f, forcing, actions), observed)
 
     leaves: dict[str, torch.Tensor] = {}
     z0 = None
     if z:
-        dim = field.state.z.shape[-1] if field.state.z is not None \
+        dim = (
+            field.state.z.shape[-1]
+            if field.state.z is not None
             else (model.latent.dim if model.latent is not None else 0)
+        )
         if dim == 0:
             raise ValueError("adapt(z=True) needs a latent state or model latent")
-        base_z = (field.state.z if field.state.z is not None
-                  else torch.zeros(field.batch, dim, dtype=DTYPE))
+        base_z = (
+            field.state.z
+            if field.state.z is not None
+            else torch.zeros(field.batch, dim, dtype=DTYPE)
+        )
         z0 = leaf(base_z)
         leaves["z0"] = z0
     dctx = None
@@ -75,8 +93,7 @@ def adapt(model, field: Field, forcing: Forcing, actions: Actions,
         leaves["dctx"] = dctx
     x0 = None
     if state_vars:
-        x0 = leaf(torch.stack(
-            [_get_variable(field.state, n) for n in state_vars], -1))
+        x0 = leaf(torch.stack([_get_variable(field.state, n) for n in state_vars], -1))
         leaves["x0"] = x0
     if not leaves:
         raise ValueError("nothing to adapt: no z state, no ctx, no state_vars")
@@ -87,13 +104,17 @@ def adapt(model, field: Field, forcing: Forcing, actions: Actions,
             updated = updated.replace(z=z0)
         if x0 is not None:
             updated = _put_variables(updated, state_vars, x0)
-        f = Field(state=updated, soil=field.soil, latitude=field.latitude,
-                  elevation=field.elevation,
-                  context=field.context + dctx if dctx is not None else field.context)
-        l = loss_fn(f)
+        f = Field(
+            state=updated,
+            soil=field.soil,
+            latitude=field.latitude,
+            elevation=field.elevation,
+            context=field.context + dctx if dctx is not None else field.context,
+        )
+        value = loss_fn(f)
         if task is not None and task_w:
-            l = l - task_w * task(model, f, forcing, actions).mean()
-        return l
+            value = value - task_w * task(model, f, forcing, actions).mean()
+        return value
 
     result = fit(loss, leaves, epochs=epochs, rate=rate)
     updated = field.state
@@ -101,20 +122,25 @@ def adapt(model, field: Field, forcing: Forcing, actions: Actions,
         updated = updated.replace(z=leaves["z0"].detach())
     if x0 is not None:
         updated = _put_variables(updated, state_vars, leaves["x0"].detach())
-    output = Field(state=updated, soil=field.soil, latitude=field.latitude, elevation=field.elevation,
-                context=(field.context + leaves["dctx"].detach())
-                if dctx is not None else field.context)
-    rep = {"best_loss": round(result.best_loss, 8),
-           "epochs_run": result.epochs_run,
-           "z0_shift": (round(float(leaves["z0"].detach()
-                                   .sub(base_z).norm()), 4)
-           if z0 is not None else None),
-           "ctx_shift": (round(float(leaves["dctx"].detach().norm()), 4)
-           if dctx is not None else None),
-           "handles": sorted(leaves)}
+    output = Field(
+        state=updated,
+        soil=field.soil,
+        latitude=field.latitude,
+        elevation=field.elevation,
+        context=(field.context + leaves["dctx"].detach()) if dctx is not None else field.context,
+    )
+    rep = {
+        "best_loss": round(result.best_loss, 8),
+        "epochs_run": result.epochs_run,
+        "z0_shift": (
+            round(float(leaves["z0"].detach().sub(base_z).norm()), 4) if z0 is not None else None
+        ),
+        "ctx_shift": (
+            round(float(leaves["dctx"].detach().norm()), 4) if dctx is not None else None
+        ),
+        "handles": sorted(leaves),
+    }
     if x0 is not None:
-        base_x = torch.stack(
-            [_get_variable(field.state, n) for n in state_vars], -1)
-        rep["state_shift"] = round(
-            float((leaves["x0"].detach() - base_x).norm()), 4)
+        base_x = torch.stack([_get_variable(field.state, n) for n in state_vars], -1)
+        rep["state_shift"] = round(float((leaves["x0"].detach() - base_x).norm()), 4)
     return output, rep

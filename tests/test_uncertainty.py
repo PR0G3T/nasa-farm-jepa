@@ -5,7 +5,11 @@ import torch
 
 from nasa_farm.constants import DTYPE
 from nasa_farm.uncertainty import (
-    SplitConformal, conf_level, coverage, interval, weighted_quantile,
+    SplitConformal,
+    conf_level,
+    coverage,
+    interval,
+    weighted_quantile,
 )
 
 
@@ -47,8 +51,7 @@ class TestIntervalCoverage:
 
     def test_split_conformal_per_channel(self):
         g = torch.Generator().manual_seed(0)
-        y = torch.randn(400, 2, generator=g, dtype=DTYPE) \
-            * torch.tensor([1.0, 5.0], dtype=DTYPE)
+        y = torch.randn(400, 2, generator=g, dtype=DTYPE) * torch.tensor([1.0, 5.0], dtype=DTYPE)
         cal, test = y[:200], y[200:]
         scenario = SplitConformal(alpha=0.1).fit(torch.zeros_like(cal), cal)
         low, high = scenario.bound(torch.zeros_like(test))

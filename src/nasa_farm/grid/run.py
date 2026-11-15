@@ -41,31 +41,47 @@ def _netcdf_engine() -> str | None:
     try:
         import h5netcdf  # noqa: F401
         import h5py  # noqa: F401  (h5netcdf imports without it, then fails on write)
-        return "h5netcdf"
     except ImportError:
         pass
+    else:
+        return "h5netcdf"
     try:
         import scipy  # noqa: F401  (NetCDF3 fallback, uncompressed)
-        return "scipy"
     except ImportError:
         return None
+    else:
+        return "scipy"
 
 
 def write(ds, path: Path) -> None:
     eng = _netcdf_engine()
     enc = {}
     if eng == "h5netcdf":
-        enc = {v: {"compression": "gzip", "compression_opts": 4}
-               for v in ds.data_vars if ds[v].dtype.kind == "f"}
+        enc = {
+            v: {"compression": "gzip", "compression_opts": 4}
+            for v in ds.data_vars
+            if ds[v].dtype.kind == "f"
+        }
     ds.to_netcdf(path, engine=eng, encoding=enc)
 
 
-def run_one(p: Product, grid: TargetGrid, date: dt.date, out_dir: Path,
-            raw: Path, creds: dict[str, bool]) -> dict:
-    rec = {"product": p.key, "section": p.section, "title": p.title,
-           "route": p.route, "route_confidence": p.conf, "status": "",
-           "reason": "", "notes": [], "seconds": 0.0, "vars": [],
-           "coverage": None, "methods": {}}
+def run_one(
+    p: Product, grid: TargetGrid, date: dt.date, out_dir: Path, raw: Path, creds: dict[str, bool]
+) -> dict:
+    rec = {
+        "product": p.key,
+        "section": p.section,
+        "title": p.title,
+        "route": p.route,
+        "route_confidence": p.conf,
+        "status": "",
+        "reason": "",
+        "notes": [],
+        "seconds": 0.0,
+        "vars": [],
+        "coverage": None,
+        "methods": {},
+    }
     t0 = time.monotonic()
     missing = [n for n in p.needs if not creds.get(n)]
     if missing:
@@ -76,22 +92,35 @@ def run_one(p: Product, grid: TargetGrid, date: dt.date, out_dir: Path,
     try:
         p.fn(context, out)
         if not out.vars:
-            raise RuntimeError("product produced no variable")
-        out.attrs.update(product=p.key, title=p.title, route=p.route,
-                         requested_date=str(date), sources=" | ".join(context.notes))
+            raise RuntimeError(  # noqa: TRY301 — routed to the failed status below
+                "product produced no variable"
+            )
+        out.attrs.update(
+            product=p.key,
+            title=p.title,
+            route=p.route,
+            requested_date=str(date),
+            sources=" | ".join(context.notes),
+        )
         ds = out.to_dataset()
         write(ds, out_dir / f"{p.key}.nc")
         if out.points is not None:
             out.points.to_csv(out_dir / f"{p.key}_points.csv", index=False)
         finite = [float(np.isfinite(ds[v].values).mean()) for v in ds.data_vars]
-        rec.update(status="ok", vars=list(ds.data_vars),
-                   coverage=round(float(np.mean(finite)), 3),
-                   methods={v: ds[v].attrs.get("method", "") for v in ds.data_vars})
+        rec.update(
+            status="ok",
+            vars=list(ds.data_vars),
+            coverage=round(float(np.mean(finite)), 3),
+            methods={v: ds[v].attrs.get("method", "") for v in ds.data_vars},
+        )
     except Skip as e:
         rec.update(status="skipped", reason=str(e))
-    except Exception as e:  # noqa: BLE001 — one product must never stop the run
-        rec.update(status="failed", reason=f"{type(e).__name__}: {e}"[:600],
-                   traceback=traceback.format_exc(limit=6)[-2000:])
+    except Exception as e:
+        rec.update(
+            status="failed",
+            reason=f"{type(e).__name__}: {e}"[:600],
+            traceback=traceback.format_exc(limit=6)[-2000:],
+        )
     rec["notes"] = context.notes
     rec["seconds"] = round(time.monotonic() - t0, 1)
     return rec
@@ -99,12 +128,12 @@ def run_one(p: Product, grid: TargetGrid, date: dt.date, out_dir: Path,
 
 def stack(out_dir: Path, recs: list[dict]) -> Path | None:
     import xarray as xr
+
     parts = []
     for r in recs:
         if r["status"] != "ok":
             continue
-        with xr.open_dataset(out_dir / f"{r['product']}.nc",
-                             engine=_netcdf_engine()) as ds:
+        with xr.open_dataset(out_dir / f"{r['product']}.nc", engine=_netcdf_engine()) as ds:
             ds = ds.load()
         k = r["product"]
         dims = {d: f"{k}__{d}" for d in ds.dims if d not in ("x", "y")}
@@ -121,21 +150,31 @@ def stack(out_dir: Path, recs: list[dict]) -> Path | None:
 
 
 def report(out_dir: Path, recs: list[dict], grid: TargetGrid, date: dt.date) -> None:
-    (out_dir / "report.json").write_text(json.dumps(
-        {"grid": grid.describe(), "date": str(date), "products": recs}, indent=1))
+    (out_dir / "report.json").write_text(
+        json.dumps({"grid": grid.describe(), "date": str(date), "products": recs}, indent=1)
+    )
     n = {s: sum(r["status"] == s for r in recs) for s in ("ok", "skipped", "failed")}
-    lines = [f"# 1 km sample build — {date}",
-             "", f"Grid: {grid.describe()}", "",
-             f"**{n['ok']} ok · {n['skipped']} skipped · {n['failed']} failed** "
-             f"of {len(recs)} products", "",
-             "| # | Product | Status | Route (conf.) | Vars | Coverage | s | Reason / source |",
-             "|---|---|---|---|---|---|---|---|"]
+    lines = [
+        f"# 1 km sample build — {date}",
+        "",
+        f"Grid: {grid.describe()}",
+        "",
+        (
+            f"**{n['ok']} ok · {n['skipped']} skipped · {n['failed']} failed** "
+            f"of {len(recs)} products"
+        ),
+        "",
+        "| # | Product | Status | Route (conf.) | Vars | Coverage | s | Reason / source |",
+        "|---|---|---|---|---|---|---|---|",
+    ]
     for r in sorted(recs, key=lambda r: (r["section"], r["product"])):
         why = (r["reason"] or "; ".join(r["notes"]))[:220].replace("|", "/")
         cov = "" if r["coverage"] is None else f"{r['coverage']:.0%}"
-        lines.append(f"| {r['section']} | `{r['product']}` | {r['status']} | "
-                     f"{r['route']} ({r['route_confidence']}) | {len(r['vars'])} | "
-                     f"{cov} | {r['seconds']} | {why} |")
+        lines.append(
+            f"| {r['section']} | `{r['product']}` | {r['status']} | "
+            f"{r['route']} ({r['route_confidence']}) | {len(r['vars'])} | "
+            f"{cov} | {r['seconds']} | {why} |"
+        )
     lines += ["", "Alternates not downloaded (one file per CMR collection):", ""]
     lines += [f"- `{k}`: {v}" for k, v in ALTERNATES.items()]
     (out_dir / "report.md").write_text("\n".join(lines) + "\n")
@@ -159,8 +198,10 @@ def main(argv: list[str] | None = None) -> int:
         for p in sorted(REGISTRY.values(), key=lambda p: (p.section, p.key)):
             need = ",".join(p.needs) or "-"
             ok = all(creds.get(n) for n in p.needs)
-            print(f"{p.section:>2} {p.key:<22} {'ready' if ok else 'needs ' + need:<18} "
-                  f"[{p.conf}] {p.title}")
+            print(
+                f"{p.section:>2} {p.key:<22} {'ready' if ok else 'needs ' + need:<18} "
+                f"[{p.conf}] {p.title}"
+            )
         return 0
     grid = TargetGrid.named(a.aoi, a.res, a.crs)
     only = {k for k in a.only.split(",") if k}
@@ -171,17 +212,20 @@ def main(argv: list[str] | None = None) -> int:
     prods = [p for k, p in REGISTRY.items() if (not only or k in only) and k not in skip]
     out_dir = a.out / f"{a.aoi}_{a.date}"
     out_dir.mkdir(parents=True, exist_ok=True)
-    print(f"grid {grid.describe()} · {len(prods)} products · credentials "
-          f"{ {k: v for k, v in creds.items()} }", flush=True)
+    print(
+        f"grid {grid.describe()} · {len(prods)} products · credentials {dict(creds.items())}",
+        flush=True,
+    )
     with ThreadPoolExecutor(max_workers=max(a.jobs, 1)) as ex:
-        futs = {ex.submit(run_one, p, grid, a.date, out_dir, a.raw, creds): p
-                for p in prods}
+        futs = {ex.submit(run_one, p, grid, a.date, out_dir, a.raw, creds): p for p in prods}
         recs = []
         for f in futs:
             r = f.result()
             recs.append(r)
-            print(f"  {r['status']:<8} {r['product']:<22} {r['seconds']:>6}s "
-                  f"{r['reason'][:110]}", flush=True)
+            print(
+                f"  {r['status']:<8} {r['product']:<22} {r['seconds']:>6}s {r['reason'][:110]}",
+                flush=True,
+            )
     report(out_dir, recs, grid, a.date)
     st = stack(out_dir, recs)
     print(f"report → {out_dir / 'report.md'}" + (f" · stack → {st}" if st else ""))

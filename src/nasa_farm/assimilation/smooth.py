@@ -19,31 +19,48 @@ import math
 import torch
 
 from nasa_farm.assimilation.kalman import (
-    STATE_VARS, Observation, _get_variable, _put_variables,
+    STATE_VARS,
+    Observation,
+    _get_variable,
+    _put_variables,
 )
 from nasa_farm.constants import DTYPE
 from nasa_farm.observe import observables
 from nasa_farm.state.crops import INDEX
-from nasa_farm.state.field import Field
+from nasa_farm.state.field import Field, FieldState
 from nasa_farm.types import Actions, Forcing
 
 
-def _prior_state_ens(state: FieldState, names: tuple[str, ...],
-                     ensemble: int, sigma: float,
-                     generation: torch.Generator) -> torch.Tensor:
+def _prior_state_ens(
+    state: FieldState,
+    names: tuple[str, ...],
+    ensemble: int,
+    sigma: float,
+    generation: torch.Generator,
+) -> torch.Tensor:
     """(E, V) prior draws: log-normal jitter of the editable initial state."""
     x0 = torch.stack([_get_variable(state, n) for n in names], -1)[0]
-    j = 1.0 + sigma * torch.randn(ensemble, x0.numel(), generator=generation,
-                                  dtype=DTYPE, device=x0.device)
+    j = 1.0 + sigma * torch.randn(
+        ensemble, x0.numel(), generator=generation, dtype=DTYPE, device=x0.device
+    )
     return (x0.unsqueeze(0) * j).clamp(min=0.0)
 
 
-def ensemble_smooth(model, field: Field, forcing: Forcing, actions: Actions,
-               schedule: list[Observation],
-               names: tuple[str, ...] = STATE_VARS,
-               free_params: tuple[str, ...] = (), crop_idx: int = 0,
-               ensemble: int = 32, sigma: float = 0.05, epochs: int = 60,
-               rate: float = 0.05, seed: int = 0) -> tuple[Field, dict]:
+def ensemble_smooth(
+    model,
+    field: Field,
+    forcing: Forcing,
+    actions: Actions,
+    schedule: list[Observation],
+    names: tuple[str, ...] = STATE_VARS,
+    free_params: tuple[str, ...] = (),
+    crop_idx: int = 0,
+    ensemble: int = 32,
+    sigma: float = 0.05,
+    epochs: int = 60,
+    rate: float = 0.05,
+    seed: int = 0,
+) -> tuple[Field, dict]:
     """Joint state+trait smoother over the whole window.
 
     The prior ensemble jitters the editable initial state (and the listed
@@ -57,16 +74,18 @@ def ensemble_smooth(model, field: Field, forcing: Forcing, actions: Actions,
 
     xs = _prior_state_ens(field.state, names, ensemble, sigma, generation)
     x_bar = xs.mean(0)
-    ax = (xs - x_bar) / math.sqrt(ensemble - 1)                 # (E, V)
+    ax = (xs - x_bar) / math.sqrt(ensemble - 1)  # (E, V)
 
-    p_cols = torch.tensor([INDEX[p] for p in free_params],
-                          dtype=torch.long) if free_params else None
+    p_cols = (
+        torch.tensor([INDEX[p] for p in free_params], dtype=torch.long) if free_params else None
+    )
     if p_cols is not None:
         base_p = model.crop_table[crop_idx, p_cols]
         ps = base_p.log().unsqueeze(0) + sigma * torch.randn(
-            ensemble, p_cols.numel(), generator=generation, dtype=DTYPE)
+            ensemble, p_cols.numel(), generator=generation, dtype=DTYPE
+        )
         p_bar = ps.mean(0)
-        ap = (ps - p_bar) / math.sqrt(ensemble - 1)             # (E, P)
+        ap = (ps - p_bar) / math.sqrt(ensemble - 1)  # (E, P)
     else:
         p_bar = torch.zeros(0, dtype=DTYPE)
         ap = torch.zeros(ensemble, 0, dtype=DTYPE)
@@ -85,8 +104,13 @@ def ensemble_smooth(model, field: Field, forcing: Forcing, actions: Actions,
             table[crop_idx, p_cols] = (p_bar + (c_p - c_p.mean()) @ ap).exp()
             model.crop_table = table
         updated = _put_variables(field.state, names, x.unsqueeze(0))
-        f = Field(state=updated, soil=field.soil, latitude=field.latitude,
-                  elevation=field.elevation, context=field.context)
+        f = Field(
+            state=updated,
+            soil=field.soil,
+            latitude=field.latitude,
+            elevation=field.elevation,
+            context=field.context,
+        )
         total = torch.zeros((), dtype=DTYPE)
         with torch.enable_grad():
             for t in range(forcing.days):
@@ -94,8 +118,9 @@ def ensemble_smooth(model, field: Field, forcing: Forcing, actions: Actions,
                 if t in by_day:
                     observation = by_day[t]
                     predicted = observables(f.state, observation.channels)[0]
-                    r = (predicted - observation.values.to(predicted.dtype)) / \
-                        torch.as_tensor(observation.std, dtype=predicted.dtype)
+                    r = (predicted - observation.values.to(predicted.dtype)) / torch.as_tensor(
+                        observation.std, dtype=predicted.dtype
+                    )
                     total = total + r.pow(2).sum()
         return total
 
@@ -110,8 +135,7 @@ def ensemble_smooth(model, field: Field, forcing: Forcing, actions: Actions,
         opt.step()
         history.append(float(loss.detach()))
         if history[-1] < best:
-            best, best_c = history[-1], (c_x.detach().clone(),
-                                      c_p.detach().clone())
+            best, best_c = history[-1], (c_x.detach().clone(), c_p.detach().clone())
 
     model.crop_table = base_tbl
     if best_c is None:
@@ -123,10 +147,21 @@ def ensemble_smooth(model, field: Field, forcing: Forcing, actions: Actions,
         table[crop_idx, p_cols] = (p_bar + (crop - crop.mean()) @ ap).exp()
         model.crop_table = table
     updated = _put_variables(field.state, names, x_fin.unsqueeze(0))
-    output = Field(state=updated, soil=field.soil, latitude=field.latitude,
-                elevation=field.elevation, context=field.context)
-    fitted = ({p: float(model.crop_table[crop_idx, INDEX[p]])
-               for p in free_params} if p_cols is not None else {})
-    return output, {"chi2": round(best, 6), "epochs_run": len(history),
-                 "c_state_norm": round(float(cx.norm()), 4),
-                 "params": fitted}
+    output = Field(
+        state=updated,
+        soil=field.soil,
+        latitude=field.latitude,
+        elevation=field.elevation,
+        context=field.context,
+    )
+    fitted = (
+        {p: float(model.crop_table[crop_idx, INDEX[p]]) for p in free_params}
+        if p_cols is not None
+        else {}
+    )
+    return output, {
+        "chi2": round(best, 6),
+        "epochs_run": len(history),
+        "c_state_norm": round(float(cx.norm()), 4),
+        "params": fitted,
+    }

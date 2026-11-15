@@ -7,10 +7,9 @@ from nasa_farm.constants import DTYPE
 from nasa_farm.forcing import synthetic_year, tile_to_horizon
 from nasa_farm.observe import CHANNELS, observables, sm_vol, vwc
 from nasa_farm.observe.optical import fapar, ndvi
-from nasa_farm.observe.radiometer import tb
 from nasa_farm.observe.radar import sigma0
+from nasa_farm.observe.radiometer import tb
 from nasa_farm.observe.trace import ObservationTrace
-from nasa_farm.state.field import Field
 from nasa_farm.types import Actions
 
 
@@ -85,8 +84,7 @@ class TestTrace:
     def test_records_every_k_days(self, physics_model, field):
         forcing = tile_to_horizon(synthetic_year(42.0, seed=1), 1)
         traits = ObservationTrace(forcing.days, ("ndvi", "sm1"), every=5)
-        physics_model.rollout(field, forcing,
-                              Actions.idle(1, forcing.days), observer=traits)
+        physics_model.rollout(field, forcing, Actions.idle(1, forcing.days), observer=traits)
         r = traits.result()
         assert r.shape == (1, 73, 2)
         assert float(r[0, 0, 0]) == pytest.approx(0.15)  # bare soil NDVI
@@ -100,20 +98,17 @@ class TestTrace:
         differentiate series residuals back into dynamics parameters."""
         forcing = tile_to_horizon(synthetic_year(42.0, seed=1), 1)
         traits = ObservationTrace(forcing.days, ("ndvi", "sm1"), every=30)
-        hybrid_model.rollout(field, forcing,
-                             Actions.idle(1, forcing.days), observer=traits)
+        hybrid_model.rollout(field, forcing, Actions.idle(1, forcing.days), observer=traits)
         r = traits.result()
         r.sum().backward()
-        grads = [p.grad for p in hybrid_model.residual.parameters()
-                 if p.grad is not None]
+        grads = [p.grad for p in hybrid_model.residual.parameters() if p.grad is not None]
         assert grads and all(torch.isfinite(g).all() for g in grads)
 
 
 class TestDerivedChannels:
     def test_sm_vol_units(self, field):
         """sw1 mm over 0.3 m → m3/m3."""
-        s = field.state.replace(
-            sw=torch.stack([t(120.0), t(300.0)], dim=1))
+        s = field.state.replace(sw=torch.stack([t(120.0), t(300.0)], dim=1))
         assert float(sm_vol(s)) == pytest.approx(0.4)
 
     def test_vwc_scales_with_biomass(self, field):

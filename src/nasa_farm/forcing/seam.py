@@ -30,12 +30,12 @@ def roll_to_ordinal(f: Forcing, start: int) -> Forcing:
     if f.days != DAYS_PER_YEAR:
         raise ValueError(f"roll_to_doy needs a 365-day Forcing, got {f.days}")
     shift = (int(f.doy[0, 0]) - start) % DAYS_PER_YEAR
-    return f if not shift else Forcing(*(
-        getattr(f, k).roll(shift, dims=-1) for k in FORCING_VARS))
+    return f if not shift else Forcing(*(getattr(f, k).roll(shift, dims=-1) for k in FORCING_VARS))
 
 
-def bridge(fcst: Forcing, history: list[Forcing], days: int,
-           seed: int = 0, bandwidth: float = 1.0) -> Forcing:
+def bridge(
+    fcst: Forcing, history: list[Forcing], days: int, seed: int = 0, bandwidth: float = 1.0
+) -> Forcing:
     """Each forecast member → `days` total: forecast head + analog tail.
 
     Members share the doy axis, so historical years are rolled once onto
@@ -48,15 +48,18 @@ def bridge(fcst: Forcing, history: list[Forcing], days: int,
     start = int(fcst.doy[0, 0])
     rolled = [roll_to_ordinal(y, start) for y in history]
     win = [span(y, 0, f) for y in rolled]
-    tails = [span(tile_to_horizon(y, math.ceil(days / DAYS_PER_YEAR)), f, days)
-             for y in rolled]
+    tails = [span(tile_to_horizon(y, math.ceil(days / DAYS_PER_YEAR)), f, days) for y in rolled]
     generation = torch.Generator().manual_seed(seed)
     members = []
     for m in range(s):
         w = analog_weights(win, year_features(span(fcst, m, m + 1)), bandwidth=bandwidth)
         i = int(torch.multinomial(w, 1, generator=generation))
-        members.append(Forcing(*(torch.cat(
-            [getattr(fcst, k)[m:m + 1], getattr(tails[i], k)], -1)
-            for k in FORCING_VARS)))
-    return Forcing(*(torch.cat(
-        [getattr(fx, k) for fx in members]) for k in FORCING_VARS))
+        members.append(
+            Forcing(
+                *(
+                    torch.cat([getattr(fcst, k)[m : m + 1], getattr(tails[i], k)], -1)
+                    for k in FORCING_VARS
+                )
+            )
+        )
+    return Forcing(*(torch.cat([getattr(fx, k) for fx in members]) for k in FORCING_VARS))

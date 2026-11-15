@@ -22,14 +22,23 @@ from nasa_farm.optimize.targets import ObservedSeries, series, series_loss
 from nasa_farm.state.field import Field
 
 
-def langevin_posterior(model, field: Field, forcing, actions,
-                  observed: ObservedSeries,
-                  channels: tuple[str, ...], every: int = 5,
-                  names: tuple[str, ...] = STATE_VARS,
-                  prior_sd: float = 0.2,
-                  steps: int = 60, rate: float = 1e-3, temperature: float = 1.0,
-                  burn: int = 20, n_samples: int = 8,
-                  seed: int = 0) -> list[Field]:
+def langevin_posterior(
+    model,
+    field: Field,
+    forcing,
+    actions,
+    observed: ObservedSeries,
+    channels: tuple[str, ...],
+    every: int = 5,
+    names: tuple[str, ...] = STATE_VARS,
+    prior_sd: float = 0.2,
+    steps: int = 60,
+    rate: float = 1e-3,
+    temperature: float = 1.0,
+    burn: int = 20,
+    n_samples: int = 8,
+    seed: int = 0,
+) -> list[Field]:
     """Langevin posterior on initial-state channels → field ensemble.
 
     x0 is parameterized in log-space (positive channels stay positive);
@@ -45,15 +54,22 @@ def langevin_posterior(model, field: Field, forcing, actions,
 
     for it in range(steps):
         updated = _put_variables(field.state, names, logx.exp().unsqueeze(0))
-        f = Field(state=updated, soil=field.soil, latitude=field.latitude,
-                  elevation=field.elevation, context=field.context)
+        f = Field(
+            state=updated,
+            soil=field.soil,
+            latitude=field.latitude,
+            elevation=field.elevation,
+            context=field.context,
+        )
         predicted = series(model, f, forcing, actions, channels, every)
-        logp = -series_loss(predicted, observed) \
-            - 0.5 * ((logx - logx0) / prior_sd).pow(2).sum()
+        logp = -series_loss(predicted, observed) - 0.5 * ((logx - logx0) / prior_sd).pow(2).sum()
         g = torch.autograd.grad(logp, logx)[0]
         with torch.no_grad():
-            logx.add_(rate * g + (2.0 * rate * temperature) ** 0.5
-                      * torch.randn(logx.shape, generator=generation, dtype=DTYPE))
+            logx.add_(
+                rate * g
+                + (2.0 * rate * temperature) ** 0.5
+                * torch.randn(logx.shape, generator=generation, dtype=DTYPE)
+            )
         if it >= burn:
             chain.append(logx.detach().clone())
 
@@ -63,6 +79,13 @@ def langevin_posterior(model, field: Field, forcing, actions,
     output = []
     for i in index.tolist():
         updated = _put_variables(field.state, names, chain[i].exp().unsqueeze(0))
-        output.append(Field(state=updated, soil=field.soil, latitude=field.latitude,
-                         elevation=field.elevation, context=field.context))
+        output.append(
+            Field(
+                state=updated,
+                soil=field.soil,
+                latitude=field.latitude,
+                elevation=field.elevation,
+                context=field.context,
+            )
+        )
     return output

@@ -26,8 +26,14 @@ from nasa_farm.metrics import energy_score
 from nasa_farm.state.field import Field, FieldState
 
 
-def _kde_transport(y: torch.Tensor, observed: torch.Tensor, r: torch.Tensor,
-                   steps: int, rate: float, bandwidth: float | None) -> torch.Tensor:
+def _kde_transport(
+    y: torch.Tensor,
+    observed: torch.Tensor,
+    r: torch.Tensor,
+    steps: int,
+    rate: float,
+    bandwidth: float | None,
+) -> torch.Tensor:
     """Analysis members in obs space: Langevin on log [KDE prior · N(obs,R)].
 
     y (B, C) forecast obs members → (B, C) analysis members."""
@@ -37,7 +43,7 @@ def _kde_transport(y: torch.Tensor, observed: torch.Tensor, r: torch.Tensor,
     x = y.clone()
     for _ in range(steps):
         d = (x.unsqueeze(1) - x.unsqueeze(0)) / h
-        dens = torch.exp(-0.5 * (d ** 2).sum(-1))
+        dens = torch.exp(-0.5 * (d**2).sum(-1))
         density = dens.sum(1, keepdim=True).clamp(min=1e-9)
         prior = (dens / density).unsqueeze(-1) * d * h
         score_prior = prior.sum(1) - prior.sum(0)
@@ -46,14 +52,19 @@ def _kde_transport(y: torch.Tensor, observed: torch.Tensor, r: torch.Tensor,
     return torch.nan_to_num(x)
 
 
-def ensf_lr_update(state: FieldState, observed_prediction: torch.Tensor,
-                   observed: torch.Tensor, r: torch.Tensor | float,
-                   names: tuple[str, ...] = STATE_VARS,
-                   channels: tuple[str, ...] | None = None,
-                   perturb: bool = True,
-                   generation: torch.Generator | None = None,
-                   steps: int = 30, rate: float = 0.05,
-                   bandwidth: float | None = None) -> FieldState:
+def ensf_lr_update(
+    state: FieldState,
+    observed_prediction: torch.Tensor,
+    observed: torch.Tensor,
+    r: torch.Tensor | float,
+    names: tuple[str, ...] = STATE_VARS,
+    channels: tuple[str, ...] | None = None,
+    perturb: bool = True,
+    generation: torch.Generator | None = None,
+    steps: int = 30,
+    rate: float = 0.05,
+    bandwidth: float | None = None,
+) -> FieldState:
     """EnSF-LR analysis.
 
     state: (B,) ensemble; obs_pred: (B, C) predicted observables;
@@ -67,8 +78,7 @@ def ensf_lr_update(state: FieldState, observed_prediction: torch.Tensor,
     xa, yp = x - xm, observed_prediction - ym
     cxy = xa.t() @ yp / (x.shape[0] - 1)
     cyy = yp.t() @ yp / (x.shape[0] - 1)
-    gain = torch.linalg.solve(
-        cyy + 1e-6 * torch.eye(cyy.shape[0], dtype=cyy.dtype), cxy.t()).t()
+    gain = torch.linalg.solve(cyy + 1e-6 * torch.eye(cyy.shape[0], dtype=cyy.dtype), cxy.t()).t()
     xn = x + (ya - observed_prediction) @ gain.t()
     xn = torch.nan_to_num(xn).clamp(min=0.0)
     return _put_variables(state, names, xn)
@@ -86,28 +96,39 @@ class Filter(nn.Module):
         super().__init__()
         self.n_vars, self.n_obs = n_vars, n_obs
         d = n_vars + 3 * n_obs
-        self.phi = nn.Sequential(nn.Linear(d, hidden), nn.SiLU(),
-                                 nn.Linear(hidden, hidden), nn.SiLU())
-        self.psi = nn.Sequential(nn.Linear(2 * hidden, hidden), nn.SiLU(),
-                                 nn.Linear(hidden, n_vars))
+        self.phi = nn.Sequential(
+            nn.Linear(d, hidden), nn.SiLU(), nn.Linear(hidden, hidden), nn.SiLU()
+        )
+        self.psi = nn.Sequential(
+            nn.Linear(2 * hidden, hidden), nn.SiLU(), nn.Linear(hidden, n_vars)
+        )
         self.to(DTYPE)
 
-    def forward(self, x: torch.Tensor, ypred: torch.Tensor,
-                observed: torch.Tensor, r: torch.Tensor) -> torch.Tensor:
+    def forward(
+        self, x: torch.Tensor, ypred: torch.Tensor, observed: torch.Tensor, r: torch.Tensor
+    ) -> torch.Tensor:
         """x (B,V), ypred (B,C), obs (C,), r (C,) → analysis (B,V)."""
         b = x.shape[0]
-        z = self.phi(torch.cat(
-            [x, ypred, observed.expand(b, -1), r.expand(b, -1)], dim=-1))
+        z = self.phi(torch.cat([x, ypred, observed.expand(b, -1), r.expand(b, -1)], dim=-1))
         context = z.mean(0, keepdim=True).expand(b, -1)
         return x + self.psi(torch.cat([z, context], dim=-1))
 
 
-def fit_filter(model, field: Field, forcing, actions,
-               channels: tuple[str, ...], every: int = 10,
-               members: int = 16, epochs: int = 60, rate: float = 1e-3,
-               noise: float = 0.05, spread: float = 0.15,
-               names: tuple[str, ...] = STATE_VARS,
-               seed: int = 0) -> Filter:
+def fit_filter(
+    model,
+    field: Field,
+    forcing,
+    actions,
+    channels: tuple[str, ...],
+    every: int = 10,
+    members: int = 16,
+    epochs: int = 60,
+    rate: float = 1e-3,
+    noise: float = 0.05,
+    spread: float = 0.15,
+    names: tuple[str, ...] = STATE_VARS,
+    seed: int = 0,
+) -> Filter:
     """Train FilterNet on energy score against model-generated analyses.
 
     Each training example: roll the model to an obs day (truth state s*),
@@ -124,40 +145,52 @@ def fit_filter(model, field: Field, forcing, actions,
         for t in range(forcing.days):
             f, _ = model.step(f, actions.day(t), forcing.day(t), t)
             if t % every == every - 1:
-                truth = torch.stack(
-                    [_get_variable(f.state, n)[0] for n in names])
+                truth = torch.stack([_get_variable(f.state, n)[0] for n in names])
                 o = observables(f.state, channels)[0]
                 snapshot.append((f.state.clone(), truth, o))
 
     net = Filter(len(names), len(channels))
     opt = torch.optim.Adam(net.parameters(), lr=rate)
-    scale = torch.tensor([1.0] * len(names), dtype=DTYPE)
+    torch.tensor([1.0] * len(names), dtype=DTYPE)
     history = []
     for _ in range(epochs):
         total = torch.zeros((), dtype=DTYPE)
         for updated, truth, o in snapshot:
             x0 = torch.stack([_get_variable(updated, n)[0] for n in names])
             jitter = 1.0 + spread * torch.randn(
-                (members, x0.shape[0]), generator=generation, dtype=DTYPE)
+                (members, x0.shape[0]), generator=generation, dtype=DTYPE
+            )
             x = (x0 * jitter).clamp(min=0.0)
             ps = FieldState(
-                sw=updated.sw.repeat(members, 1), n_min=updated.n_min.repeat(members),
-                n_org=updated.n_org.repeat(members), litter=updated.litter.repeat(members),
-                soc_f=updated.soc_f.repeat(members), soc_s=updated.soc_s.repeat(members),
-                et=updated.et.repeat(members), n2o=updated.n2o.repeat(members),
-                tws=updated.tws.repeat(members), gdd=updated.gdd.repeat(members),
-                lai=updated.lai.repeat(members), biomass=updated.biomass.repeat(members),
+                sw=updated.sw.repeat(members, 1),
+                n_min=updated.n_min.repeat(members),
+                n_org=updated.n_org.repeat(members),
+                litter=updated.litter.repeat(members),
+                soc_f=updated.soc_f.repeat(members),
+                soc_s=updated.soc_s.repeat(members),
+                et=updated.et.repeat(members),
+                n2o=updated.n2o.repeat(members),
+                tws=updated.tws.repeat(members),
+                gdd=updated.gdd.repeat(members),
+                lai=updated.lai.repeat(members),
+                biomass=updated.biomass.repeat(members),
                 season_yield=updated.season_yield.repeat(members),
                 cum_yield=updated.cum_yield.repeat(members),
-                crop=updated.crop.repeat(members), growing=updated.growing.repeat(members),
+                crop=updated.crop.repeat(members),
+                growing=updated.growing.repeat(members),
                 harvested=updated.harvested.repeat(members),
-                vernalization=updated.vernalization.repeat(members), heat_acc=updated.heat_acc.repeat(members),
-                z=None, zh=None, depth=updated.depth, tair=updated.tair.repeat(members))
+                vernalization=updated.vernalization.repeat(members),
+                heat_acc=updated.heat_acc.repeat(members),
+                z=None,
+                zh=None,
+                depth=updated.depth,
+                tair=updated.tair.repeat(members),
+            )
             ps = _put_variables(ps, names, x)
             ypred = observables(ps, channels)
             std = (noise * o.abs()).clamp(min=1e-3)
             observed = o + torch.randn(o.shape, generator=generation, dtype=DTYPE) * std
-            xa = net(x, ypred, observed, std ** 2)
+            xa = net(x, ypred, observed, std**2)
             total = total + energy_score(xa.unsqueeze(1), truth.unsqueeze(0))
         opt.zero_grad(set_to_none=True)
         (total / len(snapshot)).backward()
@@ -170,12 +203,17 @@ def fit_filter(model, field: Field, forcing, actions,
 
 def network_update(net: Filter, names: tuple[str, ...] = STATE_VARS):
     """Wrap a fitted FilterNet into an `assimilate(update=...)` callable."""
-    def update(state: FieldState, observed_prediction: torch.Tensor, observed: torch.Tensor,
-               r: torch.Tensor | float, **_kw) -> FieldState:
+
+    def update(
+        state: FieldState,
+        observed_prediction: torch.Tensor,
+        observed: torch.Tensor,
+        r: torch.Tensor | float,
+        **_kw,
+    ) -> FieldState:
         x = torch.stack([_get_variable(state, n) for n in names], dim=-1)
-        r_t = torch.as_tensor(r, dtype=x.dtype, device=x.device) \
-            .expand(observed.numel())
+        r_t = torch.as_tensor(r, dtype=x.dtype, device=x.device).expand(observed.numel())
         xa = net(x, observed_prediction, observed, r_t.clamp(min=1e-12))
-        return _put_variables(state, names,
-                         torch.nan_to_num(xa).clamp(min=0.0))
+        return _put_variables(state, names, torch.nan_to_num(xa).clamp(min=0.0))
+
     return update

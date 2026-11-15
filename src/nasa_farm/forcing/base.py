@@ -10,7 +10,6 @@ from __future__ import annotations
 import math
 
 import torch
-
 import torch.nn.functional as F
 
 from nasa_farm.constants import DAYS_PER_YEAR, DTYPE
@@ -21,9 +20,8 @@ def noise(b: int, t: int, rho: float, generation: torch.Generator) -> torch.Tens
     """Unit-variance AR(1) noise (b, t) — temporally correlated perturbations."""
     e = torch.randn(b, t, generator=generation, dtype=DTYPE)
     k = min(t, 60)
-    w = (rho ** torch.arange(k, dtype=DTYPE)) * math.sqrt(1.0 - rho ** 2)
-    x = F.conv1d(e.unsqueeze(1), w.flip(0).view(1, 1, -1),
-                 padding=k - 1)[..., :t]
+    w = (rho ** torch.arange(k, dtype=DTYPE)) * math.sqrt(1.0 - rho**2)
+    x = F.conv1d(e.unsqueeze(1), w.flip(0).view(1, 1, -1), padding=k - 1)[..., :t]
     return x.squeeze(1)
 
 
@@ -60,23 +58,32 @@ def synthetic_year(
     srad = torch.clamp(srad + torch.randn(DAYS_PER_YEAR, generator=g) * 3.0, min=0.5)
 
     wet = torch.rand(DAYS_PER_YEAR, generator=g) < wet_prob
-    precip = wet * torch.rand(DAYS_PER_YEAR, generator=g) * (precip_mean / max(wet_prob, 1e-3)) * 3.0
+    precip = (
+        wet * torch.rand(DAYS_PER_YEAR, generator=g) * (precip_mean / max(wet_prob, 1e-3)) * 3.0
+    )
 
     # Humidity anticorrelates with temperature; wind has weak seasonal cycle.
-    rh = torch.clamp(80.0 - 0.8 * (tmean - tmean_annual)
-                     + torch.randn(DAYS_PER_YEAR, generator=g) * 4.0, 25.0, 98.0)
-    u2 = torch.clamp(2.5 + 0.8 * torch.cos(phase)
-                     + torch.randn(DAYS_PER_YEAR, generator=g) * 0.4, 0.3, 8.0)
+    rh = torch.clamp(
+        80.0 - 0.8 * (tmean - tmean_annual) + torch.randn(DAYS_PER_YEAR, generator=g) * 4.0,
+        25.0,
+        98.0,
+    )
+    u2 = torch.clamp(
+        2.5 + 0.8 * torch.cos(phase) + torch.randn(DAYS_PER_YEAR, generator=g) * 0.4, 0.3, 8.0
+    )
     return Forcing(
-        tmin.unsqueeze(0), tmax.unsqueeze(0),
-        srad.unsqueeze(0), precip.unsqueeze(0),
-        rh.unsqueeze(0), u2.unsqueeze(0), doy.unsqueeze(0),
+        tmin.unsqueeze(0),
+        tmax.unsqueeze(0),
+        srad.unsqueeze(0),
+        precip.unsqueeze(0),
+        rh.unsqueeze(0),
+        u2.unsqueeze(0),
+        doy.unsqueeze(0),
         torch.full((1, DAYS_PER_YEAR), co2_ppm, dtype=DTYPE),
     )
 
 
-def augment(f: Forcing, n: int, rho: float = 0.6,
-            seed: int = 0) -> Forcing:
+def augment(f: Forcing, n: int, rho: float = 0.6, seed: int = 0) -> Forcing:
     """AR(1)-correlated weather perturbations → n extra members per base row.
 
     Returns the original batch followed by n perturbed members each, so a
@@ -92,14 +99,21 @@ def augment(f: Forcing, n: int, rho: float = 0.6,
 
     tmin = rep(f.tmin) + 1.5 * e[0]
     tmax = torch.maximum(rep(f.tmax) + 1.5 * e[0], tmin + 0.5)
-    return Forcing.concat([f, Forcing(
-        tmin=tmin, tmax=tmax,
-        srad=(rep(f.srad) * torch.exp(0.08 * e[1])).clamp(min=0.5),
-        precip=rep(f.precip) * torch.exp(0.35 * e[2]),
-        rh=(rep(f.rh) + 4.0 * e[3]).clamp(5.0, 100.0),
-        u2=(rep(f.u2) * torch.exp(0.12 * e[4])).clamp(min=0.1),
-        doy=rep(f.doy), co2=rep(f.co2),
-    )])
+    return Forcing.concat(
+        [
+            f,
+            Forcing(
+                tmin=tmin,
+                tmax=tmax,
+                srad=(rep(f.srad) * torch.exp(0.08 * e[1])).clamp(min=0.5),
+                precip=rep(f.precip) * torch.exp(0.35 * e[2]),
+                rh=(rep(f.rh) + 4.0 * e[3]).clamp(5.0, 100.0),
+                u2=(rep(f.u2) * torch.exp(0.12 * e[4])).clamp(min=0.1),
+                doy=rep(f.doy),
+                co2=rep(f.co2),
+            ),
+        ]
+    )
 
 
 def ensemble_of(years: list[Forcing]) -> Forcing:
@@ -110,6 +124,7 @@ def ensemble_of(years: list[Forcing]) -> Forcing:
 def tile_to_horizon(f: Forcing, years: int) -> Forcing:
     """Repeat a 365-day forcing across `years` simulation years."""
     from nasa_farm.types import FORCING_VARS
+
     return Forcing(*(getattr(f, k).repeat(1, years) for k in FORCING_VARS))
 
 
@@ -121,8 +136,9 @@ def climatology_ensemble(
 ) -> Forcing:
     """Each historical year becomes one scenario, tiled across the horizon and
     optionally shifted — 'drier/hotter season' counterfactuals for free."""
-    return Forcing.concat([
-        tile_to_horizon(y, horizon_years).perturb(delta_t=delta_t,
-                                                  precip_scale=precip_scale)
-        for y in years
-    ])
+    return Forcing.concat(
+        [
+            tile_to_horizon(y, horizon_years).perturb(delta_t=delta_t, precip_scale=precip_scale)
+            for y in years
+        ]
+    )

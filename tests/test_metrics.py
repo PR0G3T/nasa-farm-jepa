@@ -60,8 +60,7 @@ def test_nrmse_norms():
     r = mx.rmse(p, o)
     assert mx.nrmse(p, o, "mean") == pytest.approx(float(r / o.mean()))
     assert mx.nrmse(p, o, "sd") == pytest.approx(float(r / o.std()))
-    assert mx.nrmse(p, o, "range") == pytest.approx(
-        float(r / (o.max() - o.min())))
+    assert mx.nrmse(p, o, "range") == pytest.approx(float(r / (o.max() - o.min())))
     # auto: mean→0 falls back to sd without producing inf/nan
     o2, p2 = t(-1.0, 0.0, 1.0), t(-0.9, 0.1, 1.2)
     output = mx.nrmse(p2, o2, "auto")
@@ -70,7 +69,7 @@ def test_nrmse_norms():
 
 def test_nan_awareness():
     o = t(1.0, float("nan"), 3.0)
-    p = t(1.5, 9.0, 3.5)          # the NaN row must be dropped entirely
+    p = t(1.5, 9.0, 3.5)  # the NaN row must be dropped entirely
     assert mx.mae(p, o) == pytest.approx(0.5)
     assert mx.score(p, o)["n"] == 2
     assert math.isnan(float(mx.rmse(p, torch.full_like(o, float("nan")))))
@@ -78,12 +77,11 @@ def test_nan_awareness():
 
 def test_broadcast():
     o = t(1.0, 2.0, 3.0)
-    assert mx.mae(torch.tensor(2.0, dtype=DTYPE), o) \
-        == pytest.approx(2.0 / 3.0)
+    assert mx.mae(torch.tensor(2.0, dtype=DTYPE), o) == pytest.approx(2.0 / 3.0)
 
 
 def test_crps_single_member_is_mae():
-    e = t(2.0, 5.0).unsqueeze(-1)          # 2 obs, 1 member each
+    e = t(2.0, 5.0).unsqueeze(-1)  # 2 obs, 1 member each
     o = t(1.0, 3.0)
     assert mx.crps(e, o) == pytest.approx((1.0 + 2.0) / 2)
 
@@ -136,10 +134,10 @@ def test_pit_uniform_when_calibrated():
 def test_pit_detects_bias():
     g = torch.Generator().manual_seed(3)
     e = torch.randn(2000, 21, generator=g, dtype=DTYPE)
-    o = torch.randn(2000, generator=g, dtype=DTYPE) + 3.0   # obs way high
+    o = torch.randn(2000, generator=g, dtype=DTYPE) + 3.0  # obs way high
     h = mx.pit_hist(e, o, bins=10)
-    assert h[-1] > 0.9 * h.sum()     # mass piles at the right edge
-    assert h[:3].sum() == 0          # nothing left below the ensemble
+    assert h[-1] > 0.9 * h.sum()  # mass piles at the right edge
+    assert h[:3].sum() == 0  # nothing left below the ensemble
 
 
 def test_picp_oracle_band():
@@ -175,8 +173,7 @@ def test_spread_skill_calibrated():
 
 def test_score_bundle_keys_and_null():
     s = mx.score(t(1.0, 2.0), t(1.0, 2.5))
-    for k in ("rmse", "nrmse", "mae", "mbe", "r2", "nse", "kge09",
-              "kge12", "d", "ccc", "n"):
+    for k in ("rmse", "nrmse", "mae", "mbe", "r2", "nse", "kge09", "kge12", "d", "ccc", "n"):
         assert k in s
     single = mx.score(t(1.0), t(2.0))
     assert single["r2"] is None and single["nse"] is None  # undefined @ n=1
@@ -188,9 +185,19 @@ def test_score_ens_bundle():
     e = torch.randn(30, 12, generator=g, dtype=DTYPE)
     o = torch.randn(30, generator=g, dtype=DTYPE)
     s = mx.score_ens(e, o, alphas=(0.1, 0.5))
-    for k in ("rmse", "crps", "spread", "spread_skill", "pit",
-              "picp_0.1", "is_0.1", "width_0.1",
-              "picp_0.5", "is_0.5", "width_0.5"):
+    for k in (
+        "rmse",
+        "crps",
+        "spread",
+        "spread_skill",
+        "pit",
+        "picp_0.1",
+        "is_0.1",
+        "width_0.1",
+        "picp_0.5",
+        "is_0.5",
+        "width_0.5",
+    ):
         assert k in s
     assert len(s["pit"]) == 10 and sum(s["pit"]) == 30
     # α = miscoverage: the 90 % band covers more than the 50 % band

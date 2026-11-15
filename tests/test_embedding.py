@@ -6,7 +6,11 @@ import torch
 
 from nasa_farm.constants import DTYPE
 from nasa_farm.dynamics.latent import (
-    ObservationEncoder, PatchEncoder, TargetEncoder, embedding_loss, regularization,
+    ObservationEncoder,
+    PatchEncoder,
+    TargetEncoder,
+    embedding_loss,
+    regularization,
 )
 from nasa_farm.dynamics.model import WorldModel
 from nasa_farm.dynamics.residual import N_FEATURES, Residual
@@ -16,22 +20,20 @@ from nasa_farm.optimize.embedding import embedding_fit, seeded
 from nasa_farm.state.crops import CropLibrary
 from nasa_farm.state.field import Field, initial_state
 from nasa_farm.state.soil import SoilProfile
-from nasa_farm.types import Actions, Forcing
 
 
 def _field() -> Field:
     soil = SoilProfile.preset("silt_loam")
-    return Field(initial_state(1, soil), soil,
-                 torch.tensor([42.0], dtype=DTYPE))
+    return Field(initial_state(1, soil), soil, torch.tensor([42.0], dtype=DTYPE))
 
 
 def _forcing_actions(days: int = 365):
     from nasa_farm.forcing import synthetic_year, tile_to_horizon
     from nasa_farm.plan import expand_actions
+
     crops = CropLibrary.default()
     forcing = tile_to_horizon(synthetic_year(42.0, seed=0), 1)
-    actions = expand_actions(
-        torch.tensor([[crops.index("maize")]]), crops.table)
+    actions = expand_actions(torch.tensor([[crops.index("maize")]]), crops.table)
     return forcing, actions
 
 
@@ -71,11 +73,11 @@ class TestPatchEncoder:
 class TestJEPALossReg:
     def test_z_reg_overrides_z_obs_for_sigreg(self):
         g = torch.Generator().manual_seed(0)
-        z_observed = torch.ones(64, 8, dtype=DTYPE)          # degenerate → high sig
+        z_observed = torch.ones(64, 8, dtype=DTYPE)  # degenerate → high sig
         z_reg = torch.randn(64, 8, dtype=DTYPE, generator=g)
         # pred term zeroed ⇒ loss isolates the regularizer's argument
-        l = embedding_loss(z_observed, z_observed.clone(), sig_weight=1.0, z_reg=z_reg)
-        assert float(l) == pytest.approx(float(regularization(z_reg)), rel=1e-9)
+        loss = embedding_loss(z_observed, z_observed.clone(), sig_weight=1.0, z_reg=z_reg)
+        assert float(loss) == pytest.approx(float(regularization(z_reg)), rel=1e-9)
 
 
 class TestResidualCtx:
@@ -106,14 +108,14 @@ class TestModelWiring:
         """Zero-init latent head ⇒ seeded z persists unchanged: identity."""
         m = WorldModel(latent_dimension=4)
         forcing, actions = _forcing_actions()
-        z0 = torch.randn(1, 4, dtype=DTYPE,
-                         generator=torch.Generator().manual_seed(0))
+        z0 = torch.randn(1, 4, dtype=DTYPE, generator=torch.Generator().manual_seed(0))
         f = seeded(_field(), z0, m.latent.hidden_dimension)
         traits = EmbeddingTrace(forcing.days, 4, ("ndvi",), every=30)
         m.rollout(f, forcing, actions, observer=traits)
         _, z = traits.result()
-        assert torch.allclose(z[:, 0], z0.expand(1, -1).expand_as(
-            z[:, 0]).to(DTYPE), atol=1e-12) or torch.equal(z[:, 0], z0)
+        assert torch.allclose(
+            z[:, 0], z0.expand(1, -1).expand_as(z[:, 0]).to(DTYPE), atol=1e-12
+        ) or torch.equal(z[:, 0], z0)
 
 
 class TestSeeded:
@@ -133,10 +135,11 @@ class TestJepaFit:
         m = WorldModel(CropLibrary.default(), latent_dimension=4)
         encoder = ObservationEncoder(observed_dimension=2, z_dim=4)
         forcing, actions = _forcing_actions()
-        rep = embedding_fit(m, encoder, _field(), forcing, actions,
-                       ("ndvi", "sm1"), every=15, epochs=8, rate=1e-2)
+        rep = embedding_fit(
+            m, encoder, _field(), forcing, actions, ("ndvi", "sm1"), every=15, epochs=8, rate=1e-2
+        )
         assert rep["best_loss"] < rep["history"][0]
-        assert rep["z_std_final"] > 0.01   # SIGReg prevents collapse
+        assert rep["z_std_final"] > 0.01  # SIGReg prevents collapse
 
     def test_external_targets(self):
         torch.manual_seed(0)
@@ -144,37 +147,63 @@ class TestJepaFit:
         encoder = ObservationEncoder(observed_dimension=2, z_dim=4)
         forcing, actions = _forcing_actions()
         days_n = forcing.days // 15 + (1 if forcing.days % 15 else 0)
-        targets = torch.rand(1, days_n, 2, dtype=DTYPE,
-                             generator=torch.Generator().manual_seed(1))
-        rep = embedding_fit(m, encoder, _field(), forcing, actions,
-                       ("ndvi", "sm1"), targets=targets, every=15,
-                       epochs=4, rate=1e-2)
+        targets = torch.rand(1, days_n, 2, dtype=DTYPE, generator=torch.Generator().manual_seed(1))
+        rep = embedding_fit(
+            m,
+            encoder,
+            _field(),
+            forcing,
+            actions,
+            ("ndvi", "sm1"),
+            targets=targets,
+            every=15,
+            epochs=4,
+            rate=1e-2,
+        )
         assert rep["z_tgt"].shape == (1, days_n, 4)
 
     def test_requires_latent(self):
         with pytest.raises(ValueError):
-            embedding_fit(WorldModel(CropLibrary.default(), latent_dimension=0),
-                     ObservationEncoder(2, 4), _field(), *_forcing_actions(),
-                     ("ndvi", "sm1"))
+            embedding_fit(
+                WorldModel(CropLibrary.default(), latent_dimension=0),
+                ObservationEncoder(2, 4),
+                _field(),
+                *_forcing_actions(),
+                ("ndvi", "sm1"),
+            )
 
 
 class TestExpJepa:
     def test_registered_and_json_safe(self):
         import json
+
         from nasa_farm.experiments import run
-        specification = Specification(horizon=1, realizations=1, cadence=30, epochs=3,
-                    latent_dimension=4, observed_channels=("ndvi", "sm1"),
-                    channels=("yield_kg",))
+
+        specification = Specification(
+            horizon=1,
+            realizations=1,
+            cadence=30,
+            epochs=3,
+            latent_dimension=4,
+            observed_channels=("ndvi", "sm1"),
+            channels=("yield_kg",),
+        )
         rep = run("jepa", specification)
         r = rep.results
-        assert set(r["channels"]["ndvi"]) >= {
-            "prior", "jepa_probe", "residual", "hybrid"}
+        assert set(r["channels"]["ndvi"]) >= {"prior", "jepa_probe", "residual", "hybrid"}
         json.dumps(r)  # no NaN leaks
 
     def test_reproducible(self):
         from nasa_farm.experiments import run
-        specification = Specification(horizon=1, realizations=1, cadence=30, epochs=3,
-                    latent_dimension=4, observed_channels=("ndvi", "sm1"))
+
+        specification = Specification(
+            horizon=1,
+            realizations=1,
+            cadence=30,
+            epochs=3,
+            latent_dimension=4,
+            observed_channels=("ndvi", "sm1"),
+        )
         a = run("jepa", specification).results["channels"]["ndvi"]["hybrid"]
         b = run("jepa", specification).results["channels"]["ndvi"]["hybrid"]
         assert a == b

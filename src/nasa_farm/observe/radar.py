@@ -17,8 +17,9 @@ BANDS: dict[str, dict[str, float]] = {
 }
 
 
-def sigma0(mv: torch.Tensor, vwc: torch.Tensor, theta_deg: float = 40.0,
-           band: str = "l") -> torch.Tensor:
+def sigma0(
+    mv: torch.Tensor, vwc: torch.Tensor, theta_deg: float = 40.0, band: str = "l"
+) -> torch.Tensor:
     """Backscatter in dB. mv: m3/m3 topsoil moisture, vwc: kg/m2."""
     p = BANDS[band]
     cos = math.cos(math.radians(theta_deg))

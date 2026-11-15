@@ -37,8 +37,9 @@ def _finite(predicted: torch.Tensor, observed: torch.Tensor) -> tuple[torch.Tens
     return p[m], o[m]
 
 
-def _finite_ens(ensemble: torch.Tensor,
-                observed: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+def _finite_ens(
+    ensemble: torch.Tensor, observed: torch.Tensor
+) -> tuple[torch.Tensor, torch.Tensor]:
     """ens (..., M) member-last, obs (...) → flat (N, M) / (N,) rows; a row
     survives only if the obs and *all* its members are finite (a corrupt
     member corrupts the score)."""
@@ -51,6 +52,7 @@ def _finite_ens(ensemble: torch.Tensor,
 # ---------------------------------------------------------------------------
 # Deterministic scores
 # ---------------------------------------------------------------------------
+
 
 def mse(predicted: torch.Tensor, observed: torch.Tensor) -> torch.Tensor:
     p, o = _finite(predicted, observed)
@@ -72,8 +74,7 @@ def mbe(predicted: torch.Tensor, observed: torch.Tensor) -> torch.Tensor:
     return (p - o).mean() if p.numel() else _NAN
 
 
-def nrmse(predicted: torch.Tensor, observed: torch.Tensor,
-          norm: str = "auto") -> torch.Tensor:
+def nrmse(predicted: torch.Tensor, observed: torch.Tensor, norm: str = "auto") -> torch.Tensor:
     """RMSE normalized to be scale-free: /mean|obs| by default, falling back
     to the obs std when the mean is ~0 (anomaly channels like ΔSOC)."""
     p, o = _finite(predicted, observed)
@@ -81,9 +82,11 @@ def nrmse(predicted: torch.Tensor, observed: torch.Tensor,
         return _NAN
     if norm == "auto":
         norm = "mean" if o.abs().mean() > _EPS else "sd"
-    density = {"mean": lambda: o.abs().mean(),
-           "sd": lambda: o.std() if o.numel() > 1 else o.new_ones(()),
-           "range": lambda: o.max() - o.min()}[norm]()
+    density = {
+        "mean": lambda: o.abs().mean(),
+        "sd": lambda: o.std() if o.numel() > 1 else o.new_ones(()),
+        "range": lambda: o.max() - o.min(),
+    }[norm]()
     return ((p - o) ** 2).mean().sqrt() / density.clamp(min=_EPS)
 
 
@@ -111,8 +114,7 @@ def nse(predicted: torch.Tensor, observed: torch.Tensor) -> torch.Tensor:
     return 1.0 - ((p - o) ** 2).sum() / sst.clamp(min=_EPS)
 
 
-def kge(predicted: torch.Tensor, observed: torch.Tensor,
-        version: str = "2012") -> torch.Tensor:
+def kge(predicted: torch.Tensor, observed: torch.Tensor, version: str = "2012") -> torch.Tensor:
     """Kling–Gupta efficiency. '2009': variability term = σ ratio;
     '2012' (Kling et al.): variability term = CV ratio."""
     p, o = _finite(predicted, observed)
@@ -122,7 +124,10 @@ def kge(predicted: torch.Tensor, observed: torch.Tensor,
     if version == "2009":
         v = p.std() / o.std().clamp(min=_EPS)
     else:
-        cv = lambda x: x.std() / x.mean().abs().clamp(min=_EPS)
+
+        def cv(x):
+            return x.std() / x.mean().abs().clamp(min=_EPS)
+
         v = cv(p) / cv(o).clamp(min=_EPS)
     beta = p.mean() / o.mean().clamp(min=_EPS)
     return 1.0 - ((r - 1) ** 2 + (v - 1) ** 2 + (beta - 1) ** 2).sqrt()
@@ -144,14 +149,14 @@ def ccc(predicted: torch.Tensor, observed: torch.Tensor) -> torch.Tensor:
     if p.numel() < 2:
         return _NAN
     number = 2.0 * ((p - p.mean()) * (o - o.mean())).mean()
-    density = p.var(correction=0) + o.var(correction=0) \
-        + (p.mean() - o.mean()) ** 2
+    density = p.var(correction=0) + o.var(correction=0) + (p.mean() - o.mean()) ** 2
     return number / density.clamp(min=_EPS)
 
 
 # ---------------------------------------------------------------------------
 # Probabilistic scores
 # ---------------------------------------------------------------------------
+
 
 def crps(ensemble: torch.Tensor, observed: torch.Tensor) -> torch.Tensor:
     """Fair ensemble CRPS (Ferro et al. 2008): mean |X−y| minus the
@@ -173,8 +178,9 @@ def crps(ensemble: torch.Tensor, observed: torch.Tensor) -> torch.Tensor:
     return (ae - spread).mean()
 
 
-def pit(ensemble: torch.Tensor, observed: torch.Tensor,
-        generation: torch.Generator | None = None) -> torch.Tensor:
+def pit(
+    ensemble: torch.Tensor, observed: torch.Tensor, generation: torch.Generator | None = None
+) -> torch.Tensor:
     """Randomized probability integral transform, one value per obs in
     [0, 1]. Uniform under a calibrated ensemble; U-shaped under
     overdispersion, domed under underdispersion, skewed under bias."""
@@ -186,61 +192,60 @@ def pit(ensemble: torch.Tensor, observed: torch.Tensor,
     return (low + u * (high - low)) / m
 
 
-def pit_hist(ensemble: torch.Tensor, observed: torch.Tensor, bins: int = 10,
-             generation: torch.Generator | None = None) -> torch.Tensor:
+def pit_hist(
+    ensemble: torch.Tensor,
+    observed: torch.Tensor,
+    bins: int = 10,
+    generation: torch.Generator | None = None,
+) -> torch.Tensor:
     """Reliability histogram of PIT values — (bins,) counts."""
     u = pit(ensemble, observed, generation)
     return torch.histc(u, bins=bins, min=0.0, max=1.0)
 
 
-def interval(ensemble: torch.Tensor,
-             alpha: float = 0.1) -> tuple[torch.Tensor, torch.Tensor]:
+def interval(ensemble: torch.Tensor, alpha: float = 0.1) -> tuple[torch.Tensor, torch.Tensor]:
     """Central (1−α) quantile band of the member ensemble → (lo, hi)."""
     e = ensemble.to(DTYPE)
-    return (torch.quantile(e, alpha / 2.0, dim=-1),
-            torch.quantile(e, 1.0 - alpha / 2.0, dim=-1))
+    return (torch.quantile(e, alpha / 2.0, dim=-1), torch.quantile(e, 1.0 - alpha / 2.0, dim=-1))
 
 
-def picp(low: torch.Tensor, high: torch.Tensor,
-         observed: torch.Tensor) -> torch.Tensor:
+def picp(low: torch.Tensor, high: torch.Tensor, observed: torch.Tensor) -> torch.Tensor:
     """Prediction-interval coverage probability — the calibration metric:
     should equal 1−α on a calibrated forecaster."""
-    l, h, o = torch.broadcast_tensors(low, high, observed)
-    m = torch.isfinite(o.reshape(-1))
-    l, h, o = l.reshape(-1)[m], h.reshape(-1)[m], o.reshape(-1)[m]
-    return ((o >= l) & (o <= h)).to(DTYPE).mean() if o.numel() else _NAN
+    low, high, obs = torch.broadcast_tensors(low, high, observed)
+    m = torch.isfinite(obs.reshape(-1))
+    low, high, obs = low.reshape(-1)[m], high.reshape(-1)[m], obs.reshape(-1)[m]
+    return ((obs >= low) & (obs <= high)).to(DTYPE).mean() if obs.numel() else _NAN
 
 
-def interval_score(low: torch.Tensor, high: torch.Tensor, observed: torch.Tensor,
-                   alpha: float = 0.1) -> torch.Tensor:
+def interval_score(
+    low: torch.Tensor, high: torch.Tensor, observed: torch.Tensor, alpha: float = 0.1
+) -> torch.Tensor:
     """Winkler interval score — rewards sharpness, penalizes misses by
     2/α per unit beyond the band. Lower is better."""
-    l, h, o = torch.broadcast_tensors(low, high, observed)
-    m = torch.isfinite(o.reshape(-1))
-    l, h, o = l.reshape(-1)[m], h.reshape(-1)[m], o.reshape(-1)[m]
-    if not o.numel():
+    low, high, obs = torch.broadcast_tensors(low, high, observed)
+    m = torch.isfinite(obs.reshape(-1))
+    low, high, obs = low.reshape(-1)[m], high.reshape(-1)[m], obs.reshape(-1)[m]
+    if not obs.numel():
         return _NAN
-    s = (h - l) + (2.0 / alpha) * ((l - o).clamp(min=0.0)
-                                   + (o - h).clamp(min=0.0))
+    s = (high - low) + (2.0 / alpha) * ((low - obs).clamp(min=0.0) + (obs - high).clamp(min=0.0))
     return s.mean()
 
 
 def mean_width(low: torch.Tensor, high: torch.Tensor) -> torch.Tensor:
     """Sharpness — mean band width; only comparable at equal coverage."""
-    l, h = torch.broadcast_tensors(low, high)
-    m = torch.isfinite(l.reshape(-1)) & torch.isfinite(h.reshape(-1))
-    return (h.reshape(-1)[m] - l.reshape(-1)[m]).mean() if m.any() else _NAN
+    low, high = torch.broadcast_tensors(low, high)
+    m = torch.isfinite(low.reshape(-1)) & torch.isfinite(high.reshape(-1))
+    return (high.reshape(-1)[m] - low.reshape(-1)[m]).mean() if m.any() else _NAN
 
 
-def pinball(pred_q: torch.Tensor, observed: torch.Tensor,
-            tau: float = 0.5) -> torch.Tensor:
+def pinball(pred_q: torch.Tensor, observed: torch.Tensor, tau: float = 0.5) -> torch.Tensor:
     """Quantile (pinball) loss for a τ-quantile prediction."""
     p, o = _finite(pred_q, observed)
     if not p.numel():
         return _NAN
     d = o - p
-    return torch.maximum(torch.tensor(tau, dtype=DTYPE) * d,
-                         (tau - 1.0) * d).mean()
+    return torch.maximum(torch.tensor(tau, dtype=DTYPE) * d, (tau - 1.0) * d).mean()
 
 
 def energy_score(predicted: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
@@ -270,6 +275,7 @@ def spread_skill(ensemble: torch.Tensor, observed: torch.Tensor) -> torch.Tensor
 # Bundles
 # ---------------------------------------------------------------------------
 
+
 def _num(x: torch.Tensor) -> float | None:
     """Metric → JSON-clean float; None when undefined (non-finite)."""
     v = float(x)
@@ -280,18 +286,27 @@ def score(predicted: torch.Tensor, observed: torch.Tensor) -> dict[str, float | 
     """Full deterministic suite for one (pred, obs) pair."""
     p, o = _finite(predicted, observed)
     return {
-        "rmse": _num(rmse(p, o)), "nrmse": _num(nrmse(p, o)),
-        "mae": _num(mae(p, o)), "mbe": _num(mbe(p, o)),
-        "r2": _num(r2(p, o)), "nse": _num(nse(p, o)),
-        "kge09": _num(kge(p, o, "2009")), "kge12": _num(kge(p, o)),
-        "d": _num(d_index(p, o)), "ccc": _num(ccc(p, o)),
+        "rmse": _num(rmse(p, o)),
+        "nrmse": _num(nrmse(p, o)),
+        "mae": _num(mae(p, o)),
+        "mbe": _num(mbe(p, o)),
+        "r2": _num(r2(p, o)),
+        "nse": _num(nse(p, o)),
+        "kge09": _num(kge(p, o, "2009")),
+        "kge12": _num(kge(p, o)),
+        "d": _num(d_index(p, o)),
+        "ccc": _num(ccc(p, o)),
         "n": int(p.numel()),
     }
 
 
-def score_ens(ensemble: torch.Tensor, observed: torch.Tensor,
-              alphas: tuple[float, ...] = (0.1,), bins: int = 10,
-              generation: torch.Generator | None = None) -> dict:
+def score_ens(
+    ensemble: torch.Tensor,
+    observed: torch.Tensor,
+    alphas: tuple[float, ...] = (0.1,),
+    bins: int = 10,
+    generation: torch.Generator | None = None,
+) -> dict:
     """Full suite for an (N, M) ensemble: deterministic scores on the member
     mean plus CRPS, per-alpha PICP/interval-score/width, spread–skill and a
     PIT reliability histogram."""

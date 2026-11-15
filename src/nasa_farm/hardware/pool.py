@@ -32,6 +32,7 @@ def _pin_all(pool: ThreadPoolExecutor, workers: int) -> None:
     """One pin task per worker: each pool thread claims its physical
     core once; later tasks inherit the affinity for free."""
     import threading
+
     barrier = threading.Barrier(workers)
 
     def claim(i):

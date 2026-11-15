@@ -37,46 +37,60 @@ class TargetGrid:
 
     # --- construction ----------------------------------------------------
     @classmethod
-    def _snapped(cls, x0: float, y0: float, x1: float, y1: float,
-                 res: float, crs: str) -> "TargetGrid":
+    def _snapped(
+        cls, x0: float, y0: float, x1: float, y1: float, res: float, crs: str
+    ) -> TargetGrid:
         r = res
-        return cls(math.floor(x0 / r) * r, math.floor(y0 / r) * r,
-                   math.ceil(x1 / r) * r, math.ceil(y1 / r) * r, r, crs)
+        return cls(
+            math.floor(x0 / r) * r,
+            math.floor(y0 / r) * r,
+            math.ceil(x1 / r) * r,
+            math.ceil(y1 / r) * r,
+            r,
+            crs,
+        )
 
     @classmethod
-    def around(cls, lat: float, lon: float, half_km: float = 15.0,
-               res: float = 1000.0, crs: str = "EPSG:5070") -> "TargetGrid":
+    def around(
+        cls,
+        lat: float,
+        lon: float,
+        half_km: float = 15.0,
+        res: float = 1000.0,
+        crs: str = "EPSG:5070",
+    ) -> TargetGrid:
         """Square of ±half_km around a point, snapped outward to the lattice."""
         from pyproj import Transformer
-        cx, cy = Transformer.from_crs("EPSG:4326", crs,
-                                      always_xy=True).transform(lon, lat)
+
+        cx, cy = Transformer.from_crs("EPSG:4326", crs, always_xy=True).transform(lon, lat)
         h = half_km * 1000.0
         return cls._snapped(cx - h, cy - h, cx + h, cy + h, res, crs)
 
     @classmethod
-    def from_bbox(cls, bbox: Bounds, res: float = 1000.0,
-                  crs: str = "EPSG:5070") -> "TargetGrid":
+    def from_bbox(cls, bbox: Bounds, res: float = 1000.0, crs: str = "EPSG:5070") -> TargetGrid:
         """Lon/lat box → smallest snapped grid that contains it."""
         from rasterio.warp import transform_bounds
-        b = transform_bounds("EPSG:4326", crs, *bbox.as_tuple(),
-                             densify_pts=21)
+
+        b = transform_bounds("EPSG:4326", crs, *bbox.as_tuple(), densify_pts=21)
         return cls._snapped(*b, res, crs)
 
     @classmethod
-    def named(cls, name: str, res: float = 1000.0,
-              crs: str = "EPSG:5070") -> "TargetGrid":
+    def named(cls, name: str, res: float = 1000.0, crs: str = "EPSG:5070") -> TargetGrid:
         lat, lon, half = AOIS[name]
         return cls.around(lat, lon, half, res, crs)
 
     # --- geometry ----------------------------------------------------------
     @property
     def shape(self) -> tuple[int, int]:
-        return (round((self.north - self.south) / self.res),
-                round((self.east - self.west) / self.res))
+        return (
+            round((self.north - self.south) / self.res),
+            round((self.east - self.west) / self.res),
+        )
 
     @property
     def transform(self):
         from affine import Affine
+
         return Affine(self.res, 0.0, self.west, 0.0, -self.res, self.north)
 
     @property
@@ -92,9 +106,9 @@ class TargetGrid:
     def lonlat(self) -> tuple[np.ndarray, np.ndarray]:
         """2-D (lon, lat) of cell centres."""
         from pyproj import Transformer
+
         xx, yy = np.meshgrid(self.x, self.y)
-        lon, lat = Transformer.from_crs(self.crs, "EPSG:4326",
-                                        always_xy=True).transform(xx, yy)
+        lon, lat = Transformer.from_crs(self.crs, "EPSG:4326", always_xy=True).transform(xx, yy)
         return np.asarray(lon), np.asarray(lat)
 
     def bbox_ll(self, buffer_km: float = 0.0) -> Bounds:
@@ -103,23 +117,24 @@ class TargetGrid:
         coarse products: a 25 km GLDAS cell centre can sit outside a 30 km
         AOI and still be needed to interpolate inside it."""
         from rasterio.warp import transform_bounds
+
         b = self.buffered(buffer_km)
-        w, s, e, n = transform_bounds(self.crs, "EPSG:4326", b.west, b.south,
-                                      b.east, b.north, densify_pts=21)
+        w, s, e, n = transform_bounds(
+            self.crs, "EPSG:4326", b.west, b.south, b.east, b.north, densify_pts=21
+        )
         return Bounds(w, s, e, n)
 
-    def buffered(self, buffer_km: float) -> "TargetGrid":
+    def buffered(self, buffer_km: float) -> TargetGrid:
         d = buffer_km * 1000.0
-        return TargetGrid(self.west - d, self.south - d, self.east + d,
-                          self.north + d, self.res, self.crs)
+        return TargetGrid(
+            self.west - d, self.south - d, self.east + d, self.north + d, self.res, self.crs
+        )
 
-    def fine(self, factor: int) -> "TargetGrid":
+    def fine(self, factor: int) -> TargetGrid:
         """Same extent, res / factor — exact sub-lattice for rasterizing."""
-        return TargetGrid(self.west, self.south, self.east, self.north,
-                          self.res / factor, self.crs)
+        return TargetGrid(self.west, self.south, self.east, self.north, self.res / factor, self.crs)
 
-    def cell_index(self, x: np.ndarray, y: np.ndarray
-                   ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    def cell_index(self, x: np.ndarray, y: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
         """(row, col, inside) of points given in grid CRS."""
         col = np.floor((np.asarray(x) - self.west) / self.res).astype(int)
         row = np.floor((self.north - np.asarray(y)) / self.res).astype(int)
@@ -129,5 +144,10 @@ class TargetGrid:
 
     def describe(self) -> dict:
         ny, nx = self.shape
-        return {"crs": self.crs, "res_m": self.res, "ny": ny, "nx": nx,
-                "bounds": [self.west, self.south, self.east, self.north]}
+        return {
+            "crs": self.crs,
+            "res_m": self.res,
+            "ny": ny,
+            "nx": nx,
+            "bounds": [self.west, self.south, self.east, self.north],
+        }

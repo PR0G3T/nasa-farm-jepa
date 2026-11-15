@@ -8,14 +8,12 @@ prior is never lost to a bad online update.
 
 from __future__ import annotations
 
-from typing import Callable
+from collections.abc import Callable
 
-import torch
 import torch.nn as nn
 
 
-def gate(model: nn.Module, fit: Callable[[], object],
-         score: Callable[[], float]) -> dict:
+def gate(model: nn.Module, fit: Callable[[], object], score: Callable[[], float]) -> dict:
     """Snapshot → fit() → promote iff score() improved (lower is better).
 
     `fit` mutates `model` in place; `score` evaluates the live model.

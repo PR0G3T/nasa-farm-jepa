@@ -10,14 +10,20 @@ import numpy as np
 import pytest
 
 pytest.importorskip("rasterio")
-from affine import Affine  # noqa: E402
-from pyproj import Transformer  # noqa: E402
+from affine import Affine
+from pyproj import Transformer
 
-from nasa_farm.grid.regrid import (  # noqa: E402
-    Raster, bin_points, method_for, native_res_m, rasterize_cover,
-    rasterize_values, regrid_categorical, regrid_continuous,
+from nasa_farm.grid.regrid import (
+    Raster,
+    bin_points,
+    method_for,
+    native_res_m,
+    rasterize_cover,
+    rasterize_values,
+    regrid_categorical,
+    regrid_continuous,
 )
-from nasa_farm.grid.target import TargetGrid  # noqa: E402
+from nasa_farm.grid.target import TargetGrid
 
 
 @pytest.fixture
@@ -42,13 +48,14 @@ def test_method_rules():
     assert method_for("categorical", 9000, 1000) == "nearest"
 
 
-def _utm_raster(grid: TargetGrid, res: float, fn, pad_km: float = 3.0,
-                **kw) -> Raster:
+def _utm_raster(grid: TargetGrid, res: float, fn, pad_km: float = 3.0, **kw) -> Raster:
     """Source on UTM 15N at `res` m, values fn(x5070, y5070) at pixel
     centres — a different CRS than the target on purpose."""
     t = Transformer.from_crs(grid.crs, "EPSG:32615", always_xy=True)
-    xs, ys = t.transform([grid.west, grid.east, grid.west, grid.east],
-                         [grid.south, grid.south, grid.north, grid.north])
+    xs, ys = t.transform(
+        [grid.west, grid.east, grid.west, grid.east],
+        [grid.south, grid.south, grid.north, grid.north],
+    )
     pad = pad_km * 1000
     x0, x1 = min(xs) - pad, max(xs) + pad
     y0, y1 = min(ys) - pad, max(ys) + pad
@@ -57,16 +64,15 @@ def _utm_raster(grid: TargetGrid, res: float, fn, pad_km: float = 3.0,
     cx = x0 + res * (np.arange(nx) + 0.5)
     cy = y1 - res * (np.arange(ny) + 0.5)
     X, Y = np.meshgrid(cx, cy)
-    bx, by = Transformer.from_crs("EPSG:32615", grid.crs,
-                                  always_xy=True).transform(X, Y)
-    return Raster(fn(np.asarray(bx), np.asarray(by)), tr, "EPSG:32615",
-                  ["v"], **kw)
+    bx, by = Transformer.from_crs("EPSG:32615", grid.crs, always_xy=True).transform(X, Y)
+    return Raster(fn(np.asarray(bx), np.asarray(by)), tr, "EPSG:32615", ["v"], **kw)
 
 
 def test_fine_continuous_average_preserves_linear_field(grid):
     # A linear field's area mean over a cell equals its value at the centre.
-    f = lambda x, y: (1e-3 * (x - grid.west) + 2e-3 * (y - grid.south)
-                      ).astype(np.float32)
+    def f(x, y):
+        return (1e-3 * (x - grid.west) + 2e-3 * (y - grid.south)).astype(np.float32)
+
     r = _utm_raster(grid, 30.0, f)
     out, valid, how = regrid_continuous(r, grid)
     assert how == "average"
@@ -76,26 +82,26 @@ def test_fine_continuous_average_preserves_linear_field(grid):
 
 
 def test_nan_pixels_excluded_and_valid_frac(grid):
-    r = _utm_raster(grid, 30.0, lambda x, y: np.full(x.shape, 5.0,
-                                                     np.float32))
-    r.data[0, :, : r.data.shape[2] // 2] = np.nan   # west half "cloudy"
-    r.data[0, :, r.data.shape[2] // 2:] = 7.0
+    r = _utm_raster(grid, 30.0, lambda x, y: np.full(x.shape, 5.0, np.float32))
+    r.data[0, :, : r.data.shape[2] // 2] = np.nan  # west half "cloudy"
+    r.data[0, :, r.data.shape[2] // 2 :] = 7.0
     out, valid, _ = regrid_continuous(r, grid)
     ok = np.isfinite(out[0])
-    assert np.allclose(out[0][ok], 7.0)          # clouds never mixed in
+    assert np.allclose(out[0][ok], 7.0)  # clouds never mixed in
     assert valid.min() == 0.0 and valid.max() == 1.0
     assert np.isnan(out[0][valid == 0]).all()
 
 
 def test_coarse_bilinear_interpolates_linear_field(grid):
     # 0.125° lat/lon source (NLDAS-2-like), linear in lon/lat → bilinear exact
-    f = lambda lon, lat: (10 * lon + 3 * lat).astype(np.float32)
+    def f(lon, lat):
+        return (10 * lon + 3 * lat).astype(np.float32)
+
     lon0, lat1, res = -94.5, 43.0, 0.125
     lons = lon0 + res * (np.arange(16) + 0.5)
     lats = lat1 - res * (np.arange(16) + 0.5)
     LON, LAT = np.meshgrid(lons, lats)
-    r = Raster(f(LON, LAT), Affine(res, 0, lon0, 0, -res, lat1),
-               "EPSG:4326", ["v"])
+    r = Raster(f(LON, LAT), Affine(res, 0, lon0, 0, -res, lat1), "EPSG:4326", ["v"])
     assert 10_000 < native_res_m(r) < 13_000
     out, valid, how = regrid_continuous(r, grid)
     assert how == "bilinear" and valid is None
@@ -108,11 +114,11 @@ def test_categorical_fractions_sum_to_one_and_mode(grid):
     def f(x, y):
         u = ((x - grid.west) % 1000) / 1000
         return np.where(u < 0.7, 1, 5).astype(np.uint8)
-    r = _utm_raster(grid, 30.0, f, kind="categorical", nodata=0,
-                    classes=[1, 5, 24])
+
+    r = _utm_raster(grid, 30.0, f, kind="categorical", nodata=0, classes=[1, 5, 24])
     fr, mode, classes, how = regrid_categorical(r, grid)
     assert how == "fractions" and classes == [1, 5, 24]
-    assert fr.shape == (4,) + grid.shape          # 3 classes + "other"
+    assert fr.shape == (4, *grid.shape)  # 3 classes + "other"
     np.testing.assert_allclose(fr.sum(0), 1.0, atol=1e-5)
     assert abs(np.nanmean(fr[0]) - 0.7) < 0.03
     assert abs(np.nanmean(fr[1]) - 0.3) < 0.03
@@ -134,9 +140,10 @@ def test_bin_points_mean_and_count(grid):
 def test_rasterize_cover_and_values(grid):
     pytest.importorskip("shapely")
     from shapely.geometry import box
+
     w, n, r = grid.west, grid.north, grid.res
-    half = box(w, n - r, w + r / 2, n)              # half of cell (0, 0)
-    full = box(w + r, n - r, w + 2 * r, n)          # all of cell (0, 1)
+    half = box(w, n - r, w + r / 2, n)  # half of cell (0, 0)
+    full = box(w + r, n - r, w + 2 * r, n)  # all of cell (0, 1)
     cov = rasterize_cover([half, full], grid)
     assert cov[0, 0] == pytest.approx(0.5) and cov[0, 1] == pytest.approx(1)
     val = rasterize_values([half, full], [10.0, 20.0], grid)
@@ -147,16 +154,16 @@ def test_rasterize_cover_and_values(grid):
 # --- readers ------------------------------------------------------------------
 def test_ease2_transform_recovers_9km_grid():
     from nasa_farm.grid.readers import ease2_transform
+
     # NSIDC EASE-2 global 9 km constants (cell edges)
     res, x0, y0 = 9008.055210146, -17367530.44516137, 7314540.830638504
-    r0, c0, ny, nx = 500, 900, 40, 60          # a window over the US
+    r0, c0, ny, nx = 500, 900, 40, 60  # a window over the US
     cx = x0 + res * (c0 + np.arange(nx) + 0.5)
     cy = y0 - res * (r0 + np.arange(ny) + 0.5)
     X, Y = np.meshgrid(cx, cy)
-    lon, lat = Transformer.from_crs("EPSG:6933", "EPSG:4326",
-                                    always_xy=True).transform(X, Y)
+    lon, lat = Transformer.from_crs("EPSG:6933", "EPSG:4326", always_xy=True).transform(X, Y)
     lat = np.asarray(lat).copy()
-    lat[:5, :5] = -9999.0                      # L3-style fill values
+    lat[:5, :5] = -9999.0  # L3-style fill values
     tr, crs = ease2_transform(lat, np.asarray(lon))
     assert crs == "EPSG:6933"
     assert tr.a == pytest.approx(res, rel=1e-6)
@@ -169,31 +176,38 @@ def test_read_ease2_merges_per_pass_coordinates(grid):
     pass — the reader must merge them (regression: 'too many values to unpack')."""
     h5py = pytest.importorskip("h5py")
     from nasa_farm.grid.readers import read_ease2
+
     res, x0, y0 = 36032.220840584, -17367530.44516137, 7314540.830638504
-    r0, c0, ny, nx = 55, 215, 20, 30           # window over Ames (row 67, col 231)
+    r0, c0, ny, nx = 55, 215, 20, 30  # window over Ames (row 67, col 231)
     cx = x0 + res * (c0 + np.arange(nx) + 0.5)
     cy = y0 - res * (r0 + np.arange(ny) + 0.5)
     X, Y = np.meshgrid(cx, cy)
-    lon, lat = Transformer.from_crs("EPSG:6933", "EPSG:4326",
-                                    always_xy=True).transform(X, Y)
+    lon, lat = Transformer.from_crs("EPSG:6933", "EPSG:4326", always_xy=True).transform(X, Y)
     la = np.stack([lat, lat]).astype(np.float32)
     lo = np.stack([lon, lon]).astype(np.float32)
-    la[0, :, :3] = lo[0, :, :3] = -9999.0      # AM-only fill, PM valid
-    la[1, :, -3:] = lo[1, :, -3:] = -9999.0    # PM-only fill, AM valid
+    la[0, :, :3] = lo[0, :, :3] = -9999.0  # AM-only fill, PM valid
+    la[1, :, -3:] = lo[1, :, -3:] = -9999.0  # PM-only fill, AM valid
     ft = np.stack([np.zeros((ny, nx)), np.ones((ny, nx))]).astype(np.uint8)
     import io
+
     with h5py.File(io.BytesIO(), "w") as h5:
         h5["latitude"], h5["longitude"], h5["freeze_thaw"] = la, lo, ft
-        r = read_ease2(h5, grid, {"ft_am": "freeze_thaw", "ft_pm": "freeze_thaw"},
-                       "latitude", "longitude", select={"ft_am": 0, "ft_pm": 1})
+        r = read_ease2(
+            h5,
+            grid,
+            {"ft_am": "freeze_thaw", "ft_pm": "freeze_thaw"},
+            "latitude",
+            "longitude",
+            select={"ft_am": 0, "ft_pm": 1},
+        )
     assert r.bands == ["ft_am", "ft_pm"]
     assert r.crs == "EPSG:6933"
     assert np.all(r.data[0] == 0) and np.all(r.data[1] == 1)
 
 
 def test_struct_metadata_sinusoidal_transform():
-    from nasa_farm.grid.readers import (parse_struct_metadata,
-                                        sinusoidal_transform)
+    from nasa_farm.grid.readers import parse_struct_metadata, sinusoidal_transform
+
     txt = """GROUP=GridStructure
 	GROUP=GRID_1
 		GridName="VIIRS_Grid_Daily_1km_LST21"
@@ -206,26 +220,28 @@ def test_struct_metadata_sinusoidal_transform():
 END_GROUP=GridStructure"""
     m = parse_struct_metadata(txt)["VIIRS_Grid_Daily_1km_LST21"]
     tr = sinusoidal_transform(m)
-    assert tr.a == pytest.approx(926.625433, rel=1e-6)   # 1 km MODIS/VIIRS
-    assert tr.c == pytest.approx(-7783653.637667)        # tile h11v04
+    assert tr.a == pytest.approx(926.625433, rel=1e-6)  # 1 km MODIS/VIIRS
+    assert tr.c == pytest.approx(-7783653.637667)  # tile h11v04
 
 
 def test_read_latlon_subsets_flips_and_splits_time(grid):
     xr = pytest.importorskip("xarray")
-    lat = np.arange(25.0625, 53, 0.125)                # ascending (NLDAS-2)
+    lat = np.arange(25.0625, 53, 0.125)  # ascending (NLDAS-2)
     lon = np.arange(-124.9375, -67, 0.125)
     t = np.array(["2024-07-15T12", "2024-07-15T13"], dtype="datetime64[ns]")
     LON, LAT = np.meshgrid(lon, lat)
     v = np.stack([10 * LON + 3 * LAT + k for k in range(2)]).astype("f4")
-    ds = xr.Dataset({"Tair": (("time", "lat", "lon"), v,
-                              {"units": "K"})},
-                    coords={"time": t, "lat": lat, "lon": lon})
+    ds = xr.Dataset(
+        {"Tair": (("time", "lat", "lon"), v, {"units": "K"})},
+        coords={"time": t, "lat": lat, "lon": lon},
+    )
     from nasa_farm.grid.readers import read_latlon
     from nasa_farm.grid.regrid import regrid_continuous
+
     r = read_latlon(ds, grid)
     assert r.bands == ["Tair", "Tair"] and r.times[0].startswith("2024-07-15T12")
-    assert r.data.shape[1] < 30                        # subset, not CONUS
-    out, _, how = regrid_continuous(r, grid)
+    assert r.data.shape[1] < 30  # subset, not CONUS
+    out, _, _how = regrid_continuous(r, grid)
     glon, glat = grid.lonlat()
     np.testing.assert_allclose(out[1], 10 * glon + 3 * glat + 1, atol=2e-3)
 
@@ -233,18 +249,26 @@ def test_read_latlon_subsets_flips_and_splits_time(grid):
 def test_read_tif_window_scale_and_nodata(grid, tmp_path):
     rasterio = pytest.importorskip("rasterio")
     from nasa_farm.grid.readers import read_tif
-    r = _utm_raster(grid, 30.0, lambda x, y: np.full(x.shape, 5000,
-                                                     np.int16), pad_km=20)
+
+    r = _utm_raster(grid, 30.0, lambda x, y: np.full(x.shape, 5000, np.int16), pad_km=20)
     a = r.data[0].copy()
     a[:100, :] = -9999
     p = tmp_path / "t.tif"
-    with rasterio.open(p, "w", driver="GTiff", height=a.shape[0],
-                       width=a.shape[1], count=1, dtype="int16",
-                       crs="EPSG:32615", transform=r.transform,
-                       nodata=-9999) as ds:
+    with rasterio.open(
+        p,
+        "w",
+        driver="GTiff",
+        height=a.shape[0],
+        width=a.shape[1],
+        count=1,
+        dtype="int16",
+        crs="EPSG:32615",
+        transform=r.transform,
+        nodata=-9999,
+    ) as ds:
         ds.write(a, 1)
     rr = read_tif(str(p), grid, name="ndvi", scale=1e-4)
-    assert rr.data.shape[1] < a.shape[0]               # windowed read
+    assert rr.data.shape[1] < a.shape[0]  # windowed read
     vals = rr.data[0][np.isfinite(rr.data[0])]
     assert np.allclose(vals, 0.5)
 
@@ -260,7 +284,7 @@ def test_retry_transient_retries_only_server_errors():
     assert not is_transient(http(404)) and not is_transient(KeyError("lat"))
     calls = []
 
-    def flaky():                       # fails twice with a 502, then succeeds
+    def flaky():  # fails twice with a 502, then succeeds
         calls.append(1)
         if len(calls) < 3:
             raise http(502)
@@ -273,10 +297,10 @@ def test_retry_transient_retries_only_server_errors():
         calls.append(1)
         raise KeyError("lat_lowestmode")
 
-    with pytest.raises(KeyError):      # a real error is not retried
+    with pytest.raises(KeyError):  # a real error is not retried
         retry_transient(missing, attempts=4, wait=0)
     assert len(calls) == 1
-    with pytest.raises(aiohttp.ClientResponseError):   # gives up after `attempts`
+    with pytest.raises(aiohttp.ClientResponseError):  # gives up after `attempts`
         retry_transient(lambda: (_ for _ in ()).throw(http(502)), attempts=2, wait=0)
 
 
@@ -287,8 +311,14 @@ class _FakeRangeServer:
         self.blob, self.faults, self.ranges, self.gets = blob, list(faults), ranges, []
 
     def head(self, url, **kw):
-        return _Resp(200, b"", {"Content-Length": str(len(self.blob)),
-                                "Accept-Ranges": "bytes" if self.ranges else "none"})
+        return _Resp(
+            200,
+            b"",
+            {
+                "Content-Length": str(len(self.blob)),
+                "Accept-Ranges": "bytes" if self.ranges else "none",
+            },
+        )
 
     def get(self, url, headers=None, **kw):
         lo, hi = (int(v) for v in headers["Range"].split("=")[1].split("-"))
@@ -296,7 +326,7 @@ class _FakeRangeServer:
         fault = self.faults.pop(0) if self.faults else None
         if fault == "503":
             return _Resp(503, b"")
-        body = self.blob[lo:hi + 1]
+        body = self.blob[lo : hi + 1]
         if fault == "short":
             body = body[:-1]
         if fault == "ignore":
@@ -311,14 +341,16 @@ class _Resp:
     def raise_for_status(self):
         if self.status_code >= 400:
             import requests
+
             raise requests.HTTPError(f"{self.status_code}", response=self)
 
 
 def test_download_ranged_retries_and_resumes(tmp_path, monkeypatch):
     pytest.importorskip("requests")
     from nasa_farm.grid import fetch
+
     monkeypatch.setattr(fetch.time, "sleep", lambda s: None)
-    blob = bytes(range(256)) * 40                      # 10 240 B → 3 chunks of 4 kB
+    blob = bytes(range(256)) * 40  # 10 240 B → 3 chunks of 4 kB
     srv = _FakeRangeServer(blob, faults=[None, "503", "short"])
     p = fetch.download_ranged("https://x/f.zip", tmp_path / "f.zip", sess=srv, chunk=4096)
     assert p.read_bytes() == blob and not (tmp_path / "f.zip.part").exists()
@@ -329,5 +361,9 @@ def test_download_ranged_retries_and_resumes(tmp_path, monkeypatch):
     assert (tmp_path / "g.zip").read_bytes() == blob and srv.gets[0] == 4096
     # a server that ignores Range is an error, not a silently wrong file
     with pytest.raises(RuntimeError, match="ignored the Range"):
-        fetch.download_ranged("https://x/h.zip", tmp_path / "h.zip",
-                              sess=_FakeRangeServer(blob, faults=["ignore"]), chunk=4096)
+        fetch.download_ranged(
+            "https://x/h.zip",
+            tmp_path / "h.zip",
+            sess=_FakeRangeServer(blob, faults=["ignore"]),
+            chunk=4096,
+        )

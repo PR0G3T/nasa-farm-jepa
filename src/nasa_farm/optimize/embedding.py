@@ -31,8 +31,9 @@ from nasa_farm.state.field import Field
 from nasa_farm.types import Actions, Forcing
 
 
-def dissimilarity(z: torch.Tensor, generation: torch.Generator,
-           directions: int = 64) -> torch.Tensor:
+def dissimilarity(
+    z: torch.Tensor, generation: torch.Generator, directions: int = 64
+) -> torch.Tensor:
     """Sliced-Wasserstein match of z to a rectified Laplacian.
 
     R(z) = E_c W2^2( P(c·z) ‖ P(c·g) ) over random unit directions c,
@@ -42,14 +43,11 @@ def dissimilarity(z: torch.Tensor, generation: torch.Generator,
     """
     zf = z.reshape(-1, z.shape[-1])
     n, d = zf.shape
-    c = torch.randn(d, directions, generator=generation, dtype=z.dtype,
-                    device=z.device)
+    c = torch.randn(d, directions, generator=generation, dtype=z.dtype, device=z.device)
     c = c / c.norm(dim=0, keepdim=True).clamp(min=1e-9)
-    e1 = torch.rand(n, d, generator=generation, dtype=z.dtype,
-                    device=z.device).exponential_()
-    e2 = torch.rand(n, d, generator=generation, dtype=z.dtype,
-                    device=z.device).exponential_()
-    g = torch.relu(e1 - e2) @ c                    # c·y, y ~ rectified GG
+    e1 = torch.rand(n, d, generator=generation, dtype=z.dtype, device=z.device).exponential_()
+    e2 = torch.rand(n, d, generator=generation, dtype=z.dtype, device=z.device).exponential_()
+    g = torch.relu(e1 - e2) @ c  # c·y, y ~ rectified GG
     return ((zf @ c).sort(0).values - g.sort(0).values).pow(2).mean()
 
 
@@ -62,13 +60,26 @@ def seeded(field: Field, z0: torch.Tensor, hidden_dimension: int) -> Field:
     return replace(field, state=s.replace(z=z0, zh=zh))
 
 
-def embedding_fit(model, encoder, field: Field, forcing: Forcing,
-             actions: Actions, channels: tuple[str, ...], *,
-             targets: torch.Tensor | None = None, every: int = 5,
-             ema: float = 0.996, sig_weight: float = 1.0,
-             kl_weight: float = 0.0, dense: int = 0, sparse: bool = False,
-             epochs: int = 60, rate: float = 3e-3,
-             patience: int = 15, verbose: bool = False) -> dict:
+def embedding_fit(
+    model,
+    encoder,
+    field: Field,
+    forcing: Forcing,
+    actions: Actions,
+    channels: tuple[str, ...],
+    *,
+    targets: torch.Tensor | None = None,
+    every: int = 5,
+    ema: float = 0.996,
+    sig_weight: float = 1.0,
+    kl_weight: float = 0.0,
+    dense: int = 0,
+    sparse: bool = False,
+    epochs: int = 60,
+    rate: float = 3e-3,
+    patience: int = 15,
+    verbose: bool = False,
+) -> dict:
     """Fit encoder + LatentDyn so predicted latents track the EMA-encoded
     observation manifold along the rollout. Adam + clip + early stop +
     best-parameter restore — same contract as trainer.fit plus the
@@ -80,8 +91,9 @@ def embedding_fit(model, encoder, field: Field, forcing: Forcing,
         raise ValueError("jepa_fit needs a model built with latent_dim > 0")
     k, h = model.latent.dim, model.latent.hidden_dimension
     target = TargetEncoder(encoder, decay=ema)
-    named = [(f"enc.{n}", p) for n, p in encoder.named_parameters()] + \
-            [(f"lat.{n}", p) for n, p in model.latent.named_parameters()]
+    named = [(f"enc.{n}", p) for n, p in encoder.named_parameters()] + [
+        (f"lat.{n}", p) for n, p in model.latent.named_parameters()
+    ]
     rgen = torch.Generator().manual_seed(0)
     leaves = [p for _, p in named]
     opt = torch.optim.Adam(leaves, lr=rate)
@@ -97,8 +109,7 @@ def embedding_fit(model, encoder, field: Field, forcing: Forcing,
             model.rollout(f, forcing, actions, observer=traits)
             _, z_pred = traits.result()
             return z_pred, targets, targets
-        f = seeded(field, model.latent.seed(
-            encoder(observables(field.state, channels))), h)
+        f = seeded(field, model.latent.seed(encoder(observables(field.state, channels))), h)
         traits = EmbeddingTrace(forcing.days, k, channels, every=every)
         model.rollout(f, forcing, actions, observer=traits)
         observed, z_pred = traits.result()
@@ -106,6 +117,7 @@ def embedding_fit(model, encoder, field: Field, forcing: Forcing,
 
     def step_loss() -> torch.Tensor:
         from nasa_farm.dynamics.hierarchical import Hierarchy, hierarchical_loss
+
         z_pred, targets, source = unroll()
         z_t = target(targets)
         if isinstance(model.latent, Hierarchy):
@@ -115,12 +127,14 @@ def embedding_fit(model, encoder, field: Field, forcing: Forcing,
             # dense multi-horizon supervision: each committed latent also
             # matches targets 2..dense steps ahead, weight 1/h.
             for hh in range(2, dense + 1):
-                predicted = predicted + (z_pred[:, :-hh]
-                               - z_t[:, hh:]).pow(2).mean() / hh
+                predicted = predicted + (z_pred[:, :-hh] - z_t[:, hh:]).pow(2).mean() / hh
         kl = model.latent.kl if kl_weight else torch.zeros((), dtype=DTYPE)
         encoded = encoder(source)
-        penalty = (dissimilarity(encoded.reshape(-1, encoded.shape[-1]), rgen)
-               if sparse else regularization(encoded.reshape(-1, encoded.shape[-1])))
+        penalty = (
+            dissimilarity(encoded.reshape(-1, encoded.shape[-1]), rgen)
+            if sparse
+            else regularization(encoded.reshape(-1, encoded.shape[-1]))
+        )
         return predicted + sig_weight * penalty + kl_weight * kl
 
     for evaporation in range(1, epochs + 1):
@@ -152,8 +166,14 @@ def embedding_fit(model, encoder, field: Field, forcing: Forcing,
         z_std = float(encoder(source).std())
         encoded = encoder(source)
         signal = float(regularization(encoded.reshape(-1, encoded.shape[-1])))
-    return {"best_loss": round(best, 8), "history": history,
-            "epochs_run": len(history), "tgt": target,
-            "z_pred": z_pred.detach(), "z_tgt": z_target.detach(),
-            "obs": targets.detach(), "z_std_final": round(z_std, 6),
-            "sigreg_final": round(signal, 6)}
+    return {
+        "best_loss": round(best, 8),
+        "history": history,
+        "epochs_run": len(history),
+        "tgt": target,
+        "z_pred": z_pred.detach(),
+        "z_tgt": z_target.detach(),
+        "obs": targets.detach(),
+        "z_std_final": round(z_std, 6),
+        "sigreg_final": round(signal, 6),
+    }

@@ -37,8 +37,7 @@ from nasa_farm.state.field import Field
 from nasa_farm.types import Actions
 
 _OBS_STD_FLOOR = 1e-3
-_STRUCT = ("sow_doy", "legume", "vern_req", "t_kill", "crit_daylen",
-           "pp_sens", "gdd_em")
+_STRUCT = ("sow_doy", "legume", "vern_req", "t_kill", "crit_daylen", "pp_sens", "gdd_em")
 """Traits not jittered: discrete/structural switches and sowing date."""
 
 
@@ -51,18 +50,22 @@ def _ic_ensemble(field: Field, specification: Specification) -> Field:
     saved = f.state
 
     def jit(x: torch.Tensor, relative: float) -> torch.Tensor:
-        return x * (1.0 + relative * torch.randn(
-            x.shape, generator=g, dtype=DTYPE))
+        return x * (1.0 + relative * torch.randn(x.shape, generator=g, dtype=DTYPE))
 
-    sw = torch.minimum(torch.maximum(jit(saved.sw, 0.15), f.soil.air),
-                       f.soil.sat)
+    sw = torch.minimum(torch.maximum(jit(saved.sw, 0.15), f.soil.air), f.soil.sat)
     n_min = jit(saved.n_min, 0.30).clamp(min=0.0)
-    return Field(state=saved.replace(sw=sw, n_min=n_min), soil=f.soil,
-                 latitude=f.latitude, elevation=f.elevation, context=f.context)
+    return Field(
+        state=saved.replace(sw=sw, n_min=n_min),
+        soil=f.soil,
+        latitude=f.latitude,
+        elevation=f.elevation,
+        context=f.context,
+    )
 
 
-def _truth(scenario, specification: Specification, forcing, obs_days: set[int],
-           generation: torch.Generator) -> tuple[dict, dict, torch.Tensor]:
+def _truth(
+    scenario, specification: Specification, forcing, obs_days: set[int], generation: torch.Generator
+) -> tuple[dict, dict, torch.Tensor]:
     """Truth rollout → at each obs day: noisy observables + obs std +
     the hidden state on every analysis variable."""
     truth_obs: dict[int, tuple[torch.Tensor, torch.Tensor]] = {}
@@ -75,8 +78,7 @@ def _truth(scenario, specification: Specification, forcing, obs_days: set[int],
         if t in obs_days:
             o = observables(f.state, specification.observed_channels)[0]
             std = (specification.noise * o.abs()).clamp(min=_OBS_STD_FLOOR)
-            truth_obs[t] = (o + torch.randn(
-                o.shape, generator=generation, dtype=DTYPE) * std, std)
+            truth_obs[t] = (o + torch.randn(o.shape, generator=generation, dtype=DTYPE) * std, std)
             truth_state[t] = {v: _get_variable(f.state, v)[0] for v in STATE_VARS}
     return truth_obs, truth_state, accumulate.result()[0]
 
@@ -90,8 +92,7 @@ def _member_model(scenario, specification: Specification) -> WorldModel:
     base = scenario.crops.table[i_c]
     g = torch.Generator().manual_seed(specification.seed + 131)
     table = base.unsqueeze(0).repeat(specification.members, 1)
-    table = table * (0.9 + 0.2 * torch.rand(
-        table.shape, generator=g, dtype=DTYPE))
+    table = table * (0.9 + 0.2 * torch.rand(table.shape, generator=g, dtype=DTYPE))
     for p in _STRUCT:
         table[:, INDEX[p]] = base[INDEX[p]]
     names = tuple(f"{specification.crop}#{i}" for i in range(specification.members))
@@ -108,23 +109,32 @@ def _member_actions(specification: Specification, base: torch.Tensor) -> Actions
     return a
 
 
-def _update(function, state, predicted, observed, r, generation,
-            channels):
+def _update(function, state, predicted, observed, r, generation, channels):
     """Dispatch analysis updates; tolerates update callables that accept a
     narrower signature."""
     try:
-        return function(state, predicted, observed, r, channels=channels,
-                        perturb=True, generation=generation)
+        return function(
+            state, predicted, observed, r, channels=channels, perturb=True, generation=generation
+        )
     except TypeError:
         return function(state, predicted, observed, r)
 
 
-def _variant(scenario, specification: Specification, forcing_time, truth_obs: dict, truth_state: dict,
-             truth_season: torch.Tensor, update) -> dict:
+def _variant(
+    scenario,
+    specification: Specification,
+    forcing_time,
+    truth_obs: dict,
+    truth_state: dict,
+    truth_season: torch.Tensor,
+    update,
+) -> dict:
     e, days = specification.members, forcing_time.days
     generation = torch.Generator().manual_seed(specification.seed + 77)
     model = _member_model(scenario, specification)
-    actions = _member_actions(specification, scenario.crops.table[scenario.crops.index(specification.crop)])
+    actions = _member_actions(
+        specification, scenario.crops.table[scenario.crops.index(specification.crop)]
+    )
     field = _ic_ensemble(scenario.field, specification)
     forcing = forcing_time.repeat(e)
     accumulate = SeasonAccumulator(e, specification.horizon)
@@ -138,26 +148,46 @@ def _variant(scenario, specification: Specification, forcing_time, truth_obs: di
             if t not in truth_obs:
                 continue
             observed, std = truth_obs[t]
-            predicted = observables(field.state, specification.observed_channels)   # (E, C)
+            predicted = observables(field.state, specification.observed_channels)  # (E, C)
             errors.append(float(rmse(predicted.mean(0), observed)))
             scores.append(float(crps(predicted.t(), observed)))
             spread.append(float(predicted.std(0).mean()))
             for v in STATE_VARS:
-                state_errors[v].append(float(rmse(_get_variable(field.state, v),
-                                           truth_state[t][v])))
+                state_errors[v].append(
+                    float(rmse(_get_variable(field.state, v), truth_state[t][v]))
+                )
             if update is None:
                 continue
-            saved = _update(update, field.state, predicted, observed, std ** 2,
-                         generation, specification.observed_channels)
-            field = Field(state=saved, soil=field.soil, latitude=field.latitude,
-                        elevation=field.elevation, context=field.context)
+            saved = _update(
+                update,
+                field.state,
+                predicted,
+                observed,
+                std**2,
+                generation,
+                specification.observed_channels,
+            )
+            field = Field(
+                state=saved,
+                soil=field.soil,
+                latitude=field.latitude,
+                elevation=field.elevation,
+                context=field.context,
+            )
 
-    m = accumulate.result()                                    # (E, H, M)
-    mean = lambda v: round(sum(v) / len(v), 6) if v else 0.0
-    return {"obs_rmse": mean(errors), "obs_crps": mean(scores),
-            "spread": mean(spread),
-            "state_rmse": {v: mean(s) for v, s in state_errors.items()},
-            "ensemble": m, "truth": truth_season}
+    m = accumulate.result()  # (E, H, M)
+
+    def mean(v):
+        return round(sum(v) / len(v), 6) if v else 0.0
+
+    return {
+        "obs_rmse": mean(errors),
+        "obs_crps": mean(scores),
+        "spread": mean(spread),
+        "state_rmse": {v: mean(s) for v, s in state_errors.items()},
+        "ensemble": m,
+        "truth": truth_season,
+    }
 
 
 def _delta(base: dict, new: dict) -> dict:
@@ -166,8 +196,7 @@ def _delta(base: dict, new: dict) -> dict:
     for k, v in base.items():
         if isinstance(v, dict) and k in new:
             output[k] = _delta(v, new[k])
-        elif isinstance(v, (int, float)) and isinstance(
-                new.get(k), (int, float)):
+        elif isinstance(v, (int, float)) and isinstance(new.get(k), (int, float)):
             output[k] = round(100 * (v - new[k]) / max(abs(v), 1e-9), 2)
     return output
 
@@ -179,19 +208,19 @@ def run(specification: Specification) -> dict:
     pooled: dict[str, dict] = {}
     for i in held:
         forcing_time = scenario.realization(i)
-        obs_days = set(range(specification.cadence, forcing_time.days,
-                             specification.cadence))
+        obs_days = set(range(specification.cadence, forcing_time.days, specification.cadence))
         generation = torch.Generator().manual_seed(specification.seed + 55)
         truth_obs, truth_state, truth_season = _truth(
-            scenario, specification, forcing_time, obs_days, generation)
-        for name, update in (("open", None), ("enkf", kalman_update),
-                             ("ensf", score_update)):
-            v = _variant(scenario, specification, forcing_time, truth_obs, truth_state,
-                         truth_season, update)
+            scenario, specification, forcing_time, obs_days, generation
+        )
+        for name, update in (("open", None), ("enkf", kalman_update), ("ensf", score_update)):
+            v = _variant(
+                scenario, specification, forcing_time, truth_obs, truth_state, truth_season, update
+            )
             entry = pooled.setdefault(name, {"scalars": [], "m": [], "t": []})
-            entry["scalars"].append({k: v[k] for k in
-                                   ("obs_rmse", "obs_crps", "spread",
-                                    "state_rmse")})
+            entry["scalars"].append(
+                {k: v[k] for k in ("obs_rmse", "obs_crps", "spread", "state_rmse")}
+            )
             entry["m"].append(v["ensemble"])
             entry["t"].append(v["truth"])
 
@@ -199,25 +228,28 @@ def run(specification: Specification) -> dict:
     generation = torch.Generator().manual_seed(specification.seed + 97)
     output = {}
     for name, entry in pooled.items():
-        mean = lambda values: round(sum(values) / len(values), 6)
+
+        def mean(values):
+            return round(sum(values) / len(values), 6)
+
         scalars = {
             "obs_rmse": mean([s["obs_rmse"] for s in entry["scalars"]]),
             "obs_crps": mean([s["obs_crps"] for s in entry["scalars"]]),
             "spread": mean([s["spread"] for s in entry["scalars"]]),
             "state_rmse": {
-                v: mean([s["state_rmse"][v] for s in entry["scalars"]])
-                for v in STATE_VARS},
+                v: mean([s["state_rmse"][v] for s in entry["scalars"]]) for v in STATE_VARS
+            },
         }
         ch_scores = {}
         for ch in specification.channels:
             i = index[ch]
             ensemble = torch.cat([m[:, :, i].t() for m in entry["m"]])
             truth = torch.cat([t[:, i] for t in entry["t"]])
-            ch_scores[ch] = score_ens(ensemble, truth, specification.alphas,
-                                     generation=generation)
+            ch_scores[ch] = score_ens(ensemble, truth, specification.alphas, generation=generation)
         output[name] = {**scalars, "channels": ch_scores}
     output["reduction_pct"] = {
         "enkf": _delta(output["open"], output["enkf"]),
-        "ensf": _delta(output["open"], output["ensf"])}
+        "ensf": _delta(output["open"], output["ensf"]),
+    }
     output["held_realizations"] = len(held)
     return output

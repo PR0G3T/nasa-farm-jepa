@@ -29,19 +29,18 @@ class Moments:
         """Append current parameters as one posterior sample."""
         v = self._flat(self.net)
         self.mean = v if self.mean is None else (self.mean * self.n + v) / (self.n + 1)
-        self.sq = (v ** 2) if self.sq is None else (self.sq * self.n + v ** 2) / (self.n + 1)
+        self.sq = (v**2) if self.sq is None else (self.sq * self.n + v**2) / (self.n + 1)
         self.n += 1
 
     @property
     def variance(self) -> torch.Tensor:
-        return (self.sq - self.mean ** 2).clamp(min=0.0)
+        return (self.sq - self.mean**2).clamp(min=0.0)
 
-    def sample(self, generation: torch.Generator | None = None,
-               scale: float = 1.0) -> torch.Tensor:
+    def sample(self, generation: torch.Generator | None = None, scale: float = 1.0) -> torch.Tensor:
         """Draw a weight vector ~ N(mean, diag(var)·scale²)."""
         return self.mean + scale * self.variance.sqrt() * torch.randn(
-            self.mean.shape, generator=generation,
-            dtype=self.mean.dtype, device=self.mean.device)
+            self.mean.shape, generator=generation, dtype=self.mean.dtype, device=self.mean.device
+        )
 
     def load(self, flat: torch.Tensor) -> None:
         """Write a flat vector back into the network's parameters."""
@@ -49,11 +48,12 @@ class Moments:
         with torch.no_grad():
             for p in self.net.parameters():
                 n = p.numel()
-                p.copy_(flat[off:off + n].view_as(p))
+                p.copy_(flat[off : off + n].view_as(p))
                 off += n
 
-    def predict(self, x: torch.Tensor, n: int = 20,
-                generation: torch.Generator | None = None) -> torch.Tensor:
+    def predict(
+        self, x: torch.Tensor, n: int = 20, generation: torch.Generator | None = None
+    ) -> torch.Tensor:
         """(n, B, O) prediction ensemble under sampled weights."""
         current = self._flat(self.net)
         outs = []

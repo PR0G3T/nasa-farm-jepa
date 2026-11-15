@@ -12,25 +12,24 @@ from nasa_farm.constants import DAYS_PER_YEAR, DTYPE
 from nasa_farm.state.field import FieldState
 
 METRICS: tuple[str, ...] = (
-    "yield_kg",      # kg/ha harvested grain/hay in year h
-    "water_used",    # mm evapotranspired in year h
-    "water_lost",    # mm runoff + deep drainage in year h
-    "n_leached",     # kg N/ha leached in year h
-    "n2o_kg",        # kg N-N2O/ha emitted in year h
-    "stress_days",   # d with water_fac < 0.5 while growing
-    "cover_days",    # d with a living canopy
-    "biomass_end",   # kg/ha standing biomass at year end
-    "n_min_end",     # kg/ha mineral N at year end
-    "soc_end",       # kg/ha total SOC (active+stable) at year end
-    "soc_f_end",     # kg/ha active-pool SOC at year end
-    "tws_end",       # mm aquifer storage anomaly at year end
-    "heat_dd",       # °C·d reproductive heat load in year h
-    "frost_days",    # d with a lethal-frost event in year h
-    "biomass_max",   # kg/ha peak standing biomass in year h
+    "yield_kg",  # kg/ha harvested grain/hay in year h
+    "water_used",  # mm evapotranspired in year h
+    "water_lost",  # mm runoff + deep drainage in year h
+    "n_leached",  # kg N/ha leached in year h
+    "n2o_kg",  # kg N-N2O/ha emitted in year h
+    "stress_days",  # d with water_fac < 0.5 while growing
+    "cover_days",  # d with a living canopy
+    "biomass_end",  # kg/ha standing biomass at year end
+    "n_min_end",  # kg/ha mineral N at year end
+    "soc_end",  # kg/ha total SOC (active+stable) at year end
+    "soc_f_end",  # kg/ha active-pool SOC at year end
+    "tws_end",  # mm aquifer storage anomaly at year end
+    "heat_dd",  # °C·d reproductive heat load in year h
+    "frost_days",  # d with a lethal-frost event in year h
+    "biomass_max",  # kg/ha peak standing biomass in year h
 )
 
-_END: tuple[str, ...] = ("biomass_end", "n_min_end", "soc_end", "soc_f_end",
-                         "tws_end")
+_END: tuple[str, ...] = ("biomass_end", "n_min_end", "soc_end", "soc_f_end", "tws_end")
 """Absolute-write metrics (last-day value), all others accumulate."""
 
 _MAX: tuple[str, ...] = ("biomass_max",)
@@ -81,21 +80,25 @@ def fold(accumulate: torch.Tensor, t: int, update: torch.Tensor) -> torch.Tensor
     accumulate = accumulate + sel.view(1, -1, 1) * u * sum_mask.to(u.dtype)
     picked = u.expand(-1, accumulate.shape[1], -1)
     accumulate = torch.where(
-        sel.view(1, -1, 1).bool() & end_mask.view(1, 1, -1), picked, accumulate)
-    accumulate = torch.where(
+        sel.view(1, -1, 1).bool() & end_mask.view(1, 1, -1), picked, accumulate
+    )
+    return torch.where(
         sel.view(1, -1, 1).bool() & max_mask.view(1, 1, -1),
-        torch.maximum(accumulate, picked), accumulate)
-    return accumulate
+        torch.maximum(accumulate, picked),
+        accumulate,
+    )
 
 
 class SeasonAccumulator:
     """observer(t, state, fluxes) → (B, H, M) metric tensor at the end."""
 
-    def __init__(self, batch: int, horizon_years: int,
-                 device: torch.device | str | None = None) -> None:
+    def __init__(
+        self, batch: int, horizon_years: int, device: torch.device | str | None = None
+    ) -> None:
         self.horizon = horizon_years
-        self.accumulate = torch.zeros(batch, horizon_years, len(METRICS),
-                               dtype=DTYPE, device=device)
+        self.accumulate = torch.zeros(
+            batch, horizon_years, len(METRICS), dtype=DTYPE, device=device
+        )
 
     def __call__(self, t: int, state: FieldState, fluxes: dict) -> None:
         h = min(t // DAYS_PER_YEAR, self.horizon - 1)
@@ -110,8 +113,9 @@ class SeasonAccumulator:
         return self.accumulate
 
 
-def objectives(season_metrics: torch.Tensor, n_plans: int, n_scen: int,
-               risk_q: float = 0.1) -> dict[str, torch.Tensor]:
+def objectives(
+    season_metrics: torch.Tensor, n_plans: int, n_scen: int, risk_q: float = 0.1
+) -> dict[str, torch.Tensor]:
     """Fold (B=R·S, H, M) into per-plan objective vectors (R,).
 
     Robustness uses the `risk_q` quantile across scenarios, not the mean —
@@ -120,7 +124,7 @@ def objectives(season_metrics: torch.Tensor, n_plans: int, n_scen: int,
     i = {name: k for k, name in enumerate(METRICS)}
     m = season_metrics.reshape(n_plans, n_scen, *season_metrics.shape[1:])
 
-    yield_tot = m[..., i["yield_kg"]].sum(-1)                 # (R, S)
+    yield_tot = m[..., i["yield_kg"]].sum(-1)  # (R, S)
     water = m[..., i["water_used"]].sum(-1)
     lost = m[..., i["water_lost"]].sum(-1)
     leach = m[..., i["n_leached"]].sum(-1)
@@ -131,25 +135,35 @@ def objectives(season_metrics: torch.Tensor, n_plans: int, n_scen: int,
     soc_gain = m[..., -1, i["soc_end"]] - m[..., 0, i["soc_end"]]
     nmin_end = m[..., -1, i["n_min_end"]]
 
-    def q(x): return torch.quantile(x, risk_q, dim=1)
-    def mean(x): return x.mean(1)
+    def q(x):
+        return torch.quantile(x, risk_q, dim=1)
+
+    def mean(x):
+        return x.mean(1)
 
     return {
         "yield_mean": mean(yield_tot),
-        "yield_risk": q(yield_tot),          # pessimistic-but-likely yield
-        "water_used": mean(water + lost),      # total water consumed/lost
+        "yield_risk": q(yield_tot),  # pessimistic-but-likely yield
+        "water_used": mean(water + lost),  # total water consumed/lost
         "n_leached": mean(leach),
         "n2o_kg": mean(n2o),
         "stress_days": mean(stress),
-        "heat_dd": mean(heat),                 # reproductive heat load
-        "frost_days": mean(frost),             # lethal-frost frequency
+        "heat_dd": mean(heat),  # reproductive heat load
+        "frost_days": mean(frost),  # lethal-frost frequency
         "soc_gain": mean(soc_gain),
         "n_min_end": mean(nmin_end),
     }
 
 
 OBJECTIVE_DIRECTION: dict[str, int] = {
-    "yield_mean": +1, "yield_risk": +1, "water_used": -1,
-    "n_leached": -1, "n2o_kg": -1, "stress_days": -1, "heat_dd": -1,
-    "frost_days": -1, "soc_gain": +1, "n_min_end": +1,
+    "yield_mean": +1,
+    "yield_risk": +1,
+    "water_used": -1,
+    "n_leached": -1,
+    "n2o_kg": -1,
+    "stress_days": -1,
+    "heat_dd": -1,
+    "frost_days": -1,
+    "soc_gain": +1,
+    "n_min_end": +1,
 }

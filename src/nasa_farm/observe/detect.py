@@ -31,8 +31,7 @@ def _sow_day(ndvi: torch.Tensor) -> int:
     return int(hit[0]) if hit.numel() else -1
 
 
-def _sow_coh(coh: torch.Tensor, s_t: int,
-             back: int = 15, fwd: int = 5) -> int:
+def _sow_coh(coh: torch.Tensor, s_t: int, back: int = 15, fwd: int = 5) -> int:
     """Refine an NDVI sowing estimate to the coherence dip SAR shows at
     soil disturbance: local minimum in [s−back, s+fwd] below the segment
     median, else keep the NDVI day."""
@@ -53,7 +52,7 @@ def _harvest_day(ndvi: torch.Tensor, sow_t: int) -> int:
     peak = int(ndvi[sow_t:].argmax()) + sow_t
     if peak >= ndvi.numel() - 3:
         return -1
-    drop = ndvi[peak:-1] - ndvi[peak + 1:]
+    drop = ndvi[peak:-1] - ndvi[peak + 1 :]
     i = int(drop.argmax())
     return int(peak + i + 1) if float(drop[i]) > 0.05 else -1
 
@@ -75,9 +74,14 @@ def _rolling_median(x: torch.Tensor, window: int) -> torch.Tensor:
     return xp.unfold(0, window, 1).median(-1).values
 
 
-def infer_irrigation(sm: torch.Tensor, precip: torch.Tensor,
-                     depth_mm: float = 200.0, loss: float = 0.08,
-                     min_mm: float = 0.5, window: int = 15) -> torch.Tensor:
+def infer_irrigation(
+    sm: torch.Tensor,
+    precip: torch.Tensor,
+    depth_mm: float = 200.0,
+    loss: float = 0.08,
+    min_mm: float = 0.5,
+    window: int = 15,
+) -> torch.Tensor:
     """SM2RAIN inversion — daily irrigation (mm) from surface SM + rain.
 
     Water balance: Z·ds/dt = p + i − e(s) − g(s), so the water input the
@@ -96,12 +100,16 @@ def infer_irrigation(sm: torch.Tensor, precip: torch.Tensor,
     return (need - base - min_mm).clamp(min=0.0)
 
 
-def infer_actions(ndvi: torch.Tensor, doy: torch.Tensor, crop_idx: int,
-                  days: int | None = None,
-                  s0v: torch.Tensor | None = None,
-                  sm: torch.Tensor | None = None,
-                  precip: torch.Tensor | None = None,
-                  coh: torch.Tensor | None = None) -> Actions:
+def infer_actions(
+    ndvi: torch.Tensor,
+    doy: torch.Tensor,
+    crop_idx: int,
+    days: int | None = None,
+    s0v: torch.Tensor | None = None,
+    sm: torch.Tensor | None = None,
+    precip: torch.Tensor | None = None,
+    coh: torch.Tensor | None = None,
+) -> Actions:
     """(T,) NDVI (+ σ⁰, sm/precip, coherence) → detected Actions (1, T).
 
     sow is NDVI-derived then refined to the InSAR-coherence disturbance
@@ -117,7 +125,12 @@ def infer_actions(ndvi: torch.Tensor, doy: torch.Tensor, crop_idx: int,
         sow[0, s_t] = crop_idx
         for d in _till_days(s0v, s_t):
             till[0, d] = 1.0
-    irrigation = (infer_irrigation(sm, precip) if sm is not None
-           and precip is not None else torch.zeros(t))
-    return Actions(sow=sow, irrigation=irrigation.unsqueeze(0).to(torch.float64),
-                   n_fert=torch.zeros(1, t, dtype=torch.float64), till=till)
+    irrigation = (
+        infer_irrigation(sm, precip) if sm is not None and precip is not None else torch.zeros(t)
+    )
+    return Actions(
+        sow=sow,
+        irrigation=irrigation.unsqueeze(0).to(torch.float64),
+        n_fert=torch.zeros(1, t, dtype=torch.float64),
+        till=till,
+    )

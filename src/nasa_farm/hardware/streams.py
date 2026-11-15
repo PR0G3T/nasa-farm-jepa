@@ -44,6 +44,7 @@ def _green_stream(device: torch.device):
         return None
     try:
         from torch.cuda.green_contexts import GreenContext
+
         context = GreenContext(num_sms=int(sms), device_id=device.index)
         return context.Stream()
     except Exception:
@@ -59,8 +60,7 @@ class Stage:
     reused for the whole sweep.
     """
 
-    def __init__(self, device: torch.device, copy_stream,
-                 compute_stream) -> None:
+    def __init__(self, device: torch.device, copy_stream, compute_stream) -> None:
         self.device = device
         self.copy_s = copy_stream
         self.comp_s = compute_stream
@@ -71,8 +71,7 @@ class Stage:
         if self.device.type == "cpu" or self.copy_s is None:
             return block.to(self.device, non_blocking=True)
         if self._pin is None or self._pin.shape[0] < block.shape[0]:
-            self._pin = torch.empty(
-                block.shape, dtype=block.dtype, pin_memory=True)
+            self._pin = torch.empty(block.shape, dtype=block.dtype, pin_memory=True)
         buffer = self._pin[: block.shape[0]]
         buffer.copy_(block)
         with torch.cuda.stream(self.copy_s):

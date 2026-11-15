@@ -15,20 +15,20 @@ whole sweep immediately: a bug is never masked by lower settings.
 from __future__ import annotations
 
 import threading
+from collections.abc import Callable
 from concurrent.futures import Executor
-from dataclasses import dataclass, field as _dc_field
-from typing import Callable
+from dataclasses import dataclass
+from dataclasses import field as _dc_field
 
 import torch
 
 from nasa_farm.hardware import graphs as _graphs
 from nasa_farm.hardware import memory as memory
-from nasa_farm.hardware import streams as streams
 from nasa_farm.hardware import pool as _pool
+from nasa_farm.hardware import streams as streams
 from nasa_farm.hardware import telemetry as _thermo
 
-_OOM_PATTERNS = ("out of memory", "can't allocate", "cannot allocate",
-                 "cudaerror memoryallocation")
+_OOM_PATTERNS = ("out of memory", "can't allocate", "cannot allocate", "cudaerror memoryallocation")
 
 
 def out_of_memory(exception: BaseException) -> bool:
@@ -45,6 +45,7 @@ def out_of_memory(exception: BaseException) -> bool:
 class Lane:
     """One compute endpoint. ``fn`` does the real work:
     ``fn(lane, plans_block) -> (k·s, H, M) metrics`` on `device`."""
+
     name: str
     device: torch.device
     workers: int = 1
@@ -75,18 +76,19 @@ class Lane:
             self.pool.shutdown(wait=True)
 
 
-def make_lane(device: torch.device, workers: int,
-              telemetry: _thermo.Monitor | None = None) -> Lane:
+def make_lane(device: torch.device, workers: int, telemetry: _thermo.Monitor | None = None) -> Lane:
     """Wire a lane's hardware-facing resources: streams + pinned stage +
     graph cache + OOM reserve pool on accelerators, a pinned worker pool
     on CPU."""
     comp_s, copy_s = streams.streams(device)
     lane = Lane(
-        name=device_label(device), device=device, workers=workers,
-        comp_s=comp_s, copy_s=copy_s,
+        name=device_label(device),
+        device=device,
+        workers=workers,
+        comp_s=comp_s,
+        copy_s=copy_s,
         stage=streams.Stage(device, copy_s, comp_s),
-        graphs=(_graphs.Cache(device) if device.type == "cuda"
-                else None),
+        graphs=(_graphs.Cache(device) if device.type == "cuda" else None),
         mem_pool=memory.reserve_pool(device),
         telemetry=telemetry,
     )
@@ -97,6 +99,7 @@ def make_lane(device: torch.device, workers: int,
 
 def device_label(device: torch.device) -> str:
     from nasa_farm.hardware.capabilities import name
+
     return name(device)
 
 
@@ -105,12 +108,10 @@ def _shrink(lane: Lane) -> bool:
     if lane.block_rows > 1:
         lane.block_rows = max(1, lane.block_rows // 2)
         return True
-    if lane.device.type == "cpu" and lane.pool is not None \
-            and lane.workers > 1:
+    if lane.device.type == "cpu" and lane.pool is not None and lane.workers > 1:
         lane.workers = max(1, lane.workers // 2)
         lane.pool.shutdown(wait=True)
-        lane.pool = (_pool.make(lane.workers)
-                     if lane.workers > 1 else None)
+        lane.pool = _pool.make(lane.workers) if lane.workers > 1 else None
         lane.block_rows = lane.cap_rows
         return True
     lane.alive = False
@@ -118,8 +119,7 @@ def _shrink(lane: Lane) -> bool:
     return False
 
 
-def _split(lanes: list[Lane],
-           ranges: list[tuple[int, int]]) -> list[tuple[Lane, list]]:
+def _split(lanes: list[Lane], ranges: list[tuple[int, int]]) -> list[tuple[Lane, list]]:
     """Contiguous rate-proportional apportion of pending row ranges.
     Deterministic: identical rates → identical row→lane assignment."""
     total = sum(hi - lo for lo, hi in ranges)
@@ -129,14 +129,13 @@ def _split(lanes: list[Lane],
     scale = total / sum(rates)
     want = [rate * scale for rate in rates]
     counts = [int(w) for w in want]
-    order = sorted(range(len(lanes)),
-                   key=lambda i: want[i] - counts[i], reverse=True)
-    for i in order[:total - sum(counts)]:
+    order = sorted(range(len(lanes)), key=lambda i: want[i] - counts[i], reverse=True)
+    for i in order[: total - sum(counts)]:
         counts[i] += 1
     out = [(lane, []) for lane in lanes]
     spans = iter(ranges)
     lo, hi = next(spans)
-    for (_, parts), n in zip(out, counts):
+    for (_, parts), n in zip(out, counts, strict=True):
         while n > 0:
             if lo == hi:
                 lo, hi = next(spans)
@@ -147,10 +146,18 @@ def _split(lanes: list[Lane],
     return out
 
 
-def _drive(lane: Lane, ranges: list[tuple[int, int]],
-           plans: torch.Tensor, output: torch.Tensor, scen: int,
-           pending: list, lock: threading.Lock, abort: threading.Event,
-           errors: list, deaths: list) -> None:
+def _drive(
+    lane: Lane,
+    ranges: list[tuple[int, int]],
+    plans: torch.Tensor,
+    output: torch.Tensor,
+    scen: int,
+    pending: list,
+    lock: threading.Lock,
+    abort: threading.Event,
+    errors: list,
+    deaths: list,
+) -> None:
     """Serial driver over a lane's contiguous ranges, chunked by
     block_rows. OOM shrinks and retries in place; lane death releases the
     lane's remaining range into `pending` for survivors."""
@@ -159,7 +166,7 @@ def _drive(lane: Lane, ranges: list[tuple[int, int]],
         while start < hi and not abort.is_set():
             k = min(lane.block_rows, hi - start)
             try:
-                result = lane.function(lane, start, plans[start:start + k])
+                result = lane.function(lane, start, plans[start : start + k])
             except Exception as exception:
                 if not out_of_memory(exception):
                     errors.append(exception)
@@ -180,8 +187,7 @@ def _drive(lane: Lane, ranges: list[tuple[int, int]],
             start += k
 
 
-def run(lanes: list[Lane], plans: torch.Tensor,
-        output: torch.Tensor, scen: int) -> None:
+def run(lanes: list[Lane], plans: torch.Tensor, output: torch.Tensor, scen: int) -> None:
     """Drive `lanes` over the rows of `plans`, writing each block's
     metrics into ``output[start*s : end*s]``.
 
@@ -198,17 +204,20 @@ def run(lanes: list[Lane], plans: torch.Tensor,
     deaths: list[tuple[str, BaseException]] = []
     pending = [(0, plans.shape[0])]
     while pending and not abort.is_set():
-        active = [l for l in lanes if l.alive]
+        active = [lane for lane in lanes if lane.alive]
         if not active:
             break
         pending_next = pending
         pending = []
-        drivers = [threading.Thread(
-            target=_drive,
-            args=(lane, parts, plans, output, scen,
-                  pending, lock, abort, errors, deaths),
-            daemon=True, name=f"nasa-farm-{lane.name}")
-            for lane, parts in _split(active, pending_next)]
+        drivers = [
+            threading.Thread(
+                target=_drive,
+                args=(lane, parts, plans, output, scen, pending, lock, abort, errors, deaths),
+                daemon=True,
+                name=f"nasa-farm-{lane.name}",
+            )
+            for lane, parts in _split(active, pending_next)
+        ]
         for t in drivers:
             t.start()
         for t in drivers:
@@ -221,13 +230,13 @@ def run(lanes: list[Lane], plans: torch.Tensor,
     if errors:
         raise errors[0]
     if pending:
-        raise deaths[-1][1] if deaths else RuntimeError(
-            f"{pending} plan rows left unevaluated")
+        raise deaths[-1][1] if deaths else RuntimeError(f"{pending} plan rows left unevaluated")
 
 
-def _store(lane: Lane, output: torch.Tensor, start: int, k: int,
-           scen: int, result: torch.Tensor) -> None:
-    destination = output[start * scen:(start + k) * scen]
+def _store(
+    lane: Lane, output: torch.Tensor, start: int, k: int, scen: int, result: torch.Tensor
+) -> None:
+    destination = output[start * scen : (start + k) * scen]
     if lane.copy_s is not None:
         result.record_stream(lane.copy_s)
         with torch.cuda.stream(lane.copy_s):

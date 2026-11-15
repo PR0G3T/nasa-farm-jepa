@@ -13,35 +13,37 @@ import torch
 from nasa_farm.constants import DTYPE
 
 PARAMS: tuple[str, ...] = (
-    "tbase",        # °C — GDD base temperature
-    "topt",         # °C — optimal growth temperature
-    "gdd_em",       # °C·d — GDD to emergence
+    "tbase",  # °C — GDD base temperature
+    "topt",  # °C — optimal growth temperature
+    "gdd_em",  # °C·d — GDD to emergence
     "gdd_lai_max",  # °C·d — GDD to full canopy
-    "gdd_sen",      # °C·d — GDD to senescence onset
-    "gdd_mat",      # °C·d — GDD to maturity
-    "lai_max",      # m²/m²
-    "k_ext",        # — light extinction coefficient
-    "rue",          # g DM / MJ intercepted PAR
-    "kc_max",       # — peak crop coefficient
-    "root_frac2",   # — fraction of water uptake from layer 2
-    "legume",       # 0/1
-    "fix_frac",     # — max fraction of N demand met by fixation
-    "n_demand",     # kg N per kg biomass
-    "harvest_index",# — grain yield / above-ground biomass
-    "residue_frac", # — fraction of non-yield biomass retained on field
-    "sow_doy",      # — default day-of-year of sowing
-    "pp_sens",      # — photoperiod sensitivity (development delay per h past critical)
+    "gdd_sen",  # °C·d — GDD to senescence onset
+    "gdd_mat",  # °C·d — GDD to maturity
+    "lai_max",  # m²/m²
+    "k_ext",  # — light extinction coefficient
+    "rue",  # g DM / MJ intercepted PAR
+    "kc_max",  # — peak crop coefficient
+    "root_frac2",  # — fraction of water uptake from layer 2
+    "legume",  # 0/1
+    "fix_frac",  # — max fraction of N demand met by fixation
+    "n_demand",  # kg N per kg biomass
+    "harvest_index",  # — grain yield / above-ground biomass
+    "residue_frac",  # — fraction of non-yield biomass retained on field
+    "sow_doy",  # — default day-of-year of sowing
+    "pp_sens",  # — photoperiod sensitivity (development delay per h past critical)
     "crit_daylen",  # h — critical day length for photoperiod response
-    "vern_req",     # d — chilling days required before reproductive growth
-    "gdd_fl",       # — fraction of gdd_mat where the reproductive window opens
-    "heat_t",       # °C — tmax threshold for reproductive heat damage
-    "heat_sus",     # — harvest-index decay rate per °C·d above heat_t
-    "t_kill",       # °C — tmin below which the standing crop is killed
-    "co2_resp",     # — RUE elasticity to CO2 (C3 ≈ 0.2, C4 ≈ 0.05)
+    "vern_req",  # d — chilling days required before reproductive growth
+    "gdd_fl",  # — fraction of gdd_mat where the reproductive window opens
+    "heat_t",  # °C — tmax threshold for reproductive heat damage
+    "heat_sus",  # — harvest-index decay rate per °C·d above heat_t
+    "t_kill",  # °C — tmin below which the standing crop is killed
+    "co2_resp",  # — RUE elasticity to CO2 (C3 ≈ 0.2, C4 ≈ 0.05)
 )
 P = len(PARAMS)
 INDEX = {name: i for i, name in enumerate(PARAMS)}
 
+# fmt: off
+# Aligned trait matrix; column order = PARAMS above.
 _LIBRARY: dict[str, list[float]] = {
     #            tbase topt gdd_em gdd_lai gdd_sen gdd_mat lai  kext rue  kc   rf2  leg fix  ndem   HI   res  sow  pp   crit vern fl   heat sus   kill  co2
     "maize":    [8.0,  30.0, 80.0, 700.0, 1500.0, 1750.0, 5.5, 0.6, 3.9, 1.2, 0.6, 0.0, 0.0, 0.018, 0.52, 0.6, 120, 0.08, 12.5, 0.0, 0.60, 34.0, 0.04, -2.0, 0.05],
@@ -52,6 +54,7 @@ _LIBRARY: dict[str, list[float]] = {
     "clover":   [4.0,  24.0, 70.0, 500.0, 1e9,    1e9,    4.0, 0.6, 2.2, 1.0, 0.5, 1.0, 0.85, 0.040, 0.0, 1.0, 250, 0.10, 13.0, 0.0, 0.60, 33.0, 0.0,  -20.0, 0.20],
     "fallow":   [0.0,  25.0, 1e9,  1e9,   1e9,    1e9,    0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,   0.0, 0.0, 1,   0.0,  12.0, 0.0, 1.00, 99.0, 0.0,  -99.0, 0.0],
 }
+# fmt: on
 
 PERENNIAL = {"alfalfa", "clover"}  # gdd_sen/gdd_mat=1e9 → never matures in-season
 
@@ -70,20 +73,18 @@ class CropLibrary:
     variety: torch.Tensor | None = None  # (C, Dv) variety embeddings
 
     @classmethod
-    def default(cls) -> "CropLibrary":
+    def default(cls) -> CropLibrary:
         names = tuple(_LIBRARY)
         table = torch.tensor([_LIBRARY[n] for n in names], dtype=DTYPE)
         return cls(table=table, names=names)
 
-    def with_var(self, dim: int,
-                 seed: int | None = None) -> "CropLibrary":
+    def with_var(self, dim: int, seed: int | None = None) -> CropLibrary:
         """Attach a small learnable variety embedding per crop."""
         g = torch.Generator().manual_seed(seed) if seed is not None else None
-        variety = 0.02 * torch.randn(self.table.shape[0], dim,
-                                 generator=g, dtype=DTYPE)
+        variety = 0.02 * torch.randn(self.table.shape[0], dim, generator=g, dtype=DTYPE)
         return replace(self, variety=variety)
 
-    def calibrated(self, overrides: dict[str, dict[str, float]]) -> "CropLibrary":
+    def calibrated(self, overrides: dict[str, dict[str, float]]) -> CropLibrary:
         """New library with per-crop trait overrides applied — the
         `{crop: {param: value}}` contract `nasa-farm traits` writes to
         `lake/traits.json`. Unknown crops/params are ignored."""
@@ -112,8 +113,7 @@ class CropLibrary:
     def is_perennial(self, crop_idx: torch.Tensor) -> torch.Tensor:
         return self.table[crop_idx.clamp(min=0), INDEX["gdd_mat"]] > 1e8
 
-    def mixture(self, name: str, a: str, b: str,
-                fraction: float = 0.5) -> "CropLibrary":
+    def mixture(self, name: str, a: str, b: str, fraction: float = 0.5) -> CropLibrary:
         """Append a composite cultivar row = frac·a + (1−frac)·b.
 
         Mixtures and intercrops enter the model as data, not code: the
@@ -125,7 +125,15 @@ class CropLibrary:
         row = row.clone()
         row[INDEX["sow_doy"]] = row[INDEX["sow_doy"]].round()
         table = torch.cat([self.table, row.unsqueeze(0)], dim=0)
-        variety = None if self.variety is None else torch.cat(
-            [self.variety, (fraction * self.variety[i] + (1.0 - fraction) * self.variety[j])
-             .unsqueeze(0)], dim=0)
-        return CropLibrary(table=table, names=self.names + (name,), variety=variety)
+        variety = (
+            None
+            if self.variety is None
+            else torch.cat(
+                [
+                    self.variety,
+                    (fraction * self.variety[i] + (1.0 - fraction) * self.variety[j]).unsqueeze(0),
+                ],
+                dim=0,
+            )
+        )
+        return CropLibrary(table=table, names=(*self.names, name), variety=variety)

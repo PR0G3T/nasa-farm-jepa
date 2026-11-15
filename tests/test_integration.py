@@ -21,7 +21,8 @@ def pipeline():
     soil = SoilProfile.preset("silt_loam")
     field = Field(initial_state(1, soil), soil, torch.tensor([41.9], dtype=DTYPE))
     ensemble = climatology_ensemble(
-        [synthetic_year(41.9, tmean_annual=13.0, seed=s) for s in range(4)], 3)
+        [synthetic_year(41.9, tmean_annual=13.0, seed=s) for s in range(4)], 3
+    )
     return crops, field, ensemble
 
 
@@ -31,11 +32,13 @@ def test_bare_fallow_leaches_most(pipeline):
     crops, field, ensemble = pipeline
     model = WorldModel(crops, residual=False)
     mz = crops.index("maize")
-    plans = torch.tensor([
-        [mz, mz, mz],
-        [crops.index("maize"), crops.index("soybean"), crops.index("clover")],
-        [crops.index("fallow")] * 3,
-    ])
+    plans = torch.tensor(
+        [
+            [mz, mz, mz],
+            [crops.index("maize"), crops.index("soybean"), crops.index("clover")],
+            [crops.index("fallow")] * 3,
+        ]
+    )
     event = evaluate(model, field, plans, ensemble)
     leach = event.objectives["n_leached"]
     assert float(leach[2]) > float(leach[0])
@@ -52,14 +55,29 @@ def test_pareto_nonempty_and_finite(pipeline):
     record = recommend(evaluate(model, field, plans, ensemble), top_k=5)
     assert 1 <= len(record["pareto_idx"]) <= len(plans)
     for i in record["ranking"]:
-        for k, v in record["objectives"].items():
+        for v in record["objectives"].values():
             assert torch.isfinite(v[i])
 
 
 def test_cli_plan_offline(capsys):
-    code = main(["plan", "--latitude", "42.0", "--longitude", "-93.6", "--horizon", "2",
-               "--crops", "maize,soybean,fallow", "--years", "2", "--offline",
-               "--top-k", "3"])
+    code = main(
+        [
+            "plan",
+            "--latitude",
+            "42.0",
+            "--longitude",
+            "-93.6",
+            "--horizon",
+            "2",
+            "--crops",
+            "maize,soybean,fallow",
+            "--years",
+            "2",
+            "--offline",
+            "--top-k",
+            "3",
+        ]
+    )
     assert code == 0
     output = json.loads(capsys.readouterr().out)
     assert output["plans_evaluated"] == 9
@@ -72,11 +90,28 @@ def test_cli_traits_offline(tmp_path):
     """Bounded joint calibration: fitted traits stay inside declared
     bounds, yield channel is finite, report written to the output file."""
     output = tmp_path / "traits.json"
-    code = main(["traits", "--latitude", "42.0", "--longitude", "-93.6",
-                 "--years", "3", "--target", "maize=9000",
-                 "--params", "rue=2.0:3.0,gdd_lai_max=400:800",
-                 "--epochs", "6", "--offline", "--soil", "silt_loam",
-                 "--output", str(output)])
+    code = main(
+        [
+            "traits",
+            "--latitude",
+            "42.0",
+            "--longitude",
+            "-93.6",
+            "--years",
+            "3",
+            "--target",
+            "maize=9000",
+            "--params",
+            "rue=2.0:3.0,gdd_lai_max=400:800",
+            "--epochs",
+            "6",
+            "--offline",
+            "--soil",
+            "silt_loam",
+            "--output",
+            str(output),
+        ]
+    )
     assert code == 0
     payload = json.loads(output.read_text())
     fitted = payload["traits"]["maize"]
@@ -89,23 +124,46 @@ def test_cli_traits_offline(tmp_path):
 
 
 def test_cli_traits_unknown_crop(tmp_path):
-    code = main(["traits", "--latitude", "42.0", "--longitude", "-93.6",
-                 "--years", "2", "--target", "rice=8000",
-                 "--epochs", "2", "--offline", "--output",
-                 str(tmp_path / "t.json")])
+    code = main(
+        [
+            "traits",
+            "--latitude",
+            "42.0",
+            "--longitude",
+            "-93.6",
+            "--years",
+            "2",
+            "--target",
+            "rice=8000",
+            "--epochs",
+            "2",
+            "--offline",
+            "--output",
+            str(tmp_path / "t.json"),
+        ]
+    )
     assert code == 2
 
 
 def test_cli_config_toml(tmp_path, capsys):
     """TOML supplies defaults; explicit CLI flags still win (later in argv)."""
     config = tmp_path / "p.toml"
-    config.write_text(
-        '[plan]\nhorizon = 2\ncrops = "maize,fallow"\nyears = 2\n'
-        'offline = true\n')
-    code = main(["plan", "--latitude", "42.0", "--longitude", "-93.6",
-               "--config", str(config), "--top-k", "2"])
+    config.write_text('[plan]\nhorizon = 2\ncrops = "maize,fallow"\nyears = 2\noffline = true\n')
+    code = main(
+        [
+            "plan",
+            "--latitude",
+            "42.0",
+            "--longitude",
+            "-93.6",
+            "--config",
+            str(config),
+            "--top-k",
+            "2",
+        ]
+    )
     assert code == 0
     output = json.loads(capsys.readouterr().out)
-    assert output["plans_evaluated"] == 4   # 2 crops ^ 2y from TOML
+    assert output["plans_evaluated"] == 4  # 2 crops ^ 2y from TOML
     assert output["scenarios"] == 2
-    assert len(output["top"]) == 2          # CLI flag won over nothing → applied
+    assert len(output["top"]) == 2  # CLI flag won over nothing → applied

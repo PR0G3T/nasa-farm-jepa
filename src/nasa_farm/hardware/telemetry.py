@@ -23,8 +23,7 @@ import time
 class Monitor:
     """Periodic NVML sampler for one accelerator device."""
 
-    def __init__(self, device, hz: float = 2.0,
-                 sampler=None) -> None:
+    def __init__(self, device, hz: float = 2.0, sampler=None) -> None:
         self.device = device
         self.dt = 1.0 / max(hz, 0.1)
         self.throttled = threading.Event()
@@ -39,6 +38,7 @@ class Monitor:
             return None
         try:
             import pynvml as nv
+
             nv.nvmlInit()
             h = nv.nvmlDeviceGetHandleByIndex(self.device.index or 0)
         except Exception:
@@ -59,16 +59,16 @@ class Monitor:
             except Exception:
                 r = 0
             return w, t, int(r)
+
         return sample
 
     @property
     def available(self) -> bool:
         return self._sampler is not None
 
-    def __enter__(self) -> "Monitor":
+    def __enter__(self) -> Monitor:
         if self._sampler is not None:
-            self._thread = threading.Thread(
-                target=self._loop, daemon=True, name="nasa-farm-thermo")
+            self._thread = threading.Thread(target=self._loop, daemon=True, name="nasa-farm-thermo")
             self._thread.start()
         return self
 
@@ -90,8 +90,9 @@ class Monitor:
     def joules(self) -> float:
         """Integrated power over the sampling window (J)."""
         s = self._samples
-        return sum(0.5 * (s[i][1] + s[i - 1][1]) * (s[i][0] - s[i - 1][0])
-                   for i in range(1, len(s)))
+        return sum(
+            0.5 * (s[i][1] + s[i - 1][1]) * (s[i][0] - s[i - 1][0]) for i in range(1, len(s))
+        )
 
     def stats(self) -> dict:
         s = self._samples

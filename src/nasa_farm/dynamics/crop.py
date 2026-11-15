@@ -60,15 +60,21 @@ def co2_factor(co2_ppm: torch.Tensor, traits: torch.Tensor, ref_ppm: float = 420
     return torch.pow(torch.clamp(co2_ppm / ref_ppm, min=1e-3), traits[:, INDEX["co2_resp"]])
 
 
-def _vern_update(vernalization: torch.Tensor, tmean: torch.Tensor,
-                 growing: torch.Tensor) -> torch.Tensor:
+def _vern_update(
+    vernalization: torch.Tensor, tmean: torch.Tensor, growing: torch.Tensor
+) -> torch.Tensor:
     """Chill-day accumulation while growing; state preserved when fallow."""
     eff = ((tmean > VERN_T_LO) & (tmean < VERN_T_HI)).to(vernalization.dtype)
     return torch.where(growing, vernalization + eff, vernalization)
 
 
-def _heat_update(heat: torch.Tensor, tmax: torch.Tensor, gdd_new: torch.Tensor,
-                 traits: torch.Tensor, growing: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+def _heat_update(
+    heat: torch.Tensor,
+    tmax: torch.Tensor,
+    gdd_new: torch.Tensor,
+    traits: torch.Tensor,
+    growing: torch.Tensor,
+) -> tuple[torch.Tensor, torch.Tensor]:
     """Reproductive-window heat degree-days → (heat_acc', daily increment)."""
     win_lo = traits[:, INDEX["gdd_fl"]] * traits[:, INDEX["gdd_mat"]]
     in_win = (gdd_new >= win_lo) & (gdd_new < traits[:, INDEX["gdd_mat"]]) & growing
@@ -108,8 +114,10 @@ def canopy_step(
     request = traits[:, INDEX["vern_req"]]
     gate = (request > 0) & (vern_new < request)
     gdd_new = torch.where(
-        gate, torch.minimum(gdd_new, traits[:, INDEX["gdd_fl"]] * traits[:, INDEX["gdd_mat"]]),
-        gdd_new)
+        gate,
+        torch.minimum(gdd_new, traits[:, INDEX["gdd_fl"]] * traits[:, INDEX["gdd_mat"]]),
+        gdd_new,
+    )
 
     lai_new = leaf_area_index(gdd_new, traits) * active
     heat_new, heat_inc = _heat_update(heat_acc, tmax, gdd_new, traits, growing)
@@ -121,21 +129,38 @@ def canopy_step(
     n_growth = 0.6 + 0.4 * nitrogen_fac
     co2f = 1.0 if co2 is None else co2_factor(co2, traits)
     limiter = torch.minimum(tf, torch.minimum(water_fac, n_growth))
-    delta_b = (traits[:, INDEX["rue"]] * (PAR_FRACTION * srad) * fpar
-               * limiter * co2f * active * GM2_TO_KG_HA)
+    delta_b = (
+        traits[:, INDEX["rue"]]
+        * (PAR_FRACTION * srad)
+        * fpar
+        * limiter
+        * co2f
+        * active
+        * GM2_TO_KG_HA
+    )
 
     biomass_new = biomass + delta_b
     frost = growing & (tmin < traits[:, INDEX["t_kill"]])
     mature = ((gdd_new >= traits[:, INDEX["gdd_mat"]]) | frost) & growing
-    fluxes = {"delta_b": delta_b, "fpar": fpar, "limiter": limiter, "mature": mature,
-              "frost": frost, "heat_dd": heat_inc,
-              "vern_new": vern_new, "heat_new": heat_new}
+    fluxes = {
+        "delta_b": delta_b,
+        "fpar": fpar,
+        "limiter": limiter,
+        "mature": mature,
+        "frost": frost,
+        "heat_dd": heat_inc,
+        "vern_new": vern_new,
+        "heat_new": heat_new,
+    }
     return gdd_new, lai_new, biomass_new, fluxes
 
 
-def harvest(biomass: torch.Tensor, traits: torch.Tensor,
-            heat_acc: torch.Tensor | None = None,
-            frost: torch.Tensor | None = None) -> tuple[torch.Tensor, torch.Tensor]:
+def harvest(
+    biomass: torch.Tensor,
+    traits: torch.Tensor,
+    heat_acc: torch.Tensor | None = None,
+    frost: torch.Tensor | None = None,
+) -> tuple[torch.Tensor, torch.Tensor]:
     """Split standing biomass into yield and retained residue.
 
     Reproductive heat degrades the harvest index exponentially
@@ -155,14 +180,16 @@ def water_uptake_split(traits: torch.Tensor) -> torch.Tensor:
     return traits[:, INDEX["root_frac2"]]
 
 
-def potential_transpiration(et0: torch.Tensor, lai: torch.Tensor, traits: torch.Tensor,
-                            growing: torch.Tensor) -> torch.Tensor:
+def potential_transpiration(
+    et0: torch.Tensor, lai: torch.Tensor, traits: torch.Tensor, growing: torch.Tensor
+) -> torch.Tensor:
     cover = intercepted_fraction(lai, traits[:, INDEX["k_ext"]])
     return et0 * traits[:, INDEX["kc_max"]] * cover * growing.to(et0.dtype)
 
 
-def potential_evaporation(et0: torch.Tensor, lai: torch.Tensor, traits: torch.Tensor,
-                          growing: torch.Tensor) -> torch.Tensor:
+def potential_evaporation(
+    et0: torch.Tensor, lai: torch.Tensor, traits: torch.Tensor, growing: torch.Tensor
+) -> torch.Tensor:
     cover = intercepted_fraction(lai, traits[:, INDEX["k_ext"]])
     bare = 1.0 - cover * growing.to(et0.dtype)
     # 0.6 ≈ FAO-56 mean soil-evaporation coefficient over the stage-1+2 cycle

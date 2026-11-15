@@ -24,7 +24,8 @@ Extensions on the same scaffold:
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass, field as _f
+from dataclasses import dataclass
+from dataclasses import field as _f
 
 import torch
 
@@ -35,15 +36,19 @@ from nasa_farm.state.field import Field
 from nasa_farm.types import ACTION_VARS, FORCING_VARS, Actions, Forcing
 
 DEFAULT_WEIGHTS: dict[str, float] = {
-    "yield_kg": 1.0, "water_used": -0.3, "n_leached": -2.0,
-    "stress_days": -3.0, "frost_days": -50.0, "heat_dd": -2.0,
+    "yield_kg": 1.0,
+    "water_used": -0.3,
+    "n_leached": -2.0,
+    "stress_days": -3.0,
+    "frost_days": -50.0,
+    "heat_dd": -2.0,
 }
 
 
 @dataclass(frozen=True, slots=True)
 class ControlResult:
     actions: Actions
-    reward: float           # best mean-scenario reward seen (>= base's)
+    reward: float  # best mean-scenario reward seen (>= base's)
     history: tuple[float, ...]  # running best, one entry per iteration
 
 
@@ -54,7 +59,7 @@ class Risk:
     what is left over the remaining steps, so an early bad stretch tightens
     later steps and a clean stretch relaxes them (Fb-CP)."""
 
-    base: float             # per-step margin
+    base: float  # per-step margin
     horizon: int
     t: int = 0
     budget: float = _f(init=False)
@@ -70,10 +75,13 @@ class Risk:
         self.t += 1
 
 
-def metric_reward(metrics: torch.Tensor,
-                  weights: dict[str, float] | None = None,
-                  risk: str = "mean", alpha: float = 0.2,
-                  margin: torch.Tensor | float = 0.0) -> torch.Tensor:
+def metric_reward(
+    metrics: torch.Tensor,
+    weights: dict[str, float] | None = None,
+    risk: str = "mean",
+    alpha: float = 0.2,
+    margin: torch.Tensor | float = 0.0,
+) -> torch.Tensor:
     """(S, E, H, M) → (S,) reward: weighted metric sum over years, aggregated
     over forcing scenarios.
 
@@ -87,15 +95,14 @@ def metric_reward(metrics: torch.Tensor,
     for name, w in weights.items():
         r = r + w * metrics[..., index[name]].sum(dim=-1)
     if risk == "cvar":
-        k = max(1, int(round(alpha * r.shape[1])))
+        k = max(1, round(alpha * r.shape[1]))
         return r.sort(dim=1).values[:, :k].mean(1)
     if risk == "conf":
         return r.mean(1) - torch.as_tensor(margin, dtype=DTYPE)
     return r.mean(1)
 
 
-def _means(x: torch.Tensor, initial: torch.Tensor,
-            iterations: int = 8) -> torch.Tensor:
+def _means(x: torch.Tensor, initial: torch.Tensor, iterations: int = 8) -> torch.Tensor:
     """Assignment of rows x (E, D) to the nearest of `init` (M, D)
     centers — enough structure for elite clustering, no full solver."""
     c = initial
@@ -104,13 +111,11 @@ def _means(x: torch.Tensor, initial: torch.Tensor,
         for m in range(initial.shape[0]):
             sel = a == m
             if sel.any():
-                c = torch.cat([c[:m], x[sel].mean(0, keepdim=True),
-                               c[m + 1:]])
+                c = torch.cat([c[:m], x[sel].mean(0, keepdim=True), c[m + 1 :]])
     return torch.cdist(x, c).argmin(dim=1)
 
 
-def _quasi_newton(loss_fn, parameters: list[torch.Tensor], iterations: int,
-           m: int = 8) -> None:
+def _quasi_newton(loss_fn, parameters: list[torch.Tensor], iterations: int, m: int = 8) -> None:
     """In-place L-BFGS polish: two-loop recursion + Armijo backtracking.
 
     Second-order information accumulated from gradient differences —
@@ -129,12 +134,12 @@ def _quasi_newton(loss_fn, parameters: list[torch.Tensor], iterations: int,
     v, g = flat()
     for _ in range(iterations):
         q, al = g.clone(), []
-        for s, y, r in zip(s_h[::-1], y_h[::-1], rho[::-1]):
+        for s, y, r in zip(s_h[::-1], y_h[::-1], rho[::-1], strict=True):
             a = r * (s * q).sum()
             q = q - a * y
             al.append(a)
         d = -q
-        for s, y, r, a in zip(s_h, y_h, rho, al[::-1]):
+        for s, y, r, a in zip(s_h, y_h, rho, al[::-1], strict=True):
             d = d + s * (a - r * (y * d).sum())
         step, base = 1.0, torch.cat([p.detach().reshape(-1) for p in parameters])
         vn = None
@@ -142,8 +147,9 @@ def _quasi_newton(loss_fn, parameters: list[torch.Tensor], iterations: int,
             off = 0
             with torch.no_grad():
                 for p in parameters:
-                    p.copy_((base[off:off + p.numel()] + step * d[off:off + p.numel()])
-                            .view_as(p))
+                    p.copy_(
+                        (base[off : off + p.numel()] + step * d[off : off + p.numel()]).view_as(p)
+                    )
                     off += p.numel()
             vn = loss_fn()
             if float(vn) <= float(v) - 1e-4 * step * abs(float((d * g).sum())):
@@ -153,7 +159,7 @@ def _quasi_newton(loss_fn, parameters: list[torch.Tensor], iterations: int,
             off = 0
             with torch.no_grad():
                 for p in parameters:
-                    p.copy_(base[off:off + p.numel()].view_as(p))
+                    p.copy_(base[off : off + p.numel()].view_as(p))
                     off += p.numel()
             break
         vn, gn = flat()
@@ -165,22 +171,35 @@ def _quasi_newton(loss_fn, parameters: list[torch.Tensor], iterations: int,
         v, g = vn, gn
 
 
-def path_integral(model, field: Field, forcing: Forcing, base: Actions,
-         iterations: int = 8, samples: int = 96, rho: float = 0.7,
-         sigma: tuple[float, float] = (4.0, 10.0),
-         bounds: tuple[tuple[float, float], tuple[float, float]] =
-         ((0.0, 25.0), (0.0, 10.0)),
-         weights: dict[str, float] | None = None,
-         risk: str = "mean", alpha: float = 0.2,
-         margin: torch.Tensor | float = 0.0,
-         base_mu: torch.Tensor | None = None,
-         sow_shifts: tuple[int, ...] = (0,),
-         horizon: int = 0, value=None, gamma: float = 1.0,
-         reward=None, goal: torch.Tensor | None = None,
-         goal_w: float = 0.0,
-         modes: int = 1, refine: int = 0, refine_lr: float = 0.1,
-         refine_alg: str = "adam", gate_k: float = 0.0,
-         seed: int = 0) -> ControlResult:
+def path_integral(
+    model,
+    field: Field,
+    forcing: Forcing,
+    base: Actions,
+    iterations: int = 8,
+    samples: int = 96,
+    rho: float = 0.7,
+    sigma: tuple[float, float] = (4.0, 10.0),
+    bounds: tuple[tuple[float, float], tuple[float, float]] = ((0.0, 25.0), (0.0, 10.0)),
+    weights: dict[str, float] | None = None,
+    risk: str = "mean",
+    alpha: float = 0.2,
+    margin: torch.Tensor | float = 0.0,
+    base_mu: torch.Tensor | None = None,
+    sow_shifts: tuple[int, ...] = (0,),
+    horizon: int = 0,
+    value=None,
+    gamma: float = 1.0,
+    reward=None,
+    goal: torch.Tensor | None = None,
+    goal_w: float = 0.0,
+    modes: int = 1,
+    refine: int = 0,
+    refine_lr: float = 0.1,
+    refine_alg: str = "adam",
+    gate_k: float = 0.0,
+    seed: int = 0,
+) -> ControlResult:
     """Optimize continuous irrigation (mm/day) and N (kg/ha/day) channels.
 
     `base` supplies sow/harvest structure; forcing may be an ensemble (E>1) —
@@ -195,7 +214,7 @@ def path_integral(model, field: Field, forcing: Forcing, base: Actions,
     E = forcing.batch
     generation = torch.Generator().manual_seed(seed)
     mu0 = torch.stack([base.irrigation[0], base.n_fert[0]])  # (2, T)
-    if base_mu is not None:                      # policy-prior warm start
+    if base_mu is not None:  # policy-prior warm start
         mu0 = base_mu.to(mu0.dtype)
     means = mu0.unsqueeze(0).expand(modes, -1, -1).contiguous()  # (M, 2, T)
     best_r, best_mu, best_sow = -math.inf, mu0, base.sow[0]
@@ -208,12 +227,18 @@ def path_integral(model, field: Field, forcing: Forcing, base: Actions,
         b = torch.zeros(field.batch, dtype=DTYPE, device=field.state.sw.device)
         if value is not None:
             from nasa_farm.value import terminal_value
-            b = b + terminal_value(model, value, field.state,
-                                   forcing.day(min(h - 1, days - 1)),
-                                   actions.day(h - 1), gamma)
+
+            b = b + terminal_value(
+                model,
+                value,
+                field.state,
+                forcing.day(min(h - 1, days - 1)),
+                actions.day(h - 1),
+                gamma,
+            )
         if goal is not None and field.state.z is not None:
             g = goal.to(field.state.z.dtype)
-            b = b - goal_w * (field.state.z[:, :g.shape[0]] - g).pow(2).sum(-1)
+            b = b - goal_w * (field.state.z[:, : g.shape[0]] - g).pow(2).sum(-1)
         return b
 
     def score(candidate: torch.Tensor, sows: torch.Tensor) -> torch.Tensor:
@@ -223,35 +248,38 @@ def path_integral(model, field: Field, forcing: Forcing, base: Actions,
         actions = Actions(
             sow=sows.repeat_interleave(E, dim=0),
             irrigation=candidate[0].repeat_interleave(E, dim=0),
-            n_fert=candidate[1].repeat_interleave(E, dim=0))
+            n_fert=candidate[1].repeat_interleave(E, dim=0),
+        )
         repeated = forcing.repeat(s_n)
         if h < days:
             repeated = Forcing(*(getattr(repeated, k)[:, :h] for k in FORCING_VARS))
             actions = Actions(*(getattr(actions, k)[:, :h] for k in ACTION_VARS))
-        accumulator = SeasonAccumulator(b, max(1, -(-h // 365)),
-                                device=field.state.sw.device)
+        accumulator = SeasonAccumulator(b, max(1, -(-h // 365)), device=field.state.sw.device)
         with torch.inference_mode():
             rolled = model.rollout(field.repeat(b), repeated, actions, observer=accumulator)
         m = accumulator.result().view(s_n, E, -1, accumulator.result().shape[-1])
-        r = (reward(m) if reward is not None
-             else metric_reward(m, weights, risk, alpha, margin))
-        return r.view(s_n, -1).mean(1) + bonus(rolled, repeated, actions) \
-            .view(s_n, E).mean(1)
+        r = reward(m) if reward is not None else metric_reward(m, weights, risk, alpha, margin)
+        return r.view(s_n, -1).mean(1) + bonus(rolled, repeated, actions).view(s_n, E).mean(1)
 
     r_sig = 0.0
     for _ in range(iterations):
         per = -(-samples // modes)
         parts, sows_l = [], []
         for mi in range(modes):
-            eps = torch.stack([noise(per, days, rho, generation),
-                               noise(per, days, rho, generation)])
-            parts.append(torch.stack(
-                [(means[mi, c] + eps[c] * sigma[c]).clamp(*bounds[c])
-                 for c in range(2)]))                  # (2, per, T)
-            sows_l.append(torch.stack([
-                base.sow[0].roll(sow_shifts[i % n_shifts], dims=0)
-                for i in range(per)]))
-        candidate = torch.cat(parts, dim=1)                 # (2, S, T)
+            eps = torch.stack(
+                [noise(per, days, rho, generation), noise(per, days, rho, generation)]
+            )
+            parts.append(
+                torch.stack(
+                    [(means[mi, c] + eps[c] * sigma[c]).clamp(*bounds[c]) for c in range(2)]
+                )
+            )  # (2, per, T)
+            sows_l.append(
+                torch.stack(
+                    [base.sow[0].roll(sow_shifts[i % n_shifts], dims=0) for i in range(per)]
+                )
+            )
+        candidate = torch.cat(parts, dim=1)  # (2, S, T)
         sows = torch.cat(sows_l)
         candidate[:, 0] = best_mu  # incumbent: re-scored each round
         r = score(candidate, sows)
@@ -267,28 +295,27 @@ def path_integral(model, field: Field, forcing: Forcing, base: Actions,
         # shows when the optimum sits on a bound.
         elite = max(modes, candidate.shape[1] // 4)
         order = r.argsort(descending=True)
-        el = candidate[:, order[:elite]]                    # (2, E_e, T)
+        el = candidate[:, order[:elite]]  # (2, E_e, T)
         if modes > 1:
             flat = torch.cat([el[0] / sigma[0], el[1] / sigma[1]], dim=-1)
-            flat0 = torch.cat([means[:, 0] / sigma[0],
-                               means[:, 1] / sigma[1]], dim=-1)
+            flat0 = torch.cat([means[:, 0] / sigma[0], means[:, 1] / sigma[1]], dim=-1)
             assign = _means(flat, flat0)
-            w = (math.log(elite + 0.5)
-                 - torch.log(torch.arange(1, elite + 1, dtype=DTYPE)))
+            w = math.log(elite + 0.5) - torch.log(torch.arange(1, elite + 1, dtype=DTYPE))
             for mi in range(modes):
                 sel = assign == mi
                 if not sel.any():
                     continue
                 wm = (w[sel] / w[sel].sum()).unsqueeze(0).unsqueeze(-1)
-                means[mi] = means[mi] + (wm * (el[:, sel] - means[mi]
-                                           .unsqueeze(1))).sum(1)
+                means[mi] = means[mi] + (wm * (el[:, sel] - means[mi].unsqueeze(1))).sum(1)
         else:
             w = torch.zeros(candidate.shape[1], dtype=DTYPE)
-            w[order[:elite]] = (math.log(elite + 0.5) - torch.log(
-                torch.arange(1, elite + 1, dtype=DTYPE)))
+            w[order[:elite]] = math.log(elite + 0.5) - torch.log(
+                torch.arange(1, elite + 1, dtype=DTYPE)
+            )
             w = w / w.sum()
-            means[0] = means[0] + (w.unsqueeze(0).unsqueeze(-1)
-                               * (candidate - means[0].unsqueeze(1))).sum(1)
+            means[0] = means[0] + (
+                w.unsqueeze(0).unsqueeze(-1) * (candidate - means[0].unsqueeze(1))
+            ).sum(1)
 
     if gate_k and best_mu is not mu0:
         # Sibling-disagreement gate: reject a plan whose margin over the
@@ -305,24 +332,25 @@ def path_integral(model, field: Field, forcing: Forcing, base: Actions,
         nf = best_mu[1].clone().requires_grad_(True)
 
         def polish() -> torch.Tensor:
-            actions = Actions(sow=best_sow.unsqueeze(0).expand(E, -1),
-                           irrigation=irrigation.clamp(*bounds[0]).unsqueeze(0)
-                           .expand(E, -1),
-                           n_fert=nf.clamp(*bounds[1]).unsqueeze(0)
-                           .expand(E, -1))
+            actions = Actions(
+                sow=best_sow.unsqueeze(0).expand(E, -1),
+                irrigation=irrigation.clamp(*bounds[0]).unsqueeze(0).expand(E, -1),
+                n_fert=nf.clamp(*bounds[1]).unsqueeze(0).expand(E, -1),
+            )
             forcing_day = forcing
             if h < days:
-                forcing_day = Forcing(*(getattr(forcing_day, k)[:, :h]
-                               for k in FORCING_VARS))
-                actions = Actions(*(getattr(actions, k)[:, :h]
-                                 for k in ACTION_VARS))
-            accumulate = SeasonAccumulator(E, max(1, -(-h // 365)),
-                                    device=field.state.sw.device)
-            rolled = model.rollout(field.repeat(E), forcing_day, actions, observer=accumulate,
-                                checkpoint_every=24 if h > 64 else 0)
-            m = accumulate.result().unsqueeze(0)              # (1, E, H, M)
-            r = (reward(m) if reward is not None
-                 else metric_reward(m, weights, risk, alpha, margin))
+                forcing_day = Forcing(*(getattr(forcing_day, k)[:, :h] for k in FORCING_VARS))
+                actions = Actions(*(getattr(actions, k)[:, :h] for k in ACTION_VARS))
+            accumulate = SeasonAccumulator(E, max(1, -(-h // 365)), device=field.state.sw.device)
+            rolled = model.rollout(
+                field.repeat(E),
+                forcing_day,
+                actions,
+                observer=accumulate,
+                checkpoint_every=24 if h > 64 else 0,
+            )
+            m = accumulate.result().unsqueeze(0)  # (1, E, H, M)
+            r = reward(m) if reward is not None else metric_reward(m, weights, risk, alpha, margin)
             return -(r.mean() + bonus(rolled, forcing_day, actions).mean())
 
         if refine_alg == "lbfgs":
@@ -340,12 +368,13 @@ def path_integral(model, field: Field, forcing: Forcing, base: Actions,
                     irrigation.clamp_(*bounds[0])
                     nf.clamp_(*bounds[1])
         refined = torch.stack([irrigation.detach(), nf.detach()])
-        r_new = score(refined.unsqueeze(1),
-                      best_sow.unsqueeze(0))[0]
+        r_new = score(refined.unsqueeze(1), best_sow.unsqueeze(0))[0]
         if float(r_new) > best_r:
             best_r, best_mu = float(r_new), refined
 
-    actions = Actions(sow=best_sow.unsqueeze(0),
-                   irrigation=best_mu[0].clamp(*bounds[0]).unsqueeze(0),
-                   n_fert=best_mu[1].clamp(*bounds[1]).unsqueeze(0))
+    actions = Actions(
+        sow=best_sow.unsqueeze(0),
+        irrigation=best_mu[0].clamp(*bounds[0]).unsqueeze(0),
+        n_fert=best_mu[1].clamp(*bounds[1]).unsqueeze(0),
+    )
     return ControlResult(actions, best_r, tuple(history))

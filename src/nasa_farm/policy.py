@@ -36,14 +36,17 @@ class Policy(nn.Module):
 
 def _day_feats(model, state, forcing_day: dict, action_d: dict) -> torch.Tensor:
     return featurize(
-        {"sw0": state.sw[:, 0], "swr": state.sw[:, 1:].sum(-1),
-         **{k: getattr(state, k) for k in
-            ("n_min", "lai", "biomass", "gdd", "growing")}},
-        forcing_day, action_d)
+        {
+            "sw0": state.sw[:, 0],
+            "swr": state.sw[:, 1:].sum(-1),
+            **{k: getattr(state, k) for k in ("n_min", "lai", "biomass", "gdd", "growing")},
+        },
+        forcing_day,
+        action_d,
+    )
 
 
-def policy_actions(policy: Policy, model, field: Field,
-                   forcing: Forcing, base: Actions) -> Actions:
+def policy_actions(policy: Policy, model, field: Field, forcing: Forcing, base: Actions) -> Actions:
     """Roll the policy through the model: each day's rates come from the
     policy evaluated on the *current* simulated state — closed-loop, not an
     open-loop schedule replay."""
@@ -61,9 +64,16 @@ def policy_actions(policy: Policy, model, field: Field,
     return Actions(sow=base.sow, irrigation=irrigation, n_fert=fertilizer)
 
 
-def distill(model, field: Field, forcing: Forcing, base: Actions,
-            mppi_kw: dict | None = None, epochs: int = 300,
-            rate: float = 1e-2, seed: int = 0) -> tuple[Policy, Actions]:
+def distill(
+    model,
+    field: Field,
+    forcing: Forcing,
+    base: Actions,
+    mppi_kw: dict | None = None,
+    epochs: int = 300,
+    rate: float = 1e-2,
+    seed: int = 0,
+) -> tuple[Policy, Actions]:
     """Fit the policy to MPPI's closed-loop action/state pairs.
 
     Returns (policy, teacher_actions): the teacher schedule is also the
@@ -71,7 +81,7 @@ def distill(model, field: Field, forcing: Forcing, base: Actions,
     """
     result = path_integral(model, field, forcing, base, seed=seed, **(mppi_kw or {}))
     teacher = result.actions
-    b, days = field.batch, forcing.days
+    _b, days = field.batch, forcing.days
     policy = Policy()
     opt = torch.optim.Adam(policy.parameters(), lr=rate)
     for _ in range(epochs):
@@ -82,21 +92,34 @@ def distill(model, field: Field, forcing: Forcing, base: Actions,
             action = base.day(t)
             f = _day_feats(model, f0.state, forcing.day(t), action)
             u = policy(f)
-            loss = loss + ((u[:, 0] - teacher.irrigation[:, t]) ** 2
-                           + (u[:, 1] - teacher.n_fert[:, t]) ** 2).mean()
+            loss = (
+                loss
+                + (
+                    (u[:, 0] - teacher.irrigation[:, t]) ** 2
+                    + (u[:, 1] - teacher.n_fert[:, t]) ** 2
+                ).mean()
+            )
             f0, _ = model.step(f0, action, forcing.day(t), t)
         loss.backward()
         opt.step()
     return policy, teacher
 
 
-def policy_gradient(model, field: Field, forcing: Forcing, base: Actions,
-                policy: Policy | None = None,
-                weights: dict[str, float] | None = None,
-                risk: str = "mean", alpha: float = 0.2,
-                epochs: int = 60, rate: float = 3e-3,
-                u_scale: float = 1.0, checkpoint: int = 0,
-                seed: int = 0) -> Policy:
+def policy_gradient(
+    model,
+    field: Field,
+    forcing: Forcing,
+    base: Actions,
+    policy: Policy | None = None,
+    weights: dict[str, float] | None = None,
+    risk: str = "mean",
+    alpha: float = 0.2,
+    epochs: int = 60,
+    rate: float = 3e-3,
+    u_scale: float = 1.0,
+    checkpoint: int = 0,
+    seed: int = 0,
+) -> Policy:
     """Analytic policy gradient through the differentiable dynamics.
 
     The same closed-loop rollout `distill` runs, but the policy is scored
@@ -124,11 +147,10 @@ def policy_gradient(model, field: Field, forcing: Forcing, base: Actions,
         for t in range(days):
             action = base.day(t)
             u = policy(_day_feats(model, field.state, forcing.day(t), action))
-            action = {**action, "irrigation": u[:, 0] * u_scale,
-                  "n_fert": u[:, 1] * u_scale}
+            action = {**action, "irrigation": u[:, 0] * u_scale, "n_fert": u[:, 1] * u_scale}
             field, fluxes = model.step(field, action, forcing.day(t), t)
             accumulate(t, field.state, fluxes)
-        m = accumulate.result().unsqueeze(1)                # (B, 1, H, M)
+        m = accumulate.result().unsqueeze(1)  # (B, 1, H, M)
         reward = metric_reward(m, weights, risk, alpha).mean()
         (-reward).backward()
         torch.nn.utils.clip_grad_norm_(policy.parameters(), 1.0)
@@ -145,8 +167,9 @@ class FlowPolicy(nn.Module):
     multimodal schedules alive (e.g. bimodal early-vs-late irrigation);
     `flow_act` turns a draw into the `base_mu` warm start of mppi."""
 
-    def __init__(self, horizon: int, hidden: int = 128, depth: int = 3,
-                 seed: int | None = None) -> None:
+    def __init__(
+        self, horizon: int, hidden: int = 128, depth: int = 3, seed: int | None = None
+    ) -> None:
         super().__init__()
         if seed is not None:
             torch.manual_seed(seed)
@@ -160,15 +183,18 @@ class FlowPolicy(nn.Module):
         self.net = nn.Sequential(*layers)
         self.to(torch.float64)
 
-    def forward(self, a: torch.Tensor, t: torch.Tensor,
-                features: torch.Tensor) -> torch.Tensor:
-        return self.net(torch.cat(
-            [a, t.to(a.dtype).expand(a.shape[0], 1), features], dim=-1))
+    def forward(self, a: torch.Tensor, t: torch.Tensor, features: torch.Tensor) -> torch.Tensor:
+        return self.net(torch.cat([a, t.to(a.dtype).expand(a.shape[0], 1), features], dim=-1))
 
 
-def fit_flow(policy: FlowPolicy, chunks: torch.Tensor,
-             features: torch.Tensor, epochs: int = 200,
-             rate: float = 1e-3, seed: int = 0) -> dict:
+def fit_flow(
+    policy: FlowPolicy,
+    chunks: torch.Tensor,
+    features: torch.Tensor,
+    epochs: int = 200,
+    rate: float = 1e-3,
+    seed: int = 0,
+) -> dict:
     """CFM on (state-feats, action-chunk) demonstrations.
 
     chunks: (N, 2H) flattened schedules; feats: (N, N_FEATURES) state
@@ -190,8 +216,9 @@ def fit_flow(policy: FlowPolicy, chunks: torch.Tensor,
     return {"best_loss": round(min(history), 8), "history": history}
 
 
-def flow_sample(policy: FlowPolicy, features: torch.Tensor, n: int = 1,
-                steps: int = 8, seed: int = 0) -> torch.Tensor:
+def flow_sample(
+    policy: FlowPolicy, features: torch.Tensor, n: int = 1, steps: int = 8, seed: int = 0
+) -> torch.Tensor:
     """feats (B, N_FEATURES) → (B·n, 2H) schedule chunks."""
     generation = torch.Generator().manual_seed(seed)
     b = features.shape[0]
@@ -203,9 +230,9 @@ def flow_sample(policy: FlowPolicy, features: torch.Tensor, n: int = 1,
     return a.clamp(min=0.0)
 
 
-def flow_actions(policy: FlowPolicy, model, field: Field,
-             forcing: Forcing, base: Actions,
-             seed: int = 0) -> torch.Tensor:
+def flow_actions(
+    policy: FlowPolicy, model, field: Field, forcing: Forcing, base: Actions, seed: int = 0
+) -> torch.Tensor:
     """Draw a schedule chunk and return it as mppi's (2, T) `base_mu`."""
     f = _day_feats(model, field.state, forcing.day(0), base.day(0))
     a = flow_sample(policy, f, n=1, seed=seed)[0]
@@ -220,8 +247,7 @@ class Inverse(nn.Module):
     net emits the nonneg daily (irrigation, n_fert) rates that hindsight
     relabeling says moved rollouts toward g — the GC-IDM recipe."""
 
-    def __init__(self, goal_dim: int, hidden: int = 64,
-                 depth: int = 2) -> None:
+    def __init__(self, goal_dim: int, hidden: int = 64, depth: int = 2) -> None:
         super().__init__()
         self.goal_dim = goal_dim
         d = N_FEATURES + goal_dim + 1
@@ -234,16 +260,23 @@ class Inverse(nn.Module):
         self.register_buffer("x_sd", torch.ones(d, dtype=DTYPE))
         self.to(torch.float64)
 
-    def forward(self, features: torch.Tensor, goal: torch.Tensor,
-                remaining: torch.Tensor) -> torch.Tensor:
+    def forward(
+        self, features: torch.Tensor, goal: torch.Tensor, remaining: torch.Tensor
+    ) -> torch.Tensor:
         g = goal.unsqueeze(0) if goal.dim() == 1 else goal
         x = torch.cat([features, g.expand(features.shape[0], -1), remaining], dim=-1)
         return self.net((x - self.x_mu) / self.x_sd)
 
 
-def fit_inverse(model, demos: list[tuple[Field, Forcing, Actions]],
-            goal_fn=None, epochs: int = 300, rate: float = 1e-2,
-            hidden: int = 64, seed: int = 0) -> Inverse:
+def fit_inverse(
+    model,
+    demos: list[tuple[Field, Forcing, Actions]],
+    goal_fn=None,
+    epochs: int = 300,
+    rate: float = 1e-2,
+    hidden: int = 64,
+    seed: int = 0,
+) -> Inverse:
     """Hindsight-relabeled inverse dynamics.
 
     Each demo (field, forcing, actions) rolls once; the *realized*
@@ -256,12 +289,20 @@ def fit_inverse(model, demos: list[tuple[Field, Forcing, Actions]],
         field, rows, days = field, [], forcing.days
         for t in range(days):
             weather, action = forcing.day(t), actions.day(t)
-            rows.append((_day_feats(model, field.state, weather, action).detach(),
-                         torch.stack([action["irrigation"], action["n_fert"]], -1)
-                         .to(DTYPE)))
+            rows.append(
+                (
+                    _day_feats(model, field.state, weather, action).detach(),
+                    torch.stack([action["irrigation"], action["n_fert"]], -1).to(DTYPE),
+                )
+            )
             field, _ = model.step(field, action, weather, t)
-        g = (goal_fn(field.state) if goal_fn
-             else field.state.z if field.state.z is not None else rows[-1][0])
+        g = (
+            goal_fn(field.state)
+            if goal_fn
+            else field.state.z
+            if field.state.z is not None
+            else rows[-1][0]
+        )
         for t, (f, u) in enumerate(rows):
             remaining = torch.full((f.shape[0], 1), 1.0 - t / days, dtype=DTYPE)
             rows_x.append(torch.cat([f, g.to(DTYPE), remaining], -1))
@@ -281,8 +322,9 @@ def fit_inverse(model, demos: list[tuple[Field, Forcing, Actions]],
     return inverse
 
 
-def inverse_plan(inverse: Inverse, model, field: Field, forcing: Forcing,
-             base: Actions, goal: torch.Tensor) -> torch.Tensor:
+def inverse_plan(
+    inverse: Inverse, model, field: Field, forcing: Forcing, base: Actions, goal: torch.Tensor
+) -> torch.Tensor:
     """Closed-loop goal-conditioned rollout → (B, T, 2) rates. The goal
     stays fixed while the state evolves — one pass yields either the
     executed policy or mppi's warm-start `base_mu` (transposed)."""
@@ -300,8 +342,9 @@ def inverse_plan(inverse: Inverse, model, field: Field, forcing: Forcing,
     return mu
 
 
-def inverse_actions(inverse: Inverse, model, field: Field, forcing: Forcing,
-                base: Actions, goal: torch.Tensor) -> Actions:
+def inverse_actions(
+    inverse: Inverse, model, field: Field, forcing: Forcing, base: Actions, goal: torch.Tensor
+) -> Actions:
     """Goal-conditioned closed-loop control — the IDM `policy_actions`."""
     mu = inverse_plan(inverse, model, field, forcing, base, goal)
     return Actions(sow=base.sow, irrigation=mu[..., 0], n_fert=mu[..., 1])

@@ -18,7 +18,7 @@ from nasa_farm.constants import DTYPE
 from nasa_farm.control import metric_reward
 from nasa_farm.dynamics.residual import N_FEATURES
 from nasa_farm.heads import SeasonAccumulator
-from nasa_farm.state.field import Field
+from nasa_farm.state.field import Field, FieldState
 from nasa_farm.types import Actions, Forcing
 
 
@@ -38,13 +38,21 @@ class Value(nn.Module):
         return self.net(features.to(DTYPE)).squeeze(-1)
 
 
-def _suffix_reward(model, field: Field, forcing: Forcing, actions: Actions,
-                   t0: int, weights: dict | None, risk: str,
-                   alpha: float) -> torch.Tensor:
+def _suffix_reward(
+    model,
+    field: Field,
+    forcing: Forcing,
+    actions: Actions,
+    t0: int,
+    weights: dict | None,
+    risk: str,
+    alpha: float,
+) -> torch.Tensor:
     """Objective of the t0→end suffix rollout, per batch row."""
     days = forcing.days - t0
     yrs = max(1, -(-days // 365))
-    from nasa_farm.types import FORCING_VARS, ACTION_VARS
+    from nasa_farm.types import ACTION_VARS, FORCING_VARS
+
     forcing = Forcing(*(getattr(forcing, k)[:, t0:] for k in FORCING_VARS))
     act = Actions(*(getattr(actions, k)[:, t0:] for k in ACTION_VARS))
     accumulate = SeasonAccumulator(field.batch, yrs)
@@ -53,12 +61,19 @@ def _suffix_reward(model, field: Field, forcing: Forcing, actions: Actions,
     return metric_reward(accumulate.result().unsqueeze(1), weights, risk, alpha)
 
 
-def fit_value(model, field: Field, forcing: Forcing, actions: Actions,
-              net: Value | None = None,
-              weights: dict[str, float] | None = None,
-              risk: str = "mean", alpha: float = 0.2,
-              every: int = 15, epochs: int = 200,
-              rate: float = 1e-3) -> Value:
+def fit_value(
+    model,
+    field: Field,
+    forcing: Forcing,
+    actions: Actions,
+    net: Value | None = None,
+    weights: dict[str, float] | None = None,
+    risk: str = "mean",
+    alpha: float = 0.2,
+    every: int = 15,
+    epochs: int = 200,
+    rate: float = 1e-3,
+) -> Value:
     """Regression on suffix-rollout returns.
 
     One inference pass caches states on the `every` grid; each cached state
@@ -78,12 +93,17 @@ def fit_value(model, field: Field, forcing: Forcing, actions: Actions,
     net = net or Value()
     xs, ys = [], []
     for t, saved in snapshot.items():
-        f = Field(state=saved, soil=field.soil, latitude=field.latitude,
-                  elevation=field.elevation, context=field.context)
-        y = _suffix_reward(model, f, forcing, actions, t, weights, risk,
-                           alpha)
-        features = model._features(saved, forcing.day(min(t, days - 1)),
-                                actions.day(min(t, actions.days - 1)))
+        f = Field(
+            state=saved,
+            soil=field.soil,
+            latitude=field.latitude,
+            elevation=field.elevation,
+            context=field.context,
+        )
+        y = _suffix_reward(model, f, forcing, actions, t, weights, risk, alpha)
+        features = model._features(
+            saved, forcing.day(min(t, days - 1)), actions.day(min(t, actions.days - 1))
+        )
         xs.append(features)
         ys.append(y)
     x = torch.cat(xs)
@@ -99,8 +119,9 @@ def fit_value(model, field: Field, forcing: Forcing, actions: Actions,
     return net
 
 
-def terminal_value(model, net: Value, state, forcing_day: dict,
-                   action_d: dict, gamma: float = 1.0) -> torch.Tensor:
+def terminal_value(
+    model, net: Value, state, forcing_day: dict, action_d: dict, gamma: float = 1.0
+) -> torch.Tensor:
     """γ·V(s_end) — the bootstrapped remainder of the season."""
     features = model._features(state, forcing_day, action_d)
     with torch.inference_mode():

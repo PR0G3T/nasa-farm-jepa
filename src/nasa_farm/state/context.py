@@ -38,7 +38,7 @@ class Normalizer(nn.Module):
         self.fitted = False
 
     @torch.no_grad()
-    def fit(self, embedding: torch.Tensor) -> "Normalizer":
+    def fit(self, embedding: torch.Tensor) -> Normalizer:
         flat = embedding.reshape(-1, embedding.shape[-1]).to(DTYPE)
         if flat.shape[-1] != self.dim:
             raise ValueError(f"embedding dim {flat.shape[-1]} != ctx dim {self.dim}")
@@ -51,8 +51,9 @@ class Normalizer(nn.Module):
         return (embedding.to(DTYPE) - self.mean) / self.deviation
 
 
-def build_context(embedding: torch.Tensor, norm: Normalizer | None = None,
-              side: torch.Tensor | None = None) -> torch.Tensor:
+def build_context(
+    embedding: torch.Tensor, norm: Normalizer | None = None, side: torch.Tensor | None = None
+) -> torch.Tensor:
     """(B, D) raw embedding (+ optional (B, S) scaled side features) → ctx.
 
     Side features are the caller's responsibility to scale (soil scalars,
@@ -72,14 +73,20 @@ class Traits(nn.Module):
     calibration uses. Bias zero-init ⇒ multiplier 1 at init (prior table).
     """
 
-    def __init__(self, context_dimension: int, n_crops: int, n_traits: int,
-                 hidden: int = 64, bound: float = 2.0) -> None:
+    def __init__(
+        self,
+        context_dimension: int,
+        n_crops: int,
+        n_traits: int,
+        hidden: int = 64,
+        bound: float = 2.0,
+    ) -> None:
         super().__init__()
         self.bound = math.log(bound)
         self.shape = (n_crops, n_traits)
         self.net = nn.Sequential(
-            nn.Linear(context_dimension, hidden), nn.SiLU(),
-            nn.Linear(hidden, n_crops * n_traits))
+            nn.Linear(context_dimension, hidden), nn.SiLU(), nn.Linear(hidden, n_crops * n_traits)
+        )
         nn.init.zeros_(self.net[-1].weight)
         nn.init.zeros_(self.net[-1].bias)
         self.to(DTYPE)
@@ -103,22 +110,28 @@ class Traits(nn.Module):
 class Initialization(nn.Module):
     """ctx → (z0, zh0) — informed recurrent start instead of zeros."""
 
-    def __init__(self, context_dimension: int, z_dim: int, hidden_dimension: int,
-                 hidden: int = 64) -> None:
+    def __init__(
+        self, context_dimension: int, z_dim: int, hidden_dimension: int, hidden: int = 64
+    ) -> None:
         super().__init__()
         self.z_dim, self.hidden_dimension = z_dim, hidden_dimension
         self.z = nn.Linear(context_dimension, z_dim)
-        self.h = nn.Sequential(nn.Linear(context_dimension, hidden), nn.SiLU(),
-                               nn.Linear(hidden, hidden_dimension))
+        self.h = nn.Sequential(
+            nn.Linear(context_dimension, hidden), nn.SiLU(), nn.Linear(hidden, hidden_dimension)
+        )
         self.to(DTYPE)
 
     def forward(self, context: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         return self.z(context.to(DTYPE)), self.h(context.to(DTYPE))
 
 
-def condition(model, field: Field, context: torch.Tensor,
-              hyper: Traits | None = None,
-              initialization: Initialization | None = None) -> Field:
+def condition(
+    model,
+    field: Field,
+    context: torch.Tensor,
+    hyper: Traits | None = None,
+    initialization: Initialization | None = None,
+) -> Field:
     """Wire a context vector into field + model in one call.
 
     - field.ctx := ctx (consumed by LatentDyn when built with ctx_dim)
@@ -129,16 +142,23 @@ def condition(model, field: Field, context: torch.Tensor,
         context = context.expand(field.batch, -1)
     if hyper is not None:
         table = hyper.table(context, model.crop_table.detach())
-        model.crop_table = (table[0] if field.batch == 1
-                            else table.mean(0))
+        model.crop_table = table[0] if field.batch == 1 else table.mean(0)
     if initialization is not None:
         z0, h0 = initialization(context)
-        field = Field(state=field.state.replace(z=z0, zh=h0),
-                      soil=field.soil, latitude=field.latitude, elevation=field.elevation,
-                      context=context)
-        return field
-    return Field(state=field.state, soil=field.soil, latitude=field.latitude,
-                 elevation=field.elevation, context=context)
+        return Field(
+            state=field.state.replace(z=z0, zh=h0),
+            soil=field.soil,
+            latitude=field.latitude,
+            elevation=field.elevation,
+            context=context,
+        )
+    return Field(
+        state=field.state,
+        soil=field.soil,
+        latitude=field.latitude,
+        elevation=field.elevation,
+        context=context,
+    )
 
 
 def lib_table(crops: CropLibrary) -> torch.Tensor:

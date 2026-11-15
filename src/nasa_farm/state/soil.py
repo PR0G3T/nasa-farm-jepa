@@ -7,7 +7,7 @@ vertical resolution with no per-layer Python state.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, fields
+from dataclasses import dataclass
 
 import torch
 
@@ -22,8 +22,13 @@ def theta_wp(sand_pct: torch.Tensor, clay_pct: torch.Tensor, om_pct: torch.Tenso
     """Wilting-point volumetric water content, Saxton & Rawls regression."""
     s, c, organic = sand_pct / 100.0, clay_pct / 100.0, om_pct
     return torch.clamp(
-        -0.024 * s + 0.487 * c + 0.006 * organic + 0.005 * s * organic
-        - 0.013 * c * organic + 0.068 * s * c + 0.031,
+        -0.024 * s
+        + 0.487 * c
+        + 0.006 * organic
+        + 0.005 * s * organic
+        - 0.013 * c * organic
+        + 0.068 * s * c
+        + 0.031,
         min=0.01,
     )
 
@@ -32,8 +37,13 @@ def theta_fc(sand_pct: torch.Tensor, clay_pct: torch.Tensor, om_pct: torch.Tenso
     """Field-capacity volumetric water content."""
     s, c, organic = sand_pct / 100.0, clay_pct / 100.0, om_pct
     return torch.clamp(
-        -0.251 * s + 0.195 * c + 0.011 * organic + 0.006 * s * organic
-        - 0.027 * c * organic + 0.452 * s * c + 0.299,
+        -0.251 * s
+        + 0.195 * c
+        + 0.011 * organic
+        + 0.006 * s * organic
+        - 0.027 * c * organic
+        + 0.452 * s * c
+        + 0.299,
         min=0.05,
     )
 
@@ -58,8 +68,9 @@ class SoilLayer:
         return self.theta_sat.shape[0]
 
 
-def _stack(sand: torch.Tensor, clay: torch.Tensor, organic: torch.Tensor,
-           depths: tuple[float, ...]) -> tuple[torch.Tensor, ...]:
+def _stack(
+    sand: torch.Tensor, clay: torch.Tensor, organic: torch.Tensor, depths: tuple[float, ...]
+) -> tuple[torch.Tensor, ...]:
     """Texture (B,) or (B,L) → hydraulic storages (B,L) mm per layer."""
     if sand.dim() == 1:
         sand = sand.unsqueeze(1).expand(-1, len(depths))
@@ -79,14 +90,14 @@ def _stack(sand: torch.Tensor, clay: torch.Tensor, organic: torch.Tensor,
 class SoilProfile:
     """N-layer soil. Textures and hydraulic storages are (B, L) tensors."""
 
-    depth: torch.Tensor     # (L,) m
-    sand: torch.Tensor      # (B, L) %
-    clay: torch.Tensor      # (B, L) %
-    organic: torch.Tensor        # (B, L) % organic matter
-    sat: torch.Tensor       # (B, L) mm
-    fc: torch.Tensor        # (B, L) mm
-    wp: torch.Tensor        # (B, L) mm
-    air: torch.Tensor       # (B, L) mm
+    depth: torch.Tensor  # (L,) m
+    sand: torch.Tensor  # (B, L) %
+    clay: torch.Tensor  # (B, L) %
+    organic: torch.Tensor  # (B, L) % organic matter
+    sat: torch.Tensor  # (B, L) mm
+    fc: torch.Tensor  # (B, L) mm
+    wp: torch.Tensor  # (B, L) mm
+    air: torch.Tensor  # (B, L) mm
 
     @property
     def batch(self) -> int:
@@ -97,8 +108,7 @@ class SoilProfile:
         return self.sat.shape[1]
 
     def layer(self, i: int) -> SoilLayer:
-        return SoilLayer(self.sat[:, i], self.fc[:, i],
-                         self.wp[:, i], self.air[:, i])
+        return SoilLayer(self.sat[:, i], self.fc[:, i], self.wp[:, i], self.air[:, i])
 
     @classmethod
     def from_texture(
@@ -107,19 +117,24 @@ class SoilProfile:
         clay_pct: torch.Tensor,
         om_pct: torch.Tensor | None = None,
         depths: tuple[float, ...] = DEPTHS,
-    ) -> "SoilProfile":
+    ) -> SoilProfile:
         """Texture percents (B,) or (B,L); om defaults to 1.5 %."""
         if om_pct is None:
             om_pct = torch.full_like(sand_pct, 1.5)
-        sand, clay, organic, sat, fc, wp, air = _stack(
-            sand_pct, clay_pct, om_pct, depths)
-        return cls(torch.tensor(depths, dtype=DTYPE),
-                   sand.to(DTYPE), clay.to(DTYPE), organic.to(DTYPE),
-                   sat.to(DTYPE), fc.to(DTYPE), wp.to(DTYPE), air.to(DTYPE))
+        sand, clay, organic, sat, fc, wp, air = _stack(sand_pct, clay_pct, om_pct, depths)
+        return cls(
+            torch.tensor(depths, dtype=DTYPE),
+            sand.to(DTYPE),
+            clay.to(DTYPE),
+            organic.to(DTYPE),
+            sat.to(DTYPE),
+            fc.to(DTYPE),
+            wp.to(DTYPE),
+            air.to(DTYPE),
+        )
 
     @classmethod
-    def sample(cls, low: "SoilProfile", high: "SoilProfile", n: int,
-               seed: int = 0) -> "SoilProfile":
+    def sample(cls, low: SoilProfile, high: SoilProfile, n: int, seed: int = 0) -> SoilProfile:
         """Parameter-uncertainty ensemble: n profiles whose textures are
         uniform draws inside [lo, hi] per layer (e.g. SoilGrids Q05/Q95),
         hydraulics recomputed so every member stays self-consistent."""
@@ -127,16 +142,18 @@ class SoilProfile:
 
         def u(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
             r = torch.rand(n, *a.shape, generator=g, dtype=DTYPE)
-            x = a.unsqueeze(0) + (b - a).unsqueeze(0) * r   # (n, B, L)
+            x = a.unsqueeze(0) + (b - a).unsqueeze(0) * r  # (n, B, L)
             return x.reshape(-1, a.shape[-1])
 
         depths = tuple(float(d) for d in low.depth)
         return cls.from_texture(
-            u(low.sand, high.sand), u(low.clay, high.clay), u(low.organic, high.organic), depths)
+            u(low.sand, high.sand), u(low.clay, high.clay), u(low.organic, high.organic), depths
+        )
 
     @classmethod
-    def preset(cls, texture: str, batch: int = 1,
-               depths: tuple[float, ...] = DEPTHS) -> "SoilProfile":
+    def preset(
+        cls, texture: str, batch: int = 1, depths: tuple[float, ...] = DEPTHS
+    ) -> SoilProfile:
         table = {
             "sand": (92.0, 3.0, 1.0),
             "loamy_sand": (82.0, 8.0, 1.2),
@@ -149,16 +166,35 @@ class SoilProfile:
         s, c, organic = (torch.tensor([v] * batch, dtype=DTYPE) for v in table[texture])
         return cls.from_texture(s, c, organic, depths)
 
-    def to(self, device: torch.device | str) -> "SoilProfile":
-        mv = lambda t: t.to(device)
-        return SoilProfile(mv(self.depth), mv(self.sand), mv(self.clay),
-                           mv(self.organic), mv(self.sat), mv(self.fc),
-                           mv(self.wp), mv(self.air))
+    def to(self, device: torch.device | str) -> SoilProfile:
+        def mv(t):
+            return t.to(device)
 
-    def repeat(self, n: int) -> "SoilProfile":
-        r = lambda t: t.repeat(n, *([1] * (t.dim() - 1)))
-        return SoilProfile(self.depth, r(self.sand), r(self.clay), r(self.organic),
-                           r(self.sat), r(self.fc), r(self.wp), r(self.air))
+        return SoilProfile(
+            mv(self.depth),
+            mv(self.sand),
+            mv(self.clay),
+            mv(self.organic),
+            mv(self.sat),
+            mv(self.fc),
+            mv(self.wp),
+            mv(self.air),
+        )
+
+    def repeat(self, n: int) -> SoilProfile:
+        def r(t):
+            return t.repeat(n, *([1] * (t.dim() - 1)))
+
+        return SoilProfile(
+            self.depth,
+            r(self.sand),
+            r(self.clay),
+            r(self.organic),
+            r(self.sat),
+            r(self.fc),
+            r(self.wp),
+            r(self.air),
+        )
 
 
 def root_weights(root_frac2: torch.Tensor, n_layers: int) -> torch.Tensor:
@@ -168,9 +204,9 @@ def root_weights(root_frac2: torch.Tensor, n_layers: int) -> torch.Tensor:
     exactly to the two-layer (1−r, r) split at L=2 and decays with depth
     the way root mass does.
     """
-    i = torch.arange(n_layers, device=root_frac2.device,
-                     dtype=root_frac2.dtype)
-    w = torch.where(i == 0, 1.0 - root_frac2.unsqueeze(-1),
-                    root_frac2.unsqueeze(-1)
-                    * (1.0 - root_frac2.unsqueeze(-1)).clamp(min=0.0) ** (i - 1))
-    return w
+    i = torch.arange(n_layers, device=root_frac2.device, dtype=root_frac2.dtype)
+    return torch.where(
+        i == 0,
+        1.0 - root_frac2.unsqueeze(-1),
+        root_frac2.unsqueeze(-1) * (1.0 - root_frac2.unsqueeze(-1)).clamp(min=0.0) ** (i - 1),
+    )

@@ -25,16 +25,19 @@ from nasa_farm.acquire.earthdata import Earthdata, Granule
 
 
 @contextlib.contextmanager
-def fetch(source: Earthdata, granule: Granule,
-          area: Bounds | None = None, temporal: Temporal | None = None
-          ) -> Iterator[xarray.Dataset]:
+def fetch(
+    source: Earthdata,
+    granule: Granule,
+    area: Bounds | None = None,
+    temporal: Temporal | None = None,
+) -> Iterator[xarray.Dataset]:
     """Open one granule lazily; on exit, dataset and handles all close."""
     import earthaccess
+
     earthaccess.login(strategy="environment")
     h = earthaccess.open([granule.raw])[0]
     f = h.open() if hasattr(h, "open") else h
-    ds = xarray.open_dataset(f, engine="h5netcdf", group=source.group,
-                         phony_dims="access")
+    ds = xarray.open_dataset(f, engine="h5netcdf", group=source.group, phony_dims="access")
     ds.attrs["granule_id"] = granule.id
     try:
         yield ds

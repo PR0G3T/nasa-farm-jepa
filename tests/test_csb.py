@@ -8,14 +8,21 @@ import struct
 
 import pytest
 
-from nasa_farm.acquire.csb import (CDL, Boundary, _centroid, _ring,
-                                   _shoelace, _stratify, _wkb, feature,
-                                   label)
+from nasa_farm.acquire.csb import (
+    CDL,
+    Boundary,
+    _centroid,
+    _ring,
+    _shoelace,
+    _stratify,
+    _wkb,
+    feature,
+    label,
+)
 
 
 def _square(x: float, y: float, side: float) -> list[tuple[float, float]]:
-    return [(x, y), (x + side, y), (x + side, y + side),
-            (x, y + side), (x, y)]
+    return [(x, y), (x + side, y), (x + side, y + side), (x, y + side), (x, y)]
 
 
 def _wkb_polygon(*rings: list) -> bytes:
@@ -50,8 +57,9 @@ class TestWkb:
 
     def test_big_endian(self):
         ring = _square(0, 0, 2)
-        blob = bytearray(b"\x00" + struct.pack(">I", 3) + struct.pack(">I", 1)
-                         + struct.pack(">I", len(ring)))
+        blob = bytearray(
+            b"\x00" + struct.pack(">I", 3) + struct.pack(">I", 1) + struct.pack(">I", len(ring))
+        )
         for x, y in ring:
             blob += struct.pack(">dd", x, y)
         assert _wkb(bytes(blob)) == [ring]
@@ -64,8 +72,7 @@ class TestWkb:
 
 class TestRing:
     def test_picks_largest(self):
-        blob = _wkb_multi(_wkb_polygon(_square(0, 0, 1)),
-                          _wkb_polygon(_square(10, 10, 4)))
+        blob = _wkb_multi(_wkb_polygon(_square(0, 0, 1)), _wkb_polygon(_square(10, 10, 4)))
         assert _ring(blob)[1] == (14.0, 10.0)
 
     def test_closes_open_ring(self):
@@ -75,11 +82,11 @@ class TestRing:
 
 class TestCentroid:
     def test_square(self):
-        ring = _square(0, 0, 2) + [(0, 0)]
+        ring = [*_square(0, 0, 2), (0, 0)]
         assert _centroid(ring) == (1.0, 1.0)
 
     def test_direction_invariant(self):
-        ring = _square(0, 0, 2) + [(0, 0)]
+        ring = [*_square(0, 0, 2), (0, 0)]
         assert _centroid(ring) == _centroid(ring[::-1])
 
 
@@ -87,8 +94,7 @@ class TestStratify:
     def _rows(self, spec: dict[int, int]) -> list[tuple]:
         rows = []
         for code, count in spec.items():
-            rows += [(f"id{code}_{i}", code, float(100 - i), [])
-                     for i in range(count)]
+            rows += [(f"id{code}_{i}", code, float(100 - i), []) for i in range(count)]
         return rows
 
     def test_quota_per_kind_then_fill(self):
@@ -112,9 +118,16 @@ class TestFeature:
     def test_emits_app_schema(self):
         ring = _square(-93.6, 42.0, 0.01)
         boundary = Boundary(
-            id="abc", name="Story 1", crop="Corn", kind="maize", ha=50.0,
-            center=_centroid(ring + [ring[0]]), ring=ring + [ring[0]],
-            x=1.0, y=2.0)
+            id="abc",
+            name="Story 1",
+            crop="Corn",
+            kind="maize",
+            ha=50.0,
+            center=_centroid([*ring, ring[0]]),
+            ring=[*ring, ring[0]],
+            x=1.0,
+            y=2.0,
+        )
         f = feature(boundary, [1, 5, 1])
         assert f["geometry"]["type"] == "Polygon"
         assert f["properties"]["sequence"] == ["Corn", "Soybeans", "Corn"]
@@ -127,4 +140,4 @@ class TestFeature:
 
 class TestShoelace:
     def test_signed_area(self):
-        assert _shoelace(_square(0, 0, 3) + [(0, 0)]) == 18.0
+        assert _shoelace([*_square(0, 0, 3), (0, 0)]) == 18.0

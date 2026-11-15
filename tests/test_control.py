@@ -1,6 +1,5 @@
 """MPPI controller — noise statistics, action bounds, uplift, determinism."""
 
-import pytest
 import torch
 
 from nasa_farm.constants import DTYPE
@@ -38,15 +37,15 @@ class TestOUNoise:
 
 class TestMPPI:
     def _setup(self, soil, crops):
-        field = Field(initial_state(1, soil), soil,
-                      torch.tensor([42.0], dtype=DTYPE))
+        field = Field(initial_state(1, soil), soil, torch.tensor([42.0], dtype=DTYPE))
         ensemble = augment(synthetic_year(42.0, seed=1), 3, seed=0)
         return field, ensemble, _base(crops, ensemble.days)
 
     def test_actions_within_bounds(self, physics_model, soil, crops):
         field, ensemble, base = self._setup(soil, crops)
-        result = path_integral(physics_model, field, ensemble, base,
-                   iterations=3, samples=24, seed=0)
+        result = path_integral(
+            physics_model, field, ensemble, base, iterations=3, samples=24, seed=0
+        )
         assert (result.actions.irrigation >= 0).all()
         assert (result.actions.irrigation <= 25.0).all()
         assert (result.actions.n_fert >= 0).all()
@@ -58,19 +57,23 @@ class TestMPPI:
         r2 = path_integral(physics_model, field, ensemble, base, iterations=2, samples=16, seed=5)
         assert torch.equal(r1.actions.irrigation, r2.actions.irrigation)
 
-    def test_optimized_schedule_helps_in_drought(self, physics_model, soil,
-                                               crops):
+    def test_optimized_schedule_helps_in_drought(self, physics_model, soil, crops):
         """Yield under the optimized schedule ≥ rainfed — irrigation can only
         add water the reward already values."""
         field, ensemble, base = self._setup(soil, crops)
-        result = path_integral(physics_model, field, ensemble, base,
-                   iterations=3, samples=24, seed=0)
+        result = path_integral(
+            physics_model, field, ensemble, base, iterations=3, samples=24, seed=0
+        )
         i = METRICS.index("yield_kg")
 
         def y(actions):
             accumulate = SeasonAccumulator(ensemble.batch, 1)
-            physics_model.rollout(field.repeat(ensemble.batch), ensemble,
-                                  actions.repeat(ensemble.batch), observer=accumulate)
+            physics_model.rollout(
+                field.repeat(ensemble.batch),
+                ensemble,
+                actions.repeat(ensemble.batch),
+                observer=accumulate,
+            )
             return float(accumulate.result()[..., i].mean())
 
         with torch.inference_mode():

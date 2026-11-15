@@ -18,30 +18,35 @@ from __future__ import annotations
 import json
 import os
 import time
+from collections.abc import Callable
 from pathlib import Path
-from typing import Callable
 
 import torch
 
-_PROBE_DAYS = 200           # probe rollout length
-_PROBE_ROWS = 8192          # probe plan-row cap
-_MIN_FIELD_DAYS = 500_000   # below this, probing costs more than the run
+_PROBE_DAYS = 200  # probe rollout length
+_PROBE_ROWS = 8192  # probe plan-row cap
+_MIN_FIELD_DAYS = 500_000  # below this, probing costs more than the run
 
 _CACHE_FILE = "probe.json"
 
 
 def cache_dir() -> Path:
-    root = Path(os.environ.get("NASA_FARM_CACHE",
-                               "~/.cache/nasa-farm")).expanduser()
+    root = Path(os.environ.get("NASA_FARM_CACHE", "~/.cache/nasa-farm")).expanduser()
     root.mkdir(parents=True, exist_ok=True)
     return root
 
 
 def signature(model, plans, ensemble, workers: int) -> tuple:
     """Workload+build key — what a cached rate is valid for."""
-    return (workers, plans.shape[0] // 512, plans.shape[1],
-            ensemble.batch, ensemble.days, model.residual is not None,
-            torch.__version__)
+    return (
+        workers,
+        plans.shape[0] // 512,
+        plans.shape[1],
+        ensemble.batch,
+        ensemble.days,
+        model.residual is not None,
+        torch.__version__,
+    )
 
 
 def worth(r: int, s: int, days: int) -> bool:
@@ -52,7 +57,7 @@ def worth(r: int, s: int, days: int) -> bool:
 def _load() -> dict:
     try:
         return json.loads((cache_dir() / _CACHE_FILE).read_text())
-    except (OSError, json.JSONDecodeError):
+    except OSError, json.JSONDecodeError:
         return {}
 
 
@@ -73,8 +78,7 @@ def lookup(signal: tuple, lane_name: str) -> tuple[float, bool] | None:
 
 def store(signal: tuple, lane_name: str, rate: float, graph: bool) -> None:
     d = _load()
-    d.setdefault(json.dumps(signal), {})[lane_name] = {
-        "rate": rate, "graph": graph}
+    d.setdefault(json.dumps(signal), {})[lane_name] = {"rate": rate, "graph": graph}
     _save(d)
 
 
@@ -95,7 +99,7 @@ def measure(lane, probe_plans: torch.Tensor) -> tuple[float, bool]:
     function = lane.function
     lane.use_graph = False
     try:
-        function(lane, 0, probe_plans)                          # warmup
+        function(lane, 0, probe_plans)  # warmup
         t_eager = time_fn(lambda: function(lane, 0, probe_plans))
         rate_e = probe_plans.shape[0] / max(t_eager, 1e-9)
     except Exception:
@@ -104,7 +108,7 @@ def measure(lane, probe_plans: torch.Tensor) -> tuple[float, bool]:
         return rate_e, False
     lane.use_graph = True
     try:
-        function(lane, 0, probe_plans)                          # capture+warmup
+        function(lane, 0, probe_plans)  # capture+warmup
         t_graph = time_fn(lambda: function(lane, 0, probe_plans))
         rate_g = probe_plans.shape[0] / max(t_graph, 1e-9)
     except Exception:

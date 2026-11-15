@@ -12,12 +12,16 @@ Every var carries `method` (how it was regridded) and `native_res_m`.
 
 from __future__ import annotations
 
-from typing import Sequence
+from collections.abc import Sequence
 
 import numpy as np
 
 from nasa_farm.grid.regrid import (
-    Raster, mosaic_first, native_res_m, regrid_categorical, regrid_continuous,
+    Raster,
+    mosaic_first,
+    native_res_m,
+    regrid_categorical,
+    regrid_continuous,
 )
 from nasa_farm.grid.target import TargetGrid
 
@@ -31,9 +35,14 @@ class Out:
         self.points = None  # pandas.DataFrame
 
     # --- rasters -----------------------------------------------------------
-    def continuous(self, rasters: Raster | Sequence[Raster], *,
-                   prefix: str = "", valid: str | None = "valid_frac",
-                   method: str | None = None) -> None:
+    def continuous(
+        self,
+        rasters: Raster | Sequence[Raster],
+        *,
+        prefix: str = "",
+        valid: str | None = "valid_frac",
+        method: str | None = None,
+    ) -> None:
         """Regrid one raster, or several tiles of one acquisition (mosaic:
         first valid value wins, tiles in the order given)."""
         rs = [rasters] if isinstance(rasters, Raster) else list(rasters)
@@ -65,9 +74,11 @@ class Out:
                 dim = self._time_dim(times)
                 self.vars[key] = ((dim, "y", "x"), data[idx], attrs)
         if valids and valid:
-            self.vars[prefix + valid] = (("y", "x"), mosaic_first(valids),
-                                         {"method": "average of QA mask",
-                                          "units": "1"})
+            self.vars[prefix + valid] = (
+                ("y", "x"),
+                mosaic_first(valids),
+                {"method": "average of QA mask", "units": "1"},
+            )
 
     def _time_dim(self, times: np.ndarray) -> str:
         for d, (_, t) in self.coords.items():
@@ -77,8 +88,9 @@ class Out:
         self.coords[d] = ((d,), times)
         return d
 
-    def categorical(self, rasters: Raster | Sequence[Raster], name: str,
-                    method: str | None = None) -> None:
+    def categorical(
+        self, rasters: Raster | Sequence[Raster], name: str, method: str | None = None
+    ) -> None:
         rs = [rasters] if isinstance(rasters, Raster) else list(rasters)
         frs, modes, classes, how = [], [], None, None
         for r in rs:
@@ -92,12 +104,20 @@ class Out:
         dim = f"{name}_class"
         self.coords[dim] = ((dim,), np.array(labels))
         res = round(native_res_m(rs[0]), 1)
-        self.vars[f"{name}_frac"] = ((dim, "y", "x"), fr,
-                                     {"method": "class area fraction" if how == "fractions" else "nearest (one-hot)",
-                                      "native_res_m": res, "units": "1"})
-        self.vars[f"{name}_mode"] = (("y", "x"), mode,
-                                     {"method": "mode" if how == "fractions" else "nearest",
-                                      "native_res_m": res})
+        self.vars[f"{name}_frac"] = (
+            (dim, "y", "x"),
+            fr,
+            {
+                "method": "class area fraction" if how == "fractions" else "nearest (one-hot)",
+                "native_res_m": res,
+                "units": "1",
+            },
+        )
+        self.vars[f"{name}_mode"] = (
+            ("y", "x"),
+            mode,
+            {"method": "mode" if how == "fractions" else "nearest", "native_res_m": res},
+        )
 
     def add(self, name: str, arr: np.ndarray, **attrs) -> None:
         self.vars[name] = (("y", "x"), np.asarray(arr, np.float32), attrs)
@@ -106,6 +126,7 @@ class Out:
     def to_dataset(self):
         import xarray as xr
         from pyproj import CRS
+
         g = self.grid
         lon, lat = g.lonlat()
         crs = CRS.from_user_input(g.crs)
@@ -113,19 +134,21 @@ class Out:
         sref["crs_wkt"] = crs.to_wkt()
         t = g.transform
         sref["GeoTransform"] = " ".join(str(v) for v in (t.c, t.a, t.b, t.f, t.d, t.e))
-        coords = {"x": ("x", g.x, {"units": "m", "standard_name": "projection_x_coordinate"}),
-                  "y": ("y", g.y, {"units": "m", "standard_name": "projection_y_coordinate"}),
-                  "lon": (("y", "x"), lon.astype(np.float64), {"units": "degrees_east"}),
-                  "lat": (("y", "x"), lat.astype(np.float64), {"units": "degrees_north"}),
-                  "spatial_ref": ((), 0, sref)}
-        for d, (dims, v) in self.coords.items():
-            coords[d] = (dims, v)
-        data = {}
-        for k, (dims, v, a) in self.vars.items():
-            data[k] = (dims, np.asarray(v, np.float32),
-                       dict(a, grid_mapping="spatial_ref"))
+        coords = {
+            "x": ("x", g.x, {"units": "m", "standard_name": "projection_x_coordinate"}),
+            "y": ("y", g.y, {"units": "m", "standard_name": "projection_y_coordinate"}),
+            "lon": (("y", "x"), lon.astype(np.float64), {"units": "degrees_east"}),
+            "lat": (("y", "x"), lat.astype(np.float64), {"units": "degrees_north"}),
+            "spatial_ref": ((), 0, sref),
+        }
+        coords |= {d: (dims, v) for d, (dims, v) in self.coords.items()}
+        data = {
+            k: (dims, np.asarray(v, np.float32), dict(a, grid_mapping="spatial_ref"))
+            for k, (dims, v, a) in self.vars.items()
+        }
         ds = xr.Dataset(data, coords=coords)
-        ds.attrs.update({k: (v if isinstance(v, (str, int, float)) else str(v))
-                         for k, v in self.attrs.items()})
+        ds.attrs.update(
+            {k: (v if isinstance(v, (str, int, float)) else str(v)) for k, v in self.attrs.items()}
+        )
         ds.attrs["Conventions"] = "CF-1.10"
         return ds

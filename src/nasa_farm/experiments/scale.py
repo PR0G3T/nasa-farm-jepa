@@ -35,19 +35,19 @@ def run(specification: Specification) -> dict:
         return traits.result()
 
     cal = stream(scenario.realization(0))
-    cal = cal * (1.0 + specification.noise * torch.randn(
-        cal.shape, generator=generation, dtype=cal.dtype))
+    cal = cal * (
+        1.0 + specification.noise * torch.randn(cal.shape, generator=generation, dtype=cal.dtype)
+    )
     held_i = list(scenario.held_indices())[-1]
-    f_held, held = scenario.realization(held_i), stream(
-        scenario.realization(held_i))
+    f_held, held = scenario.realization(held_i), stream(scenario.realization(held_i))
 
     def held_loss(m, encoder, rep) -> float:
         """One-step latent prediction error on the held-out stream."""
         with torch.inference_mode():
-            f = seeded(scenario.field, m.latent.seed(encoder(held[:, 0])),
-                       m.latent.hidden_dimension)
-            traits = EmbeddingTrace(f_held.days, m.latent.dim, ch,
-                                    every=specification.cadence)
+            f = seeded(
+                scenario.field, m.latent.seed(encoder(held[:, 0])), m.latent.hidden_dimension
+            )
+            traits = EmbeddingTrace(f_held.days, m.latent.dim, ch, every=specification.cadence)
             m.rollout(f, f_held, scenario.actions, observer=traits)
             _, z_h = traits.result()
             z_t = rep["tgt"](held)
@@ -55,21 +55,38 @@ def run(specification: Specification) -> dict:
 
     rows = []
     for k in (4, 8, 16):
-        m = WorldModel(scenario.crops, residual=True, latent_dimension=k,
-                       latent_hidden=64, seed=specification.seed)
+        m = WorldModel(
+            scenario.crops,
+            residual=True,
+            latent_dimension=k,
+            latent_hidden=64,
+            seed=specification.seed,
+        )
         encoder = ObservationEncoder(observed_dimension=len(ch), z_dim=k)
-        rep = embedding_fit(m, encoder, scenario.field, scenario.realization(0), scenario.actions, ch,
-                       every=specification.cadence, ema=specification.ema,
-                       sig_weight=specification.sig_weight,
-                       epochs=max(20, specification.epochs // 3), targets=cal)
+        rep = embedding_fit(
+            m,
+            encoder,
+            scenario.field,
+            scenario.realization(0),
+            scenario.actions,
+            ch,
+            every=specification.cadence,
+            ema=specification.ema,
+            sig_weight=specification.sig_weight,
+            epochs=max(20, specification.epochs // 3),
+            targets=cal,
+        )
         n_par = sum(p.numel() for p in m.latent.parameters())
         rows.append((k, n_par, rep["best_loss"], held_loss(m, encoder, rep)))
     # log-log slope of held-out prediction loss vs capacity
     xs = torch.log(torch.tensor([r[1] for r in rows], dtype=torch.float64))
-    ys = torch.log(torch.tensor([max(r[3], 1e-12) for r in rows],
-                                dtype=torch.float64))
-    slope = float(((xs - xs.mean()) * (ys - ys.mean())).sum()
-                  / (xs - xs.mean()).pow(2).sum().clamp(min=1e-12))
-    return {"sizes": [{"latent_dim": k, "params": n, "cal_loss": b,
-                       "held_loss": h} for k, n, b, h in rows],
-            "power_slope": round(slope, 4)}
+    ys = torch.log(torch.tensor([max(r[3], 1e-12) for r in rows], dtype=torch.float64))
+    slope = float(
+        ((xs - xs.mean()) * (ys - ys.mean())).sum() / (xs - xs.mean()).pow(2).sum().clamp(min=1e-12)
+    )
+    return {
+        "sizes": [
+            {"latent_dim": k, "params": n, "cal_loss": b, "held_loss": h} for k, n, b, h in rows
+        ],
+        "power_slope": round(slope, 4),
+    }

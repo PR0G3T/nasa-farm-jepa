@@ -36,7 +36,7 @@ def vwc(state: FieldState) -> torch.Tensor:
     return state.biomass * 6.0e-5
 
 
-def list(state: FieldState) -> torch.Tensor:
+def lst(state: FieldState) -> torch.Tensor:
     """Land-surface temperature proxy (°C): air temperature plus a
     moisture-stress heating increment — dry surface heats toward ~+8 °C."""
     ta = state.tair if state.tair is not None else torch.full_like(state.et, 20.0)
@@ -59,15 +59,13 @@ CHANNELS: dict[str, Callable[[FieldState], torch.Tensor]] = {
     "vwc": vwc,
     "s0v": lambda s: radar.sigma0(sm_vol(s), vwc(s)),
     "s0c": lambda s: radar.sigma0(sm_vol(s), vwc(s), band="c"),
-    "tb_v": lambda s: radiometer.tb(
-        sm_vol(s), vwc(s), ts=s.tair + 273.15)[1],
-    "tb_h": lambda s: radiometer.tb(
-        sm_vol(s), vwc(s), ts=s.tair + 273.15)[0],
+    "tb_v": lambda s: radiometer.tb(sm_vol(s), vwc(s), ts=s.tair + 273.15)[1],
+    "tb_h": lambda s: radiometer.tb(sm_vol(s), vwc(s), ts=s.tair + 273.15)[0],
     "et": lambda s: s.et,
-    "openet": lambda s: s.et,      # OpenET ensemble daily ET (field-scale)
+    "openet": lambda s: s.et,  # OpenET ensemble daily ET (field-scale)
     "sme2": lambda s: sm_vol(s, 0),  # NISAR L3 SME2 ~ 0-5 cm VSM
     "tws": tws,
-    "lst": list,
+    "lst": lst,
     "n2o": lambda s: s.n2o,
     "soc": lambda s: s.soc_f + s.soc_s,
     "soc_f": lambda s: s.soc_f,
@@ -77,8 +75,23 @@ CHANNELS: dict[str, Callable[[FieldState], torch.Tensor]] = {
 }
 
 
-def observables(state: FieldState,
-                names: tuple[str, ...] | None = None) -> torch.Tensor:
+def observables(state: FieldState, names: tuple[str, ...] | None = None) -> torch.Tensor:
     """Stack requested channels → (B, C). Unknown name → KeyError early."""
     names = names or tuple(CHANNELS)
     return torch.stack([CHANNELS[n](state) for n in names], dim=-1)
+
+
+__all__ = [
+    "CHANNELS",
+    "fetch",
+    "fill_series",
+    "infer_actions",
+    "infer_irrigation",
+    "lst",
+    "observables",
+    "sm_col",
+    "sm_vol",
+    "tws",
+    "vwc",
+    "whittaker",
+]

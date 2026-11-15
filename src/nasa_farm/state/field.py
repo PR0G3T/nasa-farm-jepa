@@ -20,28 +20,28 @@ from nasa_farm.state.soil import SoilProfile
 class FieldState:
     """Mutable-in-time state. float64 except `crop`/`growing`/`harvested`."""
 
-    sw: torch.Tensor           # (B, L) mm — soil water per layer
-    n_min: torch.Tensor        # kg N/ha — mineral N pool
-    n_org: torch.Tensor        # kg N/ha — slow organic N pool
-    litter: torch.Tensor       # kg DM/ha — surface residue pool
-    soc_f: torch.Tensor        # kg C/ha — active/fast SOC pool (~yr turnover)
-    soc_s: torch.Tensor        # kg C/ha — stable/slow SOC pool (~decadal)
-    et: torch.Tensor           # mm — actual evapotranspiration today
-    n2o: torch.Tensor          # kg N-N2O/ha — cumulative emitted
-    tws: torch.Tensor          # mm — aquifer/total-water-storage anomaly store
-    gdd: torch.Tensor          # °C·d — accumulated since sowing
-    lai: torch.Tensor          # m²/m² — leaf area index
-    biomass: torch.Tensor      # kg DM/ha — above-ground
+    sw: torch.Tensor  # (B, L) mm — soil water per layer
+    n_min: torch.Tensor  # kg N/ha — mineral N pool
+    n_org: torch.Tensor  # kg N/ha — slow organic N pool
+    litter: torch.Tensor  # kg DM/ha — surface residue pool
+    soc_f: torch.Tensor  # kg C/ha — active/fast SOC pool (~yr turnover)
+    soc_s: torch.Tensor  # kg C/ha — stable/slow SOC pool (~decadal)
+    et: torch.Tensor  # mm — actual evapotranspiration today
+    n2o: torch.Tensor  # kg N-N2O/ha — cumulative emitted
+    tws: torch.Tensor  # mm — aquifer/total-water-storage anomaly store
+    gdd: torch.Tensor  # °C·d — accumulated since sowing
+    lai: torch.Tensor  # m²/m² — leaf area index
+    biomass: torch.Tensor  # kg DM/ha — above-ground
     season_yield: torch.Tensor  # kg/ha — accumulated harvested yield this season
-    cum_yield: torch.Tensor    # kg/ha — all harvested yield since sim start
-    crop: torch.Tensor         # long — index into CropLibrary, −1 = bare
-    growing: torch.Tensor      # bool — crop in the ground
-    harvested: torch.Tensor    # bool — current crop already terminated
-    vernalization: torch.Tensor         # d — chilling days accumulated this crop cycle
-    heat_acc: torch.Tensor     # °C·d — reproductive heat load this crop cycle
-    z: torch.Tensor | None = None   # (B, K) free latent dims; None = off
+    cum_yield: torch.Tensor  # kg/ha — all harvested yield since sim start
+    crop: torch.Tensor  # long — index into CropLibrary, −1 = bare
+    growing: torch.Tensor  # bool — crop in the ground
+    harvested: torch.Tensor  # bool — current crop already terminated
+    vernalization: torch.Tensor  # d — chilling days accumulated this crop cycle
+    heat_acc: torch.Tensor  # °C·d — reproductive heat load this crop cycle
+    z: torch.Tensor | None = None  # (B, K) free latent dims; None = off
     zh: torch.Tensor | None = None  # (B, H) recurrent latent hidden state
-    depth: tuple[float, ...] = ()   # m — layer thicknesses (static metadata)
+    depth: tuple[float, ...] = ()  # m — layer thicknesses (static metadata)
     tair: torch.Tensor | None = None  # °C — last day's mean air temperature
 
     @property
@@ -52,24 +52,27 @@ class FieldState:
     def n_layers(self) -> int:
         return self.sw.shape[1]
 
-    def _map(self, function) -> "FieldState":
+    def _map(self, function) -> FieldState:
         """Apply fn to every tensor field, preserving static metadata."""
-        return replace(self, **{
-            f: (function(v) if isinstance(v, torch.Tensor) else v)
-            for f in self.__dataclass_fields__
-            if (v := getattr(self, f)) is not None})
+        return replace(
+            self,
+            **{
+                f: (function(v) if isinstance(v, torch.Tensor) else v)
+                for f in self.__dataclass_fields__
+                if (v := getattr(self, f)) is not None
+            },
+        )
 
-    def replace(self, **keywords) -> "FieldState":
+    def replace(self, **keywords) -> FieldState:
         return replace(self, **keywords)
 
-    def clone(self) -> "FieldState":
+    def clone(self) -> FieldState:
         return self._map(lambda v: v.clone())
 
-    def repeat(self, n: int) -> "FieldState":
-        return self._map(
-            lambda v: v.repeat(n, *([1] * (v.dim() - 1))))
+    def repeat(self, n: int) -> FieldState:
+        return self._map(lambda v: v.repeat(n, *([1] * (v.dim() - 1))))
 
-    def to(self, device: torch.device | str) -> "FieldState":
+    def to(self, device: torch.device | str) -> FieldState:
         return self._map(lambda v: v.to(device))
 
 
@@ -79,9 +82,9 @@ class Field:
 
     state: FieldState
     soil: SoilProfile
-    latitude: torch.Tensor               # (B,) degrees
+    latitude: torch.Tensor  # (B,) degrees
     elevation: torch.Tensor | None = None  # (B,) meters; None → 200 m assumed
-    context: torch.Tensor | None = None   # (B, C) static site embedding
+    context: torch.Tensor | None = None  # (B, C) static site embedding
 
     @property
     def batch(self) -> int:
@@ -90,10 +93,11 @@ class Field:
     def elev_or_default(self) -> torch.Tensor:
         if self.elevation is not None:
             return self.elevation
-        return torch.full((self.batch,), 200.0, dtype=self.latitude.dtype,
-                          device=self.latitude.device)
+        return torch.full(
+            (self.batch,), 200.0, dtype=self.latitude.dtype, device=self.latitude.device
+        )
 
-    def repeat(self, n: int) -> "Field":
+    def repeat(self, n: int) -> Field:
         return Field(
             state=self.state.repeat(n),
             soil=self.soil.repeat(n),
@@ -102,7 +106,7 @@ class Field:
             context=self.context.repeat(n, 1) if self.context is not None else None,
         )
 
-    def to(self, device: torch.device | str) -> "Field":
+    def to(self, device: torch.device | str) -> Field:
         return Field(
             state=self.state.to(device),
             soil=self.soil.to(device),
@@ -126,7 +130,9 @@ def initial_state(
     """FieldState at simulation start, soils filled to `fill_frac` of
     available water. SOC splits 15 % active / 85 % stable (typical
     temperate-cropland pool ratio)."""
-    def t(v): return torch.full((batch,), float(v), dtype=DTYPE)
+
+    def t(v):
+        return torch.full((batch,), float(v), dtype=DTYPE)
 
     sw = (soil.wp + fill_frac * (soil.fc - soil.wp)).expand(batch, -1).clone()
     if soc0 is None:
@@ -135,15 +141,24 @@ def initial_state(
         soc_tot = torch.full((batch,), soc0, dtype=DTYPE)
     return FieldState(
         sw=sw,
-        n_min=t(n_min0), n_org=t(n_org0), litter=t(litter0),
-        soc_f=soc_tot * 0.15, soc_s=soc_tot * 0.85,
-        et=t(0.0), n2o=t(0.0), tws=t(0.0),
-        gdd=t(0.0), lai=t(0.0), biomass=t(0.0),
-        season_yield=t(0.0), cum_yield=t(0.0),
+        n_min=t(n_min0),
+        n_org=t(n_org0),
+        litter=t(litter0),
+        soc_f=soc_tot * 0.15,
+        soc_s=soc_tot * 0.85,
+        et=t(0.0),
+        n2o=t(0.0),
+        tws=t(0.0),
+        gdd=t(0.0),
+        lai=t(0.0),
+        biomass=t(0.0),
+        season_yield=t(0.0),
+        cum_yield=t(0.0),
         crop=torch.full((batch,), -1, dtype=torch.long),
         growing=torch.zeros(batch, dtype=torch.bool),
         harvested=torch.zeros(batch, dtype=torch.bool),
-        vernalization=t(0.0), heat_acc=t(0.0),
+        vernalization=t(0.0),
+        heat_acc=t(0.0),
         z=torch.zeros(batch, z_dim, dtype=DTYPE) if z_dim else None,
         zh=torch.zeros(batch, hidden_dimension, dtype=DTYPE) if hidden_dimension else None,
         depth=tuple(float(d) for d in soil.depth),

@@ -12,22 +12,29 @@ from __future__ import annotations
 import torch
 
 from nasa_farm.optimize.targets import (
-    ObservedTrajectory, season_metrics, trajectory_loss,
+    ObservedTrajectory,
+    season_metrics,
+    trajectory_loss,
 )
 from nasa_farm.optimize.trainer import fit
 from nasa_farm.state.field import Field
 from nasa_farm.types import Actions, Forcing
 
 
-def emulate(teacher, fields: list[Field], forcings: list[Forcing],
-            actions: list[Actions], channels: tuple[str, ...],
-            ) -> list[ObservedTrajectory]:
+def emulate(
+    teacher,
+    fields: list[Field],
+    forcings: list[Forcing],
+    actions: list[Actions],
+    channels: tuple[str, ...],
+) -> list[ObservedTrajectory]:
     """Teacher rollouts → observation targets, one per (field, forcing) pair."""
     from nasa_farm.heads import METRICS
+
     index = {n: i for i, n in enumerate(METRICS)}
     observed = []
     with torch.inference_mode():
-        for f, w, a in zip(fields, forcings, actions):
+        for f, w, a in zip(fields, forcings, actions, strict=True):
             predicted = season_metrics(teacher, f, w, a)[0]
             values = torch.full_like(predicted, float("nan"))
             for c in channels:
@@ -36,14 +43,22 @@ def emulate(teacher, fields: list[Field], forcings: list[Forcing],
     return observed
 
 
-def pretrain(student, fields: list[Field], forcings: list[Forcing],
-             actions: list[Actions], targets: list[ObservedTrajectory],
-             parameters: dict[str, torch.Tensor], **fit_kw):
+def pretrain(
+    student,
+    fields: list[Field],
+    forcings: list[Forcing],
+    actions: list[Actions],
+    targets: list[ObservedTrajectory],
+    parameters: dict[str, torch.Tensor],
+    **fit_kw,
+):
     """Fit `params` so the student reproduces the teacher's metrics over the
     whole site×year set — mean trajectory χ² across all rollouts."""
+
     def loss():
         total = torch.zeros((), dtype=fields[0].state.sw.dtype)
-        for f, w, a, o in zip(fields, forcings, actions, targets):
+        for f, w, a, o in zip(fields, forcings, actions, targets, strict=True):
             total = total + trajectory_loss(season_metrics(student, f, w, a), o)
         return total / len(targets)
+
     return fit(loss, parameters, **fit_kw)

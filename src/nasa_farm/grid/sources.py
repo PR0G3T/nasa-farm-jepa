@@ -24,7 +24,7 @@ class Collection:
 
 
 # soil moisture / freeze–thaw / carbon (NSIDC)
-SMAP_L4 = Collection("SPL4SMGP", "008")           # L4 — not SPL3SMP_E (L3)
+SMAP_L4 = Collection("SPL4SMGP", "008")  # L4 — not SPL3SMP_E (L3)
 SMAP_FREEZE_THAW = Collection("SPL3FTP", "004")
 SMAP_CARBON = Collection("SPL4CMDL", "008")
 # ECOSTRESS 70 m tiled COGs (LP DAAC) — tiled L3T/L4T, not global L3G
@@ -62,7 +62,7 @@ def granule_id(result: Any) -> str:
     for k in ("GranuleUR", "ProducerGranuleId"):
         try:
             return str(result["umm"][k])
-        except (KeyError, TypeError):
+        except KeyError, TypeError:
             continue
     return str(result)
 
@@ -84,7 +84,7 @@ def granule_day(identifier: str, result: Any = None) -> int | None:
         t = result["umm"]["TemporalExtent"]
         t = t.get("RangeDateTime", {}).get("BeginningDateTime") or t["SingleDateTime"]
         return int(t[:10].replace("-", ""))
-    except (KeyError, TypeError, AttributeError, ValueError):
+    except KeyError, TypeError, AttributeError, ValueError:
         return None
 
 
@@ -93,14 +93,17 @@ def login() -> Any:
     """One Earthdata login per process: environment first, then ~/.netrc;
     never an interactive prompt (runs are unattended)."""
     import earthaccess
+
     for strategy in ("environment", "netrc"):
         if strategy == "environment" and not os.environ.get("EARTHDATA_USERNAME"):
             continue
         try:
             auth = earthaccess.login(strategy=strategy)
-        except Exception:  # raises or returns, depending on the version
+        except Exception:  # noqa: S112 — raises or returns, depending on the version
             continue
         if auth is not None and getattr(auth, "authenticated", False):
             return auth
-    raise RuntimeError("Earthdata login failed: set EARTHDATA_USERNAME/"
-                       "EARTHDATA_PASSWORD or add urs.earthdata.nasa.gov to ~/.netrc")
+    raise RuntimeError(
+        "Earthdata login failed: set EARTHDATA_USERNAME/"
+        "EARTHDATA_PASSWORD or add urs.earthdata.nasa.gov to ~/.netrc"
+    )

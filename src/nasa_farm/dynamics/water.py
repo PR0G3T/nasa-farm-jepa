@@ -70,16 +70,18 @@ def water_balance_step(
 
     available = torch.relu(sw - soil.wp)
     available = torch.cat(
-        [torch.relu(sw[:, 0] - es - soil.wp[:, 0]).unsqueeze(1),
-         available[:, 1:]], dim=1)
+        [torch.relu(sw[:, 0] - es - soil.wp[:, 0]).unsqueeze(1), available[:, 1:]], dim=1
+    )
     density = (root_w * available).sum(-1, keepdim=True)
-    share = torch.where(density > 0, root_w * available / density.clamp(min=1e-9),
-                        torch.zeros_like(available))
+    share = torch.where(
+        density > 0, root_w * available / density.clamp(min=1e-9), torch.zeros_like(available)
+    )
     t = torch.minimum(trans_actual.unsqueeze(-1) * share, available)
 
     runoff = torch.relu(sw[:, 0] + infiltration - es - t[:, 0] - soil.sat[:, 0])
-    xs = [sw[:, 0] + infiltration - runoff - es - t[:, 0]] + \
-        [sw[:, i] - t[:, i] for i in range(1, sw.shape[1])]
+    xs = [sw[:, 0] + infiltration - runoff - es - t[:, 0]] + [
+        sw[:, i] - t[:, i] for i in range(1, sw.shape[1])
+    ]
 
     perc = torch.zeros_like(infiltration)
     deep = torch.zeros_like(infiltration)
@@ -93,7 +95,14 @@ def water_balance_step(
         else:
             deep = p
 
-    fluxes = {"es": es, "t": t, "runoff": runoff, "perc": perc, "deep": deep,
-              "wuf": wuf, "pawf": paw_fraction(sw, soil),
-              "w": water_stress(sw, soil)}
+    fluxes = {
+        "es": es,
+        "t": t,
+        "runoff": runoff,
+        "perc": perc,
+        "deep": deep,
+        "wuf": wuf,
+        "pawf": paw_fraction(sw, soil),
+        "w": water_stress(sw, soil),
+    }
     return torch.stack(xs, dim=1), fluxes

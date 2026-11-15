@@ -29,11 +29,16 @@ def eigen(observed_prediction: torch.Tensor, r: torch.Tensor | float) -> torch.T
     return 0.5 * torch.log1p(cyy / r_t.clamp(min=1e-12))
 
 
-def design_schedule(model, field: Field, forcing: Forcing, actions: Actions,
-                    days: tuple[int, ...], channels: tuple[str, ...],
-                    r: torch.Tensor | float = 1.0,
-                    n_pick: int | None = None,
-                    ) -> list[tuple[int, str, float]]:
+def design_schedule(
+    model,
+    field: Field,
+    forcing: Forcing,
+    actions: Actions,
+    days: tuple[int, ...],
+    channels: tuple[str, ...],
+    r: torch.Tensor | float = 1.0,
+    n_pick: int | None = None,
+) -> list[tuple[int, str, float]]:
     """Rank (day, channel) candidates by expected information gain.
 
     One ensemble rollout caches states at candidate days; gains are
@@ -63,10 +68,17 @@ def design_schedule(model, field: Field, forcing: Forcing, actions: Actions,
     return ranked[:n_pick] if n_pick is not None else ranked
 
 
-def plan_schedule(model, field: Field, forcing: Forcing, actions: Actions,
-                  days: tuple[int, ...], channels: tuple[str, ...],
-                  r: torch.Tensor | float = 1.0, n_pick: int = 5,
-                  tau: float = 7.0) -> list[tuple[int, str, float]]:
+def plan_schedule(
+    model,
+    field: Field,
+    forcing: Forcing,
+    actions: Actions,
+    days: tuple[int, ...],
+    channels: tuple[str, ...],
+    r: torch.Tensor | float = 1.0,
+    n_pick: int = 5,
+    tau: float = 7.0,
+) -> list[tuple[int, str, float]]:
     """Ordered acquisition calendar — greedy EIG with redundancy discount.
 
     `design_schedule` ranks each (day, channel) independently; satellite
@@ -83,17 +95,24 @@ def plan_schedule(model, field: Field, forcing: Forcing, actions: Actions,
         output.append((t, c, g))
         pool.remove([t, c, g])
         for row in pool:
-            row[2] *= 1.0 - 0.9 * torch.exp(
-                torch.tensor(-abs(row[0] - t) / tau, dtype=DTYPE)).item()
+            row[2] *= (
+                1.0 - 0.9 * torch.exp(torch.tensor(-abs(row[0] - t) / tau, dtype=DTYPE)).item()
+            )
     return output
 
 
-def fisher_design(model, field: Field, forcing: Forcing, actions: Actions,
-                  traits: tuple[str, ...], days: tuple[int, ...],
-                  channels: tuple[str, ...], r: float = 1.0,
-                  eps: float = 0.05,
-                  n_pick: int | None = None,
-                  ) -> list[tuple[int, str, float]]:
+def fisher_design(
+    model,
+    field: Field,
+    forcing: Forcing,
+    actions: Actions,
+    traits: tuple[str, ...],
+    days: tuple[int, ...],
+    channels: tuple[str, ...],
+    r: float = 1.0,
+    eps: float = 0.05,
+    n_pick: int | None = None,
+) -> list[tuple[int, str, float]]:
     """Trait-oriented design: rank (day, channel) by Fisher information.
 
     One rollout per perturbed trait gives the sensitivity Jacobian
@@ -105,6 +124,7 @@ def fisher_design(model, field: Field, forcing: Forcing, actions: Actions,
     import copy
 
     from nasa_farm.state.crops import INDEX
+
     candidate = set(days)
     snapshot: dict[int, object] = {}
 
@@ -127,9 +147,9 @@ def fisher_design(model, field: Field, forcing: Forcing, actions: Actions,
             m2.crop_table[:, column] = m2.crop_table[:, column] * (1.0 + eps)
         pert = obs_at(m2)
         for t in j:
-            j[t][:, p_i] = ((pert[t] - base[t]).abs().mean(0)
-                           / (eps * float(model.crop_table[:, column].abs()
-                                          .mean()) + 1e-9))
+            j[t][:, p_i] = (pert[t] - base[t]).abs().mean(0) / (
+                eps * float(model.crop_table[:, column].abs().mean()) + 1e-9
+            )
     ranked = []
     for t, jt in j.items():
         for c_i, c in enumerate(channels):

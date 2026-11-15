@@ -14,22 +14,21 @@ from __future__ import annotations
 
 import torch
 
-K_MIN = 2.5e-4       # /d max mineralization of n_org
-K_LEACH = 0.6        # fraction of drained-water N fraction lost
-K_LITTER = 3.0e-3    # /d max litter decay
-K_SOC_F = 1.5e-4     # /d max active-pool decay
-K_SOC_S = 1.0e-5     # /d max stable-pool decay
-STAB = 0.08          # fraction of active-pool decay stabilized into soc_s
+K_MIN = 2.5e-4  # /d max mineralization of n_org
+K_LEACH = 0.6  # fraction of drained-water N fraction lost
+K_LITTER = 3.0e-3  # /d max litter decay
+K_SOC_F = 1.5e-4  # /d max active-pool decay
+K_SOC_S = 1.0e-5  # /d max stable-pool decay
+STAB = 0.08  # fraction of active-pool decay stabilized into soc_s
 HUMIFICATION = 0.35  # fraction of decayed litter stabilized into soc_f
 N_SUFFICIENT = 80.0  # kg/ha mineral N at which fixation down-regulates
-K_DENIT = 2.0e-3     # /d max denitrification on n_min at full saturation
-N2O_FRAC = 0.01      # fraction of denitrified N emitted as N2O-N
-TILL_MIX = 0.6       # fraction of surface litter incorporated by full tillage
-TILL_BIO = 0.5       # microbial-activity boost on a full-tillage day
+K_DENIT = 2.0e-3  # /d max denitrification on n_min at full saturation
+N2O_FRAC = 0.01  # fraction of denitrified N emitted as N2O-N
+TILL_MIX = 0.6  # fraction of surface litter incorporated by full tillage
+TILL_BIO = 0.5  # microbial-activity boost on a full-tillage day
 
 
-def bio_factor(tmin: torch.Tensor, tmax: torch.Tensor,
-               water_factor: torch.Tensor) -> torch.Tensor:
+def bio_factor(tmin: torch.Tensor, tmax: torch.Tensor, water_factor: torch.Tensor) -> torch.Tensor:
     """Microbial activity scalar ∈ [0,1]: linear to 30 °C × water supply."""
     ft = torch.clamp(0.5 * (tmin + tmax) / 30.0, 0.0, 1.0)
     return ft * water_factor
@@ -65,14 +64,22 @@ def nitrogen_step(
         n_pre * K_LEACH * water_drain / torch.clamp(water_store, min=1.0),
         torch.relu(n_pre - uptake),
     )
-    denit = (n_pre - uptake - leached).clamp(min=0.0) * K_DENIT * (w ** 2) * biology \
-        if not isinstance(w, float) else n_pre * 0.0
+    denit = (
+        (n_pre - uptake - leached).clamp(min=0.0) * K_DENIT * (w**2) * biology
+        if not isinstance(w, float)
+        else n_pre * 0.0
+    )
     n2o = denit * N2O_FRAC
 
     n_min_a = n_pre - uptake - leached - denit
-    fluxes = {"mineralized": mineralized, "fixed": fixed,
-              "uptake": uptake, "leached": leached,
-              "denit": denit, "n2o": n2o}
+    fluxes = {
+        "mineralized": mineralized,
+        "fixed": fixed,
+        "uptake": uptake,
+        "leached": leached,
+        "denit": denit,
+        "n2o": n2o,
+    }
     return n_min_a, n_org_a, fluxes
 
 
@@ -116,10 +123,15 @@ def carbon_step(
 
     soc_f_b = soc_f_a + HUMIFICATION * decayed - decay_f
     soc_s_b = soc_s + STAB * decay_f - decay_s
-    respired = ((1.0 - HUMIFICATION) * decayed
-                + (1.0 - STAB) * decay_f + decay_s)
-    fluxes = {"litter_decay": decayed, "humified": HUMIFICATION * decayed,
-              "soc_f_decay": decay_f, "soc_s_decay": decay_s,
-              "stabilized": STAB * decay_f, "exported": exported,
-              "incorporated": incorporated, "respired": respired}
+    respired = (1.0 - HUMIFICATION) * decayed + (1.0 - STAB) * decay_f + decay_s
+    fluxes = {
+        "litter_decay": decayed,
+        "humified": HUMIFICATION * decayed,
+        "soc_f_decay": decay_f,
+        "soc_s_decay": decay_s,
+        "stabilized": STAB * decay_f,
+        "exported": exported,
+        "incorporated": incorporated,
+        "respired": respired,
+    }
     return litter_b, soc_f_b, soc_s_b, fluxes

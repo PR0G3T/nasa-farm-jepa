@@ -13,8 +13,7 @@ import math
 import torch
 
 
-def weighted_quantile(x: torch.Tensor, q: float,
-                      w: torch.Tensor | None = None) -> torch.Tensor:
+def weighted_quantile(x: torch.Tensor, q: float, w: torch.Tensor | None = None) -> torch.Tensor:
     """q-quantile of x; w importance-weights each sample."""
     x, index = torch.sort(x.flatten())
     w = torch.ones_like(x) if w is None else w.flatten()[index]
@@ -23,16 +22,21 @@ def weighted_quantile(x: torch.Tensor, q: float,
     return x[i.clamp(max=x.numel() - 1)]
 
 
-def conf_level(scores: torch.Tensor, alpha: float = 0.1,
-               weights: torch.Tensor | None = None) -> torch.Tensor:
+def conf_level(
+    scores: torch.Tensor, alpha: float = 0.1, weights: torch.Tensor | None = None
+) -> torch.Tensor:
     """Conformal margin: ceil((n+1)(1−α))/n empirical quantile of |residuals|."""
     n = scores.numel()
     q = min(1.0, math.ceil((n + 1) * (1.0 - alpha)) / n)
     return weighted_quantile(scores, q, weights)
 
 
-def interval(predicted: torch.Tensor, scores: torch.Tensor, alpha: float = 0.1,
-             weights: torch.Tensor | None = None) -> tuple[torch.Tensor, torch.Tensor]:
+def interval(
+    predicted: torch.Tensor,
+    scores: torch.Tensor,
+    alpha: float = 0.1,
+    weights: torch.Tensor | None = None,
+) -> tuple[torch.Tensor, torch.Tensor]:
     """Symmetric conformal band around point predictions."""
     q = conf_level(scores, alpha, weights)
     return predicted - q, predicted + q
@@ -55,13 +59,14 @@ class SplitConformal:
         self.alpha = alpha
         self.scores: torch.Tensor | None = None
 
-    def fit(self, predicted: torch.Tensor, y: torch.Tensor) -> "SplitConformal":
+    def fit(self, predicted: torch.Tensor, y: torch.Tensor) -> SplitConformal:
         self.scores = (predicted - y).abs()
         return self
 
     def bound(self, predicted: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
-        q = torch.stack([conf_level(self.scores[..., c], self.alpha)
-                         for c in range(self.scores.shape[-1])])
+        q = torch.stack(
+            [conf_level(self.scores[..., c], self.alpha) for c in range(self.scores.shape[-1])]
+        )
         return predicted - q, predicted + q
 
 
@@ -78,13 +83,14 @@ class TrajectoryConformal:
         self.scale: torch.Tensor | None = None
         self.scores: torch.Tensor | None = None
 
-    def fit(self, predicted: torch.Tensor, y: torch.Tensor,
-            scale: torch.Tensor | None = None) -> "TrajectoryConformal":
+    def fit(
+        self, predicted: torch.Tensor, y: torch.Tensor, scale: torch.Tensor | None = None
+    ) -> TrajectoryConformal:
         """pred/y: (N, T[, C]) calibration trajectories."""
-        self.scale = (torch.ones_like(predicted[0]) if scale is None
-                      else scale.clamp(min=1e-9))
+        self.scale = torch.ones_like(predicted[0]) if scale is None else scale.clamp(min=1e-9)
         self.scores = ((predicted - y).abs() / self.scale).amax(
-            dim=tuple(range(1, predicted.dim())))
+            dim=tuple(range(1, predicted.dim()))
+        )
         return self
 
     def bound(self, predicted: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
@@ -93,8 +99,7 @@ class TrajectoryConformal:
         return predicted - m, predicted + m
 
 
-def aci(alpha_t: float, error: bool, target: float = 0.1,
-        gamma: float = 0.02) -> float:
+def aci(alpha_t: float, error: bool, target: float = 0.1, gamma: float = 0.02) -> float:
     """Adaptive conformal inference step: after a miss the miscoverage
     level drops (intervals widen), after a cover it rises (intervals
     narrow) — online calibration under distribution shift."""
@@ -113,34 +118,37 @@ class LocalConformal:
     where similarity is informative.
     """
 
-    def __init__(self, alpha: float = 0.1, bandwidth: float | None = None,
-                 floor: float = 0.05) -> None:
+    def __init__(
+        self, alpha: float = 0.1, bandwidth: float | None = None, floor: float = 0.05
+    ) -> None:
         self.alpha, self.bandwidth, self.floor = alpha, bandwidth, floor
         self.scores: torch.Tensor | None = None
         self.x: torch.Tensor | None = None
 
-    def fit(self, predicted: torch.Tensor, y: torch.Tensor,
-            x: torch.Tensor) -> "LocalConformal":
+    def fit(self, predicted: torch.Tensor, y: torch.Tensor, x: torch.Tensor) -> LocalConformal:
         """x: (N, F) calibration features (any distance-meaningful space)."""
         self.scores = (predicted - y).abs().flatten()
         self.x = x.reshape(x.shape[0], -1)
-        if self.bandwidth is None:                     # median-heuristic bandwidth
+        if self.bandwidth is None:  # median-heuristic bandwidth
             d = torch.cdist(self.x, self.x)
             position = d[d > 0]
-            self.bandwidth = float(position.median().clamp(min=1e-6)) \
-                if position.numel() else 1.0
+            self.bandwidth = float(position.median().clamp(min=1e-6)) if position.numel() else 1.0
         return self
 
-    def bound(self, predicted: torch.Tensor, x: torch.Tensor,
-              ) -> tuple[torch.Tensor, torch.Tensor]:
+    def bound(
+        self,
+        predicted: torch.Tensor,
+        x: torch.Tensor,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
         """Per-point band: q_j = weighted conformal level near x_j."""
         xt = x.reshape(x.shape[0], -1)
-        d = torch.cdist(xt, self.x)                          # (M, N)
+        d = torch.cdist(xt, self.x)  # (M, N)
         w = torch.exp(-0.5 * (d / self.bandwidth) ** 2) + self.floor
         n = self.scores.numel()
         q = min(1.0, math.ceil((n + 1) * (1.0 - self.alpha)) / n)
-        qs = torch.stack([weighted_quantile(self.scores, q, w[j])
-                          for j in range(xt.shape[0])]).reshape(predicted.shape)
+        qs = torch.stack(
+            [weighted_quantile(self.scores, q, w[j]) for j in range(xt.shape[0])]
+        ).reshape(predicted.shape)
         return predicted - qs, predicted + qs
 
 
@@ -154,15 +162,20 @@ class PanelConformal:
     The miscoverage level adapts online via ACI after every outcome.
     """
 
-    def __init__(self, alpha: float = 0.1, eta: float = 3.0,
-                 gamma: float = 0.02, floor: float = 0.1,
-                 target: float = 0.1) -> None:
+    def __init__(
+        self,
+        alpha: float = 0.1,
+        eta: float = 3.0,
+        gamma: float = 0.02,
+        floor: float = 0.1,
+        target: float = 0.1,
+    ) -> None:
         self.alpha_t, self.eta, self.gamma = alpha, eta, gamma
         self.floor, self.target = floor, target
 
-    def bound(self, predicted: float | torch.Tensor,
-              peers: torch.Tensor, sim: torch.Tensor
-              ) -> tuple[torch.Tensor, torch.Tensor]:
+    def bound(
+        self, predicted: float | torch.Tensor, peers: torch.Tensor, sim: torch.Tensor
+    ) -> tuple[torch.Tensor, torch.Tensor]:
         """peers (K,) other units' latest scores; sim (K,) similarity ∈ℝ."""
         w = torch.softmax(self.eta * sim, 0) + self.floor / peers.numel()
         q = conf_level(peers, self.alpha_t, w)
@@ -174,8 +187,9 @@ class PanelConformal:
         return self.alpha_t
 
 
-def enbpi(predicted: torch.Tensor, residuals: torch.Tensor,
-          alpha: float = 0.1) -> tuple[torch.Tensor, torch.Tensor]:
+def enbpi(
+    predicted: torch.Tensor, residuals: torch.Tensor, alpha: float = 0.1
+) -> tuple[torch.Tensor, torch.Tensor]:
     """Ensemble-batch prediction intervals: per-day band from the quantiles
     of a rolling residual window (bootstrap-after-fit UQ that needs no
     retraining). residuals: (N, T)."""
@@ -184,8 +198,7 @@ def enbpi(predicted: torch.Tensor, residuals: torch.Tensor,
     return predicted + low, predicted + high
 
 
-def spw_perturb(model, scale: float = 0.05,
-                generation: torch.Generator | None = None) -> dict:
+def spw_perturb(model, scale: float = 0.05, generation: torch.Generator | None = None) -> dict:
     """Stochastically perturbed weights: zero-cost ensemble member.
 
     Gaussian noise on every learned tensor, scaled per-tensor by its std —
@@ -196,9 +209,11 @@ def spw_perturb(model, scale: float = 0.05,
     with torch.no_grad():
         for n, p in model.named_parameters():
             backup[n] = p.detach().clone()
-            p.add_(torch.randn(p.shape, generator=generation, dtype=p.dtype,
-                               device=p.device) * scale
-                   * p.std().clamp(min=1e-6))
+            p.add_(
+                torch.randn(p.shape, generator=generation, dtype=p.dtype, device=p.device)
+                * scale
+                * p.std().clamp(min=1e-6)
+            )
     return backup
 
 
@@ -208,18 +223,21 @@ def spw_restore(model, backup: dict) -> None:
             p.copy_(backup[n])
 
 
-def spw_rollout(model, field, forcing, actions, members: int = 8,
-                scale: float = 0.05, seed: int = 0) -> torch.Tensor:
+def spw_rollout(
+    model, field, forcing, actions, members: int = 8, scale: float = 0.05, seed: int = 0
+) -> torch.Tensor:
     """(S, B, H, M) seasonal metrics under weight perturbations — ensemble
     spread at the cost of S rollouts and zero extra training."""
     from nasa_farm.heads import SeasonAccumulator
+
     generation = torch.Generator().manual_seed(seed)
     output = []
     for _ in range(members):
         backup = spw_perturb(model, scale, generation)
         with torch.inference_mode():
-            accumulate = SeasonAccumulator(field.batch, max(1, forcing.days // 365),
-                                    device=field.state.sw.device)
+            accumulate = SeasonAccumulator(
+                field.batch, max(1, forcing.days // 365), device=field.state.sw.device
+            )
             model.rollout(field, forcing, actions, observer=accumulate)
             output.append(accumulate.result())
         spw_restore(model, backup)

@@ -25,7 +25,6 @@ import torch
 import torch.nn as nn
 
 from nasa_farm.constants import DAYS_PER_YEAR, DTYPE
-from nasa_farm.metrics import energy_score
 from nasa_farm.types import Forcing
 
 W_VARS: tuple[str, ...] = ("tmin", "tmax", "srad", "precip", "rh", "u2")
@@ -56,8 +55,9 @@ class Generator(nn.Module):
         self.net = nn.Sequential(*layers)
         self.to(DTYPE)
 
-    def forward(self, phase: torch.Tensor, previous: torch.Tensor,
-                x: torch.Tensor, tau: torch.Tensor) -> torch.Tensor:
+    def forward(
+        self, phase: torch.Tensor, previous: torch.Tensor, x: torch.Tensor, tau: torch.Tensor
+    ) -> torch.Tensor:
         """phase (B,2), prev (B,6), x (B,6), tau (B,1) → velocity (B,6)."""
         return self.net(torch.cat([phase, previous, x, tau], dim=-1))
 
@@ -67,20 +67,26 @@ def _phase(doy: torch.Tensor) -> torch.Tensor:
     return torch.stack([a.sin(), a.cos()], dim=-1)
 
 
-def fit(series: list[Forcing], epochs: int = 400, rate: float = 2e-3,
-            hidden: int = 128, members: int = 8,
-            seed: int = 0, model: Generator | None = None) -> Generator:
+def fit(
+    series: list[Forcing],
+    epochs: int = 400,
+    rate: float = 2e-3,
+    hidden: int = 128,
+    members: int = 8,
+    seed: int = 0,
+    model: Generator | None = None,
+) -> Generator:
     """CFM training over every (day, series-row) transition, vectorized:
     one batch covers all (N × T−1) pairs per epoch."""
     v = _series_tensor(series)
-    n, t = v.shape[0], v.shape[1]
+    n, _t = v.shape[0], v.shape[1]
     doy = series[0].doy[0]
     m = model or Generator(hidden)
     if seed is not None:
         torch.manual_seed(seed)
     opt = torch.optim.Adam(m.parameters(), lr=rate)
     generation = torch.Generator().manual_seed(seed)
-    previous = v[:, :-1].reshape(-1, NV)                          # (N·(T−1), 6)
+    previous = v[:, :-1].reshape(-1, NV)  # (N·(T−1), 6)
     x1 = v[:, 1:].reshape(-1, NV)
     ph = _phase(doy[1:]).unsqueeze(0).expand(n, -1, -1).reshape(-1, 2)
     for _ in range(epochs):
@@ -97,23 +103,34 @@ def fit(series: list[Forcing], epochs: int = 400, rate: float = 2e-3,
 def _clamp(v: torch.Tensor) -> torch.Tensor:
     """Normalized vector → physical bounds (tmax ≥ tmin handled by caller)."""
     output = v.clone()
-    output[..., 2] = output[..., 2].clamp(min=0.5 / W_SCALE[2].item())   # srad
-    output[..., 3] = output[..., 3].clamp(min=0.0)                        # precip
-    output[..., 4] = output[..., 4].clamp(min=0.0, max=1.0)               # rh
-    output[..., 5] = output[..., 5].clamp(min=0.0)                        # u2
+    output[..., 2] = output[..., 2].clamp(min=0.5 / W_SCALE[2].item())  # srad
+    output[..., 3] = output[..., 3].clamp(min=0.0)  # precip
+    output[..., 4] = output[..., 4].clamp(min=0.0, max=1.0)  # rh
+    output[..., 5] = output[..., 5].clamp(min=0.0)  # u2
     return output
 
 
 @torch.no_grad()
-def sample(m: Generator, days: int, n: int, start_doy: int = 1,
-               seed: int = 0, steps: int = 8,
-               previous: torch.Tensor | None = None) -> Forcing:
+def sample(
+    m: Generator,
+    days: int,
+    n: int,
+    start_doy: int = 1,
+    seed: int = 0,
+    steps: int = 8,
+    previous: torch.Tensor | None = None,
+) -> Forcing:
     """(n, days) ensemble of forcing trajectories, reproducible by seed."""
     generation = torch.Generator().manual_seed(seed)
-    ph = lambda d: _phase(torch.full((n,), float(d), dtype=DTYPE))
-    v = (previous if previous is not None
-         else torch.tensor([0.0, 0.1, 0.5, 0.0, 0.7, 0.2], dtype=DTYPE)
-         .expand(n, -1).clone())
+
+    def ph(d):
+        return _phase(torch.full((n,), float(d), dtype=DTYPE))
+
+    v = (
+        previous
+        if previous is not None
+        else torch.tensor([0.0, 0.1, 0.5, 0.0, 0.7, 0.2], dtype=DTYPE).expand(n, -1).clone()
+    )
     cols = []
     d = start_doy
     taus = torch.linspace(0.0, 1.0, steps + 1, dtype=DTYPE)
@@ -125,10 +142,10 @@ def sample(m: Generator, days: int, n: int, start_doy: int = 1,
         v = _clamp(x)
         cols.append(v)
         d = d % DAYS_PER_YEAR + 1
-    w = torch.stack(cols, dim=1) * W_SCALE                    # (n, T, 6)
+    w = torch.stack(cols, dim=1) * W_SCALE  # (n, T, 6)
     tmin = torch.minimum(w[..., 0], w[..., 1])
     tmax = torch.maximum(w[..., 0], w[..., 1])
-    doy = ((torch.arange(days, dtype=DTYPE) + start_doy - 1)
-           % DAYS_PER_YEAR + 1).expand(n, -1)
-    return Forcing(tmin=tmin, tmax=tmax, srad=w[..., 2],
-                   precip=w[..., 3], rh=w[..., 4], u2=w[..., 5], doy=doy)
+    doy = ((torch.arange(days, dtype=DTYPE) + start_doy - 1) % DAYS_PER_YEAR + 1).expand(n, -1)
+    return Forcing(
+        tmin=tmin, tmax=tmax, srad=w[..., 2], precip=w[..., 3], rh=w[..., 4], u2=w[..., 5], doy=doy
+    )

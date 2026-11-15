@@ -19,6 +19,7 @@ _SYS = Path("/sys/devices/system/cpu")
 class Topology:
     """Physical-core map. ``ids`` = one cpu index per physical core,
     grouped by NUMA node (inner lists share a memory domain)."""
+
     ids: tuple[int, ...]
     numa: tuple[tuple[int, ...], ...]
 
@@ -47,7 +48,7 @@ def _sysfs_topo() -> Topology | None:
             groups.setdefault(node_of.get(i, 0), []).append(i)
         numa = tuple(tuple(sorted(v)) for _, v in sorted(groups.items()))
         return Topology(ids=tuple(sorted(seen.values())), numa=numa)
-    except (OSError, ValueError):
+    except OSError, ValueError:
         return None
 
 
@@ -77,15 +78,17 @@ def pin(cpus: tuple[int, ...]) -> bool:
         return False
     try:
         os.sched_setaffinity(0, set(cpus))
-        return True
-    except (OSError, AttributeError):
+    except OSError, AttributeError:
         return False
+    else:
+        return True
 
 
 def worker_processors(worker: int, workers: int) -> tuple[int, ...]:
     """The physical core for worker ``worker`` — round-robin across NUMA
     nodes first (memory bandwidth), then depth-first within each node."""
     nodes = topology().numa
-    order = [c for i in range(max(len(n) for n in nodes))
-             for n in nodes if i < len(n) for c in (n[i],)]
+    order = [
+        c for i in range(max(len(n) for n in nodes)) for n in nodes if i < len(n) for c in (n[i],)
+    ]
     return (order[worker % len(order)],)

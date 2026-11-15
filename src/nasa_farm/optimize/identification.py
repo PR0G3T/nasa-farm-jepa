@@ -16,8 +16,21 @@ from nasa_farm.state.field import Field
 from nasa_farm.types import Actions, Forcing
 
 FEATURES: tuple[str, ...] = (
-    "sw0", "swr", "n_min", "lai", "biomass", "gdd", "growing",
-    "tmin", "tmax", "srad", "precip", "irrigation", "n_fert", "sow")
+    "sw0",
+    "swr",
+    "n_min",
+    "lai",
+    "biomass",
+    "gdd",
+    "growing",
+    "tmin",
+    "tmax",
+    "srad",
+    "precip",
+    "irrigation",
+    "n_fert",
+    "sow",
+)
 
 _SUB = (0, 1, 2, 3, 4, 5, 6, 8, 10, 11, 12, 13)
 """Feature indices admitted into pairwise products (srad/tmin excluded:
@@ -28,16 +41,24 @@ def library(features: torch.Tensor) -> tuple[torch.Tensor, list[str]]:
     """(N, F) → design matrix (N, n_terms) plus term names."""
     q = features.quantile(0.75, dim=0)
     hinge = torch.relu(features - q)
-    cols = [i for i in _SUB]
+    cols = list(_SUB)
     pairs = [(i, j) for i in cols for j in cols if i < j]
     prod = torch.stack([features[:, i] * features[:, j] for i, j in pairs], -1)
-    names = (list(FEATURES) + [f"relu({n})" for n in FEATURES] +
-             [f"{FEATURES[i]}*{FEATURES[j]}" for i, j in pairs])
+    names = (
+        list(FEATURES)
+        + [f"relu({n})" for n in FEATURES]
+        + [f"{FEATURES[i]}*{FEATURES[j]}" for i, j in pairs]
+    )
     return torch.cat([features, hinge, prod], -1), names
 
 
-def thresholded(X: torch.Tensor, Y: torch.Tensor, lam: float = 1e-4,
-          threshold: float = 1e-3, iterations: int = 10) -> torch.Tensor:
+def thresholded(
+    X: torch.Tensor,
+    Y: torch.Tensor,
+    lam: float = 1e-4,
+    threshold: float = 1e-3,
+    iterations: int = 10,
+) -> torch.Tensor:
     """Sequential thresholded least squares → (n_terms, n_out) coefs."""
     d = X.shape[1]
     eye = lam * torch.eye(d, dtype=X.dtype, device=X.device)
@@ -49,13 +70,17 @@ def thresholded(X: torch.Tensor, Y: torch.Tensor, lam: float = 1e-4,
             big = ~small[:, j]
             if big.any():
                 coef[big, j] = torch.linalg.solve(
-                    X[:, big].t() @ X[:, big] + eye[big][:, big],
-                    X[:, big].t() @ Y[:, j])
+                    X[:, big].t() @ X[:, big] + eye[big][:, big], X[:, big].t() @ Y[:, j]
+                )
     return coef
 
 
-def collect(model, field: Field, forcing: Forcing, actions: Actions,
-            ) -> tuple[torch.Tensor, torch.Tensor]:
+def collect(
+    model,
+    field: Field,
+    forcing: Forcing,
+    actions: Actions,
+) -> tuple[torch.Tensor, torch.Tensor]:
     """(N, F) residual inputs and (N, V) outputs along the model rollout."""
     X, Y = [], []
     for t in range(forcing.days):
@@ -67,8 +92,14 @@ def collect(model, field: Field, forcing: Forcing, actions: Actions,
     return torch.cat(X), torch.cat(Y)
 
 
-def identify(model, field: Field, forcing: Forcing, actions: Actions,
-             threshold: float = 1e-3, lam: float = 1e-4) -> dict:
+def identify(
+    model,
+    field: Field,
+    forcing: Forcing,
+    actions: Actions,
+    threshold: float = 1e-3,
+    lam: float = 1e-4,
+) -> dict:
     """SINDy on the residual → readable per-channel equations."""
     X, Y = collect(model, field, forcing, actions)
     scale = Y.std(0).clamp(min=1e-9)
@@ -77,10 +108,10 @@ def identify(model, field: Field, forcing: Forcing, actions: Actions,
     eqs = {}
     for j, v in enumerate(RESIDUAL_VARS):
         nz = coef[:, j].abs() > 0
-        eqs[v] = {names[i]: round(float(coef[i, j]), 6)
-                  for i in torch.nonzero(nz).flatten().tolist()}
+        eqs[v] = {
+            names[i]: round(float(coef[i, j]), 6) for i in torch.nonzero(nz).flatten().tolist()
+        }
     result = (Y / scale - phi @ coef).detach().pow(2).sum()
     total = (Y / scale).detach().pow(2).sum()
     r2 = 1.0 - float(result) / float(total) if float(total) > 1e-12 else 0.0
-    return {"equations": eqs, "coef": coef, "names": names,
-            "scale": scale, "r2": round(r2, 4)}
+    return {"equations": eqs, "coef": coef, "names": names, "scale": scale, "r2": round(r2, 4)}

@@ -4,28 +4,31 @@ import datetime as dt
 
 import httpx2 as httpx
 import pytest
-import torch
 
 from nasa_farm.acquire.base import Temporal
 from nasa_farm.acquire.power import (
-    Power, parse_daily, request_params, series_to_forcing,
+    Power,
+    parse_daily,
+    request_params,
+    series_to_forcing,
     series_to_wet,
 )
 
 
 def _payload(year: int = 2020, ndays: int = 3) -> dict:
-    days = [(dt.date(year, 1, 1) + dt.timedelta(d)).strftime("%Y%m%d")
-            for d in range(ndays)]
+    days = [(dt.date(year, 1, 1) + dt.timedelta(d)).strftime("%Y%m%d") for d in range(ndays)]
     return {
-        "properties": {"parameter": {
-            "T2M_MIN": {d: 5.0 for d in days},
-            "T2M_MAX": {d: 20.0 for d in days},
-            "PRECTOTCORR": {d: 2.0 for d in days},
-            "ALLSKY_SFC_SW_DWN": {d: 15.0 for d in days},
-            "RH2M": {d: 70.0 for d in days},
-            "WS2M": {d: 3.0 for d in days},
-            "GWETROOT": {d: 0.6 for d in days},
-        }},
+        "properties": {
+            "parameter": {
+                "T2M_MIN": dict.fromkeys(days, 5.0),
+                "T2M_MAX": dict.fromkeys(days, 20.0),
+                "PRECTOTCORR": dict.fromkeys(days, 2.0),
+                "ALLSKY_SFC_SW_DWN": dict.fromkeys(days, 15.0),
+                "RH2M": dict.fromkeys(days, 70.0),
+                "WS2M": dict.fromkeys(days, 3.0),
+                "GWETROOT": dict.fromkeys(days, 0.6),
+            }
+        },
         "header": {"title": "POWER"},
     }
 
@@ -49,11 +52,18 @@ class TestParse:
 
     def test_series_to_forcing_shape(self):
         year = 2021
-        days = [(dt.date(year, 1, 1) + dt.timedelta(d)).strftime("%Y%m%d")
-                for d in range(365)]
-        data = {p: {d: v for d in days} for p, v in
-                [("T2M_MIN", 5.0), ("T2M_MAX", 20.0), ("PRECTOTCORR", 1.0),
-                 ("ALLSKY_SFC_SW_DWN", 15.0), ("RH2M", 70.0), ("WS2M", 3.0)]}
+        days = [(dt.date(year, 1, 1) + dt.timedelta(d)).strftime("%Y%m%d") for d in range(365)]
+        data = {
+            p: dict.fromkeys(days, v)
+            for p, v in [
+                ("T2M_MIN", 5.0),
+                ("T2M_MAX", 20.0),
+                ("PRECTOTCORR", 1.0),
+                ("ALLSKY_SFC_SW_DWN", 15.0),
+                ("RH2M", 70.0),
+                ("WS2M", 3.0),
+            ]
+        }
         f = series_to_forcing(data, year)
         assert f.tmin.shape == (1, 365)
         assert float(f.tmin.mean()) == pytest.approx(5.0)
@@ -61,20 +71,26 @@ class TestParse:
 
     def test_series_to_wet(self):
         year = 2021
-        days = [(dt.date(year, 1, 1) + dt.timedelta(d)).strftime("%Y%m%d")
-                for d in range(365)]
-        wet = series_to_wet({"GWETROOT": {d: 0.6 for d in days}}, year)
+        days = [(dt.date(year, 1, 1) + dt.timedelta(d)).strftime("%Y%m%d") for d in range(365)]
+        wet = series_to_wet({"GWETROOT": dict.fromkeys(days, 0.6)}, year)
         assert wet.shape == (365,)
         assert float(wet.mean()) == pytest.approx(0.6)
         assert float(series_to_wet({}, year).mean()) == pytest.approx(0.5)
 
     def test_leap_year_drops_feb29(self):
         year = 2024  # leap year
-        days = [(dt.date(year, 1, 1) + dt.timedelta(d)).strftime("%Y%m%d")
-                for d in range(366)]
-        data = {p: {d: v for d in days} for p, v in
-                [("T2M_MIN", 5.0), ("T2M_MAX", 20.0), ("PRECTOTCORR", 1.0),
-                 ("ALLSKY_SFC_SW_DWN", 15.0), ("RH2M", 70.0), ("WS2M", 3.0)]}
+        days = [(dt.date(year, 1, 1) + dt.timedelta(d)).strftime("%Y%m%d") for d in range(366)]
+        data = {
+            p: dict.fromkeys(days, v)
+            for p, v in [
+                ("T2M_MIN", 5.0),
+                ("T2M_MAX", 20.0),
+                ("PRECTOTCORR", 1.0),
+                ("ALLSKY_SFC_SW_DWN", 15.0),
+                ("RH2M", 70.0),
+                ("WS2M", 3.0),
+            ]
+        }
         f = series_to_forcing(data, year)
         assert f.tmin.shape == (1, 365)
 
@@ -86,13 +102,12 @@ class TestClientMocked:
             return httpx.Response(200, json=_payload())
 
         client = Power(httpx.Client(transport=httpx.MockTransport(handler)))
-        output = client.fetch(None, Temporal("2020-01-01", "2020-01-03"),
-                           latitude=42.0, longitude=-93.0)
+        output = client.fetch(
+            None, Temporal("2020-01-01", "2020-01-03"), latitude=42.0, longitude=-93.0
+        )
         assert output["T2M_MAX"]["20200103"] == 20.0
 
     def test_http_error_raises(self):
-        client = Power(httpx.Client(
-            transport=httpx.MockTransport(lambda r: httpx.Response(503))))
+        client = Power(httpx.Client(transport=httpx.MockTransport(lambda r: httpx.Response(503))))
         with pytest.raises(httpx.HTTPStatusError):
-            client.fetch(None, Temporal("2020-01-01", "2020-01-03"),
-                         latitude=0.0, longitude=0.0)
+            client.fetch(None, Temporal("2020-01-01", "2020-01-03"), latitude=0.0, longitude=0.0)

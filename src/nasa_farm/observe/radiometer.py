@@ -17,9 +17,14 @@ def _eps(mv: torch.Tensor) -> torch.Tensor:
     return 2.9 + 55.0 * mv
 
 
-def tb(mv: torch.Tensor, vwc: torch.Tensor, ts: torch.Tensor | float = 298.15,
-       theta_deg: float = 40.0, omega: float = 0.06,
-       b: float = 0.15) -> tuple[torch.Tensor, torch.Tensor]:
+def tb(
+    mv: torch.Tensor,
+    vwc: torch.Tensor,
+    ts: torch.Tensor | float = 298.15,
+    theta_deg: float = 40.0,
+    omega: float = 0.06,
+    b: float = 0.15,
+) -> tuple[torch.Tensor, torch.Tensor]:
     """(TB_h, TB_v) in kelvin. mv: m3/m3, vwc: kg/m2, ts: soil temp K."""
     th = math.radians(theta_deg)
     cos, sin2 = math.cos(th), math.sin(th) ** 2
@@ -28,9 +33,7 @@ def tb(mv: torch.Tensor, vwc: torch.Tensor, ts: torch.Tensor | float = 298.15,
     rh = ((cos - sqr) / (cos + sqr)) ** 2
     rv = ((eps * cos - sqr) / (eps * cos + sqr)) ** 2
     gam = torch.exp(-b * vwc / cos)
-    output = []
-    for r in (rh, rv):
-        output.append(ts * ((1.0 - omega) * (1.0 - gam)
-                         + gam * (1.0 - r)
-                         + r * gam * (1.0 - omega) * (1.0 - gam)))
-    return tuple(output)
+    return tuple(
+        ts * ((1.0 - omega) * (1.0 - gam) + gam * (1.0 - r) + r * gam * (1.0 - omega) * (1.0 - gam))
+        for r in (rh, rv)
+    )

@@ -62,8 +62,7 @@ def create_app() -> FastAPI:
     app = FastAPI(title="nasa-farm", version=__version__)
     app.add_middleware(GZipMiddleware, minimum_size=1024)
     jobs = asyncio.Semaphore(int(_env("JOBS", "1")))
-    cache = _TimedCache(int(_env("CACHE", "128")),
-                      float(_env("CACHE_TTL", "86400")))
+    cache = _TimedCache(int(_env("CACHE", "128")), float(_env("CACHE_TTL", "86400")))
 
     @app.get("/healthz")
     async def healthz() -> dict:
@@ -71,10 +70,12 @@ def create_app() -> FastAPI:
 
     @app.get("/v1/meta")
     async def metadata() -> dict:
-        return {"version": __version__,
-                "crops": list(CropLibrary.default().names),
-                "metrics": list(METRICS),
-                "objectives": OBJECTIVE_DIRECTION}
+        return {
+            "version": __version__,
+            "crops": list(CropLibrary.default().names),
+            "metrics": list(METRICS),
+            "objectives": OBJECTIVE_DIRECTION,
+        }
 
     @app.post("/v1/plan")
     async def v1_plan(body: PlanRequest, request: Request) -> PlanResponse:
@@ -87,7 +88,7 @@ def create_app() -> FastAPI:
             async with jobs:
                 result = await asyncio.to_thread(plan, body)
         except ValueError as exception:
-            raise HTTPException(status_code=400, detail=str(exception))
+            raise HTTPException(status_code=400, detail=str(exception)) from exception
         cache.put(key, result)
         return result
 
@@ -109,16 +110,18 @@ def tunnel(port: int, binary: str = "cloudflared") -> subprocess.Popen:
     to stderr and announce the public URL once assigned."""
     try:
         process = subprocess.Popen(
-            [binary, "tunnel", "--url", f"http://localhost:{port}",
-             "--no-autoupdate"],
-            stderr=subprocess.PIPE, text=True)
+            [binary, "tunnel", "--url", f"http://localhost:{port}", "--no-autoupdate"],
+            stderr=subprocess.PIPE,
+            text=True,
+        )
     except FileNotFoundError:
         raise SystemExit(
             "cloudflared not installed — "
-            "https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/")
+            "https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/"
+        ) from None
 
     def watch() -> None:
-        assert process.stderr is not None
+        assert process.stderr is not None  # noqa: S101 — stderr=PIPE above
         for line in process.stderr:
             sys.stderr.write(line)
             if m := TUNNEL_URL.search(line):

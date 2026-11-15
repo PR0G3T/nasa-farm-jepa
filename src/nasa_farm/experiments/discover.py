@@ -30,8 +30,11 @@ def run(specification: Specification) -> dict:
     traits = ObservationTrace(f0.days, ch, specification.cadence)
     with torch.inference_mode():
         scenario.truth.rollout(scenario.field, f0, scenario.actions, observer=traits)
-    targets = traits.result() * (1.0 + specification.noise * torch.randn(
-        traits.result().shape, generator=generation, dtype=traits.result().dtype))
+    targets = traits.result() * (
+        1.0
+        + specification.noise
+        * torch.randn(traits.result().shape, generator=generation, dtype=traits.result().dtype)
+    )
 
     m = WorldModel(scenario.crops, residual=True, seed=specification.seed)
     parameters = {f"p{i}": p for i, p in enumerate(m.residual.parameters())}
@@ -44,7 +47,9 @@ def run(specification: Specification) -> dict:
 
     result = fit(loss, parameters, epochs=specification.epochs, rate=specification.rate)
     rep = identify(m, scenario.field, f0, scenario.actions)
-    return {"fit_loss": round(result.best_loss, 8),
-            "r2_symbolic": rep["r2"],
-            "equations": rep["equations"],
-            "extra": list(specification.extra)}
+    return {
+        "fit_loss": round(result.best_loss, 8),
+        "r2_symbolic": rep["r2"],
+        "equations": rep["equations"],
+        "extra": list(specification.extra),
+    }

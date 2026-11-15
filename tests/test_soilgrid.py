@@ -4,28 +4,44 @@ import httpx2 as httpx
 import pytest
 
 from nasa_farm.acquire.soilgrid import (
-    DEFAULTS, SoilGrids, parse, request_params,
+    DEFAULTS,
+    SoilGrids,
+    parse,
+    request_params,
 )
 
 PAYLOAD = {
-    "properties": {"layers": [
-        {"name": "clay", "depths": [{"values": {
-            "mean": 220, "Q0.05": 150, "Q0.5": 210, "Q0.95": 300}}]},
-        {"name": "sand", "depths": [{"values": {
-            "mean": 420, "Q0.05": 350, "Q0.5": 410, "Q0.95": 500}}]},
-        {"name": "soc", "depths": [{"values": {
-            "mean": 12, "Q0.05": 6, "Q0.5": 10, "Q0.95": 20}}]},
-        {"name": "bdod", "depths": [{"values": {
-            "mean": 140, "Q0.05": 110, "Q0.5": 135, "Q0.95": 160}}]},
-        {"name": "phh2o", "depths": [{"values": {
-            "mean": 68, "Q0.05": 55, "Q0.5": 65, "Q0.95": 78}}]},
-    ]}
+    "properties": {
+        "layers": [
+            {
+                "name": "clay",
+                "depths": [{"values": {"mean": 220, "Q0.05": 150, "Q0.5": 210, "Q0.95": 300}}],
+            },
+            {
+                "name": "sand",
+                "depths": [{"values": {"mean": 420, "Q0.05": 350, "Q0.5": 410, "Q0.95": 500}}],
+            },
+            {
+                "name": "soc",
+                "depths": [{"values": {"mean": 12, "Q0.05": 6, "Q0.5": 10, "Q0.95": 20}}],
+            },
+            {
+                "name": "bdod",
+                "depths": [{"values": {"mean": 140, "Q0.05": 110, "Q0.5": 135, "Q0.95": 160}}],
+            },
+            {
+                "name": "phh2o",
+                "depths": [{"values": {"mean": 68, "Q0.05": 55, "Q0.5": 65, "Q0.95": 78}}],
+            },
+        ]
+    }
 }
 
 
 def _client(status: int = 200) -> SoilGrids:
-    return SoilGrids(httpx.Client(transport=httpx.MockTransport(
-        lambda r: httpx.Response(status, json=PAYLOAD))))
+    return SoilGrids(
+        httpx.Client(transport=httpx.MockTransport(lambda r: httpx.Response(status, json=PAYLOAD)))
+    )
 
 
 def test_request_params_multivalued():
@@ -37,16 +53,16 @@ def test_parse_units():
     output = parse(PAYLOAD)
     assert output["mean"]["clay"] == pytest.approx(22.0)
     assert output["mean"]["sand"] == pytest.approx(42.0)
-    assert output["mean"]["soc"] == pytest.approx(1.2)      # dg/kg → g/kg
-    assert output["mean"]["bdod"] == pytest.approx(1.4)     # cg/cm³ → g/cm³
-    assert output["mean"]["phh2o"] == pytest.approx(6.8)    # pH×10 → pH
+    assert output["mean"]["soc"] == pytest.approx(1.2)  # dg/kg → g/kg
+    assert output["mean"]["bdod"] == pytest.approx(1.4)  # cg/cm³ → g/cm³
+    assert output["mean"]["phh2o"] == pytest.approx(6.8)  # pH×10 → pH
     assert output["Q0.05"]["clay"] == pytest.approx(15.0)
     assert output["Q0.95"]["sand"] == pytest.approx(50.0)
 
 
 def test_sample_flat_dict():
     d = _client().sample(41.0, -93.0)
-    assert d["clay"] == pytest.approx(21.0)              # Q0.5 median
+    assert d["clay"] == pytest.approx(21.0)  # Q0.5 median
     assert d["sand"] == pytest.approx(41.0)
     assert d["bd"] == pytest.approx(1.35)
     assert d["soc"] == pytest.approx(1.0)
@@ -76,8 +92,7 @@ def test_profile_fallback():
 
 def test_bounds_ordered():
     low, mid, high = _client().bounds(41.0, -93.0)
-    assert float(low.clay[0, 0]) < float(mid.clay[0, 0]) \
-        < float(high.clay[0, 0])
+    assert float(low.clay[0, 0]) < float(mid.clay[0, 0]) < float(high.clay[0, 0])
     assert float(mid.clay[0, 0]) == pytest.approx(21.0)
 
 
@@ -86,5 +101,4 @@ def test_profiles_ensemble_within_bounds():
     low, _, high = c.bounds(41.0, -93.0)
     s = c.profiles(41.0, -93.0, 16, seed=0)
     assert s.batch == 16
-    assert (s.clay >= low.clay.min() - 1e-9).all() \
-        and (s.clay <= high.clay.max() + 1e-9).all()
+    assert (s.clay >= low.clay.min() - 1e-9).all() and (s.clay <= high.clay.max() + 1e-9).all()

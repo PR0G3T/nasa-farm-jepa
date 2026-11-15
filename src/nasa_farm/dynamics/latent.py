@@ -20,7 +20,6 @@ import torch.nn as nn
 
 from nasa_farm.dynamics.residual import N_FEATURES
 
-
 LINKS: dict = {"identity": lambda t: t, "relu": torch.relu}
 """Output link on the latent update — "relu" gives nonneg sparse codes
 (the geometry RDMReg targets)."""
@@ -29,8 +28,14 @@ LINKS: dict = {"identity": lambda t: t, "relu": torch.relu}
 class Dynamics(nn.Module):
     """GRU transition predictor: zh' = GRU([feats, z, ctx?], zh); z' = z + head(zh')."""
 
-    def __init__(self, dim: int, hidden: int = 64, stochastic: bool = False,
-                 context_dimension: int = 0, link: str = "identity") -> None:
+    def __init__(
+        self,
+        dim: int,
+        hidden: int = 64,
+        stochastic: bool = False,
+        context_dimension: int = 0,
+        link: str = "identity",
+    ) -> None:
         super().__init__()
         self.dim = dim
         self.hidden_dimension = hidden
@@ -44,21 +49,35 @@ class Dynamics(nn.Module):
         self.kl = torch.zeros((), dtype=torch.float64)
         self.to(torch.float64)
 
-    def forward(self, features: torch.Tensor, z: torch.Tensor,
-                zh: torch.Tensor | None = None,
-                context: torch.Tensor | None = None,
-                generation: torch.Generator | None = None
-                ) -> tuple[torch.Tensor, torch.Tensor]:
+    def forward(
+        self,
+        features: torch.Tensor,
+        z: torch.Tensor,
+        zh: torch.Tensor | None = None,
+        context: torch.Tensor | None = None,
+        generation: torch.Generator | None = None,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
         if self.context_dimension:
-            c = context if context is not None else torch.zeros(
-                features.shape[0], self.context_dimension,
-                dtype=features.dtype, device=features.device)
+            c = (
+                context
+                if context is not None
+                else torch.zeros(
+                    features.shape[0],
+                    self.context_dimension,
+                    dtype=features.dtype,
+                    device=features.device,
+                )
+            )
             x = torch.cat([features, z, c.to(features.dtype)], dim=-1)
         else:
             x = torch.cat([features, z], dim=-1)
         if zh is None:
-            zh = torch.zeros(features.shape[0], self.hidden_dimension,
-                             dtype=features.dtype, device=features.device)
+            zh = torch.zeros(
+                features.shape[0],
+                self.hidden_dimension,
+                dtype=features.dtype,
+                device=features.device,
+            )
         zh = self.gru(x, zh.to(features.dtype))
         output = self.head(zh)
         if not self.stochastic:
@@ -67,8 +86,7 @@ class Dynamics(nn.Module):
         mean, log_variance = output.chunk(2, dim=-1)
         log_variance = log_variance.clamp(-8.0, 4.0)
         deviation = (0.5 * log_variance).exp()
-        noise = torch.randn(mean.shape, generator=generation,
-                          dtype=mean.dtype, device=mean.device)
+        noise = torch.randn(mean.shape, generator=generation, dtype=mean.dtype, device=mean.device)
         self.kl = 0.5 * (mean.pow(2) + deviation.pow(2) - log_variance - 1.0).mean()
         return self.link(z + mean + deviation * noise), zh
 
@@ -77,9 +95,14 @@ class Dynamics(nn.Module):
         latent; HLatent overrides to pad upper levels)."""
         return z
 
-    def unroll(self, feats_seq: torch.Tensor, z: torch.Tensor,
-               zh: torch.Tensor | None = None, context: torch.Tensor | None = None,
-               generation: torch.Generator | None = None) -> torch.Tensor:
+    def unroll(
+        self,
+        feats_seq: torch.Tensor,
+        z: torch.Tensor,
+        zh: torch.Tensor | None = None,
+        context: torch.Tensor | None = None,
+        generation: torch.Generator | None = None,
+    ) -> torch.Tensor:
         """Multi-step rollout of the predictor alone. feats_seq (T, B, F)."""
         zs = []
         for t in range(feats_seq.shape[0]):
@@ -98,8 +121,10 @@ class ObservationEncoder(nn.Module):
     def __init__(self, observed_dimension: int, z_dim: int, hidden: int = 64) -> None:
         super().__init__()
         self.net = nn.Sequential(
-            nn.Linear(observed_dimension, hidden), nn.SiLU(),
-            nn.Linear(hidden, z_dim), nn.LayerNorm(z_dim),
+            nn.Linear(observed_dimension, hidden),
+            nn.SiLU(),
+            nn.Linear(hidden, z_dim),
+            nn.LayerNorm(z_dim),
         )
         self.to(torch.float64)
 
@@ -107,9 +132,13 @@ class ObservationEncoder(nn.Module):
         return self.net(observed)
 
 
-def regularization(z: torch.Tensor, directions: torch.Tensor | None = None,
-           n_dirs: int = 32, freqs: tuple[float, ...] = (1.0, 2.0, 4.0),
-           seed: int = 0) -> torch.Tensor:
+def regularization(
+    z: torch.Tensor,
+    directions: torch.Tensor | None = None,
+    n_dirs: int = 32,
+    freqs: tuple[float, ...] = (1.0, 2.0, 4.0),
+    seed: int = 0,
+) -> torch.Tensor:
     """Sketched Isotropic Gaussian Regularization (LeJEPA).
 
     Mean squared error between the empirical characteristic function of z's
@@ -117,25 +146,29 @@ def regularization(z: torch.Tensor, directions: torch.Tensor | None = None,
     few frequencies — linear-time, stop-gradient-free Gaussianity pressure.
     z: (B, K) → scalar.
     """
-    b, k = z.shape
+    _b, k = z.shape
     if directions is None:
         g = torch.Generator(device=z.device).manual_seed(seed)
-        directions = torch.randn(n_dirs, k, generator=g,
-                               dtype=z.dtype, device=z.device)
+        directions = torch.randn(n_dirs, k, generator=g, dtype=z.dtype, device=z.device)
         directions = directions / directions.norm(dim=1, keepdim=True).clamp(min=1e-9)
-    proj = z @ directions.t()                       # (B, D)
+    proj = z @ directions.t()  # (B, D)
     f = torch.tensor(freqs, dtype=z.dtype, device=z.device).view(-1, 1, 1)
-    phase = proj.unsqueeze(0) * f                   # (F, B, D)
-    phi_re = torch.cos(phase).mean(1)               # (F, D)
+    phase = proj.unsqueeze(0) * f  # (F, B, D)
+    phi_re = torch.cos(phase).mean(1)  # (F, D)
     phi_im = torch.sin(phase).mean(1)
-    target = torch.exp(-0.5 * f.squeeze(-1) ** 2)   # (F, 1)
-    return ((phi_re - target) ** 2 + phi_im ** 2).mean()
+    target = torch.exp(-0.5 * f.squeeze(-1) ** 2)  # (F, 1)
+    return ((phi_re - target) ** 2 + phi_im**2).mean()
 
 
-def embedding_loss(z_observed: torch.Tensor, z_pred: torch.Tensor,
-              sig_weight: float = 1.0, kl: torch.Tensor | float = 0.0,
-              kl_weight: float = 0.0, sig_seed: int = 0,
-              z_reg: torch.Tensor | None = None) -> torch.Tensor:
+def embedding_loss(
+    z_observed: torch.Tensor,
+    z_pred: torch.Tensor,
+    sig_weight: float = 1.0,
+    kl: torch.Tensor | float = 0.0,
+    kl_weight: float = 0.0,
+    sig_seed: int = 0,
+    z_reg: torch.Tensor | None = None,
+) -> torch.Tensor:
     """Predictor loss + latent regularizer + stochastic-prior KL.
 
     z_pred: predictor outputs (B, K) or (T, B, K) for multi-step unrolls;
@@ -145,11 +178,17 @@ def embedding_loss(z_observed: torch.Tensor, z_pred: torch.Tensor,
     side since EMA targets carry no gradient — else falls back to z_obs.
     """
     predicted = (z_pred - z_observed.detach()).pow(2).mean()
-    kl_term = kl if isinstance(kl, torch.Tensor) else torch.tensor(
-        float(kl), dtype=z_pred.dtype, device=z_pred.device)
+    kl_term = (
+        kl
+        if isinstance(kl, torch.Tensor)
+        else torch.tensor(float(kl), dtype=z_pred.dtype, device=z_pred.device)
+    )
     regularized = z_observed if z_reg is None else z_reg
-    return predicted + sig_weight * regularization(regularized.reshape(-1, regularized.shape[-1]),
-                                      seed=sig_seed) + kl_weight * kl_term
+    return (
+        predicted
+        + sig_weight * regularization(regularized.reshape(-1, regularized.shape[-1]), seed=sig_seed)
+        + kl_weight * kl_term
+    )
 
 
 class TargetEncoder(nn.Module):
@@ -165,12 +204,13 @@ class TargetEncoder(nn.Module):
     def __init__(self, online: nn.Module, decay: float = 0.996) -> None:
         super().__init__()
         import copy
+
         self.net = copy.deepcopy(online).requires_grad_(False)
         self.decay = decay
 
     @torch.no_grad()
     def update_from(self, online: nn.Module) -> None:
-        for t, o in zip(self.net.parameters(), online.parameters()):
+        for t, o in zip(self.net.parameters(), online.parameters(), strict=True):
             t.mul_(self.decay).add_(o, alpha=1.0 - self.decay)
 
     def forward(self, observed: torch.Tensor) -> torch.Tensor:
@@ -191,12 +231,16 @@ class PatchEncoder(nn.Module):
     def __init__(self, bands: int, z_dim: int, width: int = 32) -> None:
         super().__init__()
         self.net = nn.Sequential(
-            nn.Conv2d(bands, width, 3, stride=2, padding=1), nn.SiLU(),
-            nn.Conv2d(width, width * 2, 3, stride=2, padding=1), nn.SiLU(),
+            nn.Conv2d(bands, width, 3, stride=2, padding=1),
+            nn.SiLU(),
+            nn.Conv2d(width, width * 2, 3, stride=2, padding=1),
+            nn.SiLU(),
             nn.Conv2d(width * 2, width * 2, 3, stride=2, padding=1),
             nn.SiLU(),
-            nn.AdaptiveAvgPool2d(1), nn.Flatten(),
-            nn.Linear(width * 2, z_dim), nn.LayerNorm(z_dim),
+            nn.AdaptiveAvgPool2d(1),
+            nn.Flatten(),
+            nn.Linear(width * 2, z_dim),
+            nn.LayerNorm(z_dim),
         )
         self.to(torch.float64)
 
@@ -211,8 +255,7 @@ class Autoencoder(nn.Module):
     decomposition lossless. Top-k activation gives a fixed activation
     budget without an L1 knob to tune."""
 
-    def __init__(self, dim: int, feature_count: int, topk: int,
-                 seed: int | None = None) -> None:
+    def __init__(self, dim: int, feature_count: int, topk: int, seed: int | None = None) -> None:
         super().__init__()
         if seed is not None:
             torch.manual_seed(seed)
@@ -221,8 +264,7 @@ class Autoencoder(nn.Module):
         self.decoder = nn.Linear(feature_count, dim, bias=False)
         self.bias = nn.Parameter(torch.zeros(dim, dtype=torch.float64))
         with torch.no_grad():
-            self.decoder.weight.div_(
-                self.decoder.weight.norm(dim=0, keepdim=True) + 1e-9)
+            self.decoder.weight.div_(self.decoder.weight.norm(dim=0, keepdim=True) + 1e-9)
         self.to(torch.float64)
 
     def features(self, z: torch.Tensor) -> torch.Tensor:
@@ -236,8 +278,13 @@ class Autoencoder(nn.Module):
         return f @ self.decoder.weight.t() + self.bias, f
 
 
-def fit_autoencoder(autoencoder: Autoencoder, z_stream: torch.Tensor, epochs: int = 100,
-            rate: float = 1e-3, verbose: bool = False) -> dict:
+def fit_autoencoder(
+    autoencoder: Autoencoder,
+    z_stream: torch.Tensor,
+    epochs: int = 100,
+    rate: float = 1e-3,
+    verbose: bool = False,
+) -> dict:
     """Adam fit of the dictionary on a (N, K) latent stream; returns the
     final reconstruction error and per-unit firing rates — dead features
     are visible directly in `rate`."""
@@ -246,7 +293,7 @@ def fit_autoencoder(autoencoder: Autoencoder, z_stream: torch.Tensor, epochs: in
     best, history = float("inf"), []
     for evaporation in range(1, epochs + 1):
         opt.zero_grad(set_to_none=True)
-        recon, f = autoencoder(zs)
+        recon, _f = autoencoder(zs)
         loss = (recon - zs).pow(2).mean()
         if not torch.isfinite(loss):
             break
@@ -254,22 +301,22 @@ def fit_autoencoder(autoencoder: Autoencoder, z_stream: torch.Tensor, epochs: in
         opt.step()
         with torch.no_grad():
             autoencoder.decoder.weight.div_(
-                autoencoder.decoder.weight.norm(dim=0, keepdim=True) + 1e-9)
+                autoencoder.decoder.weight.norm(dim=0, keepdim=True) + 1e-9
+            )
         v = float(loss.detach())
         history.append(v)
         best = min(best, v)
         if verbose and evaporation % 25 == 0:
             print(f"  epoch {evaporation}: sae {v:.5f}")
     rate = (autoencoder.features(zs) > 0).to(zs.dtype).mean(0)
-    return {"best_loss": round(best, 8), "history": history,
-            "rate": rate.detach()}
+    return {"best_loss": round(best, 8), "history": history, "rate": rate.detach()}
 
 
 OPS: dict[str, tuple[int, ...]] = {
-    "atmo":   (7, 8, 9, 10),      # tmin, tmax, srad, precip
-    "water":  (0, 1, 10, 11),     # sw0, swr, precip, irrigation
-    "bio":    (2, 4, 6, 12, 13),  # n_min, biomass, growing, n_fert, sow
-    "canopy": (3, 5),             # lai, gdd
+    "atmo": (7, 8, 9, 10),  # tmin, tmax, srad, precip
+    "water": (0, 1, 10, 11),  # sw0, swr, precip, irrigation
+    "bio": (2, 4, 6, 12, 13),  # n_min, biomass, growing, n_fert, sow
+    "canopy": (3, 5),  # lai, gdd
 }
 """Operator-aligned factor groups over featurize() columns — one latent
 sub-dynamics per physics subprocess."""
@@ -284,18 +331,22 @@ class Factor(nn.Module):
     only move the factor that reads it.
     """
 
-    def __init__(self, dim: int, parts: dict[str, tuple[int, ...]],
-                 hidden: int = 64, context_dimension: int = 0) -> None:
+    def __init__(
+        self,
+        dim: int,
+        parts: dict[str, tuple[int, ...]],
+        hidden: int = 64,
+        context_dimension: int = 0,
+    ) -> None:
         super().__init__()
         self.parts = dict(parts)
         self.part_dim, self.hp = dim, hidden
         self.dim, self.hidden_dimension = dim * len(parts), hidden * len(parts)
         self.context_dimension = context_dimension
         self.cell = nn.ModuleDict(
-            {n: nn.GRUCell(len(c) + dim + context_dimension, hidden)
-             for n, c in parts.items()})
-        self.head = nn.ModuleDict(
-            {n: nn.Linear(hidden, dim) for n in parts})
+            {n: nn.GRUCell(len(c) + dim + context_dimension, hidden) for n, c in parts.items()}
+        )
+        self.head = nn.ModuleDict({n: nn.Linear(hidden, dim) for n in parts})
         for h in self.head.values():
             nn.init.zeros_(h.weight)
             nn.init.zeros_(h.bias)
@@ -303,24 +354,38 @@ class Factor(nn.Module):
         self.to(torch.float64)
 
     def _slot(self, t: torch.Tensor, i: int, w: int) -> torch.Tensor:
-        return t[:, i * w:(i + 1) * w]
+        return t[:, i * w : (i + 1) * w]
 
-    def forward(self, features: torch.Tensor, z: torch.Tensor,
-                zh: torch.Tensor | None = None,
-                context: torch.Tensor | None = None,
-                generation: torch.Generator | None = None
-                ) -> tuple[torch.Tensor, torch.Tensor]:
+    def forward(
+        self,
+        features: torch.Tensor,
+        z: torch.Tensor,
+        zh: torch.Tensor | None = None,
+        context: torch.Tensor | None = None,
+        generation: torch.Generator | None = None,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
         if zh is None:
-            zh = torch.zeros(features.shape[0], self.hidden_dimension,
-                             dtype=features.dtype, device=features.device)
+            zh = torch.zeros(
+                features.shape[0],
+                self.hidden_dimension,
+                dtype=features.dtype,
+                device=features.device,
+            )
         if self.context_dimension and context is None:
-            context = torch.zeros(features.shape[0], self.context_dimension,
-                              dtype=features.dtype, device=features.device)
+            context = torch.zeros(
+                features.shape[0],
+                self.context_dimension,
+                dtype=features.dtype,
+                device=features.device,
+            )
         zs, hs = [], []
         for i, (name, cols) in enumerate(self.parts.items()):
             zk = self._slot(z, i, self.part_dim)
-            x = torch.cat([features[:, list(cols)], zk] +
-                          ([context.to(features.dtype)] if self.context_dimension else []), -1)
+            x = torch.cat(
+                [features[:, list(cols)], zk]
+                + ([context.to(features.dtype)] if self.context_dimension else []),
+                -1,
+            )
             hk = self.cell[name](x, self._slot(zh, i, self.hp).to(features.dtype))
             zs.append(zk + self.head[name](hk))
             hs.append(hk)
@@ -330,9 +395,14 @@ class Factor(nn.Module):
     def seed(self, z: torch.Tensor) -> torch.Tensor:
         return z
 
-    def unroll(self, feats_seq: torch.Tensor, z: torch.Tensor,
-               zh: torch.Tensor | None = None, context: torch.Tensor | None = None,
-               generation: torch.Generator | None = None) -> torch.Tensor:
+    def unroll(
+        self,
+        feats_seq: torch.Tensor,
+        z: torch.Tensor,
+        zh: torch.Tensor | None = None,
+        context: torch.Tensor | None = None,
+        generation: torch.Generator | None = None,
+    ) -> torch.Tensor:
         zs = []
         for t in range(feats_seq.shape[0]):
             z, zh = self(feats_seq[t], z, zh, context, generation)

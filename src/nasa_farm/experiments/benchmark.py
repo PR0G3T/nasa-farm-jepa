@@ -34,28 +34,27 @@ def run(specification: Specification) -> dict:
     s, r = scenario.forcing_e.batch, scenario.held_out().batch
     field, actions = scenario.field.repeat(s), scenario.actions.repeat(s)
     index = {n: i for i, n in enumerate(METRICS)}
-    target = season_metrics(scenario.truth, scenario.field.repeat(r), scenario.held_out(),
-                         scenario.actions.repeat(r))           # (R, H, M)
+    target = season_metrics(
+        scenario.truth, scenario.field.repeat(r), scenario.held_out(), scenario.actions.repeat(r)
+    )  # (R, H, M)
     generation = torch.Generator().manual_seed(specification.seed + 31)
 
     output: dict = {"calibration": rep, "channels": {}}
-    for name, model in (("prior", scenario.prior), ("cal", cal),
-                        ("oracle", scenario.truth)):
+    for name, model in (("prior", scenario.prior), ("cal", cal), ("oracle", scenario.truth)):
         ensemble = season_metrics(model, field, scenario.forcing_e, actions)  # (S, H, M)
         for ch in specification.channels:
             i = index[ch]
             # pair every realization-year with all members → (R·H, S)
-            e = (ensemble[:, :, i].t().unsqueeze(0)
-                 .expand(r, -1, -1).reshape(-1, s))
+            e = ensemble[:, :, i].t().unsqueeze(0).expand(r, -1, -1).reshape(-1, s)
             output["channels"].setdefault(ch, {})[name] = score_ens(
-                e, target[:, :, i].reshape(-1), specification.alphas, generation=generation)
+                e, target[:, :, i].reshape(-1), specification.alphas, generation=generation
+            )
 
-    for ch, d in output["channels"].items():
+    for d in output["channels"].values():
         p, c, o = d["prior"], d["cal"], d["oracle"]
         d["summary"] = {
-            "rmse_reduction_pct": round(
-                100 * (p["rmse"] - c["rmse"]) / max(p["rmse"], 1e-9), 2),
-            "crps_reduction_pct": round(
-                100 * (p["crps"] - c["crps"]) / max(p["crps"], 1e-9), 2),
-            "cal_vs_oracle_rmse_gap": round(c["rmse"] - o["rmse"], 6)}
+            "rmse_reduction_pct": round(100 * (p["rmse"] - c["rmse"]) / max(p["rmse"], 1e-9), 2),
+            "crps_reduction_pct": round(100 * (p["crps"] - c["crps"]) / max(p["crps"], 1e-9), 2),
+            "cal_vs_oracle_rmse_gap": round(c["rmse"] - o["rmse"], 6),
+        }
     return output

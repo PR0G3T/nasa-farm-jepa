@@ -21,15 +21,14 @@ class Parameter:
     name: str
     low: float | None = None
     high: float | None = None
-    log: bool = False                 # continuous: sample in log space
-    integer: bool = False             # continuous range rounded to int
+    log: bool = False  # continuous: sample in log space
+    integer: bool = False  # continuous range rounded to int
     choices: tuple[Any, ...] | None = None  # categorical
 
     def __post_init__(self) -> None:
         is_cat = self.choices is not None
         if is_cat != (self.low is None):  # exactly one of choices/(low,high)
-            raise ValueError(
-                f"Param {self.name!r}: either choices or (low, high) required")
+            raise ValueError(f"Param {self.name!r}: either choices or (low, high) required")
         if not is_cat and self.high <= self.low:
             raise ValueError(f"Param {self.name!r}: high <= low")
         if not is_cat and self.log and self.low <= 0:
@@ -43,11 +42,14 @@ class Parameter:
         """Unit-cube coordinate → parameter value."""
         if self.categorical:
             return self.choices[min(int(u * len(self.choices)), len(self.choices) - 1)]
-        low, high = (torch.log10(torch.tensor(v)).item() for v in (self.low, self.high)) \
-            if self.log else (self.low, self.high)
+        low, high = (
+            (torch.log10(torch.tensor(v)).item() for v in (self.low, self.high))
+            if self.log
+            else (self.low, self.high)
+        )
         v = low + u * (high - low)
-        v = 10 ** v if self.log else v
-        return int(round(v)) if self.integer else float(v)
+        v = 10**v if self.log else v
+        return round(v) if self.integer else float(v)
 
 
 class Space:
@@ -65,17 +67,20 @@ class Space:
     def sample(self, n: int, seed: int = 0) -> list[dict[str, Any]]:
         """n configs: Sobol on continuous dims, uniform on categorical."""
         generation = torch.Generator().manual_seed(seed)
-        cont_u = torch.rand(n, len(self.continuous), generator=generation) \
-            if self.continuous else None
+        cont_u = (
+            torch.rand(n, len(self.continuous), generator=generation) if self.continuous else None
+        )
         if self.continuous:
             try:
                 eng = torch.quasirandom.SobolEngine(
-                    dimension=len(self.continuous), scramble=True, seed=seed)
+                    dimension=len(self.continuous), scramble=True, seed=seed
+                )
                 cont_u = eng.draw(n)
-            except (RuntimeError, NotImplementedError):
+            except RuntimeError, NotImplementedError:
                 pass  # Sobol cap reached → uniform fallback
-        cat_u = torch.rand(n, len(self.categorical), generator=generation) \
-            if self.categorical else None
+        cat_u = (
+            torch.rand(n, len(self.categorical), generator=generation) if self.categorical else None
+        )
         output = []
         for i in range(n):
             config = {}

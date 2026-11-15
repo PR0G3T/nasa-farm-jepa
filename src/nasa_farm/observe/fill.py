@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import datetime as dt
 
-import numpy as numpy
+import numpy as np
 import torch
 
 from nasa_farm.constants import DTYPE
@@ -35,8 +35,9 @@ def _diff(t: int, order: int = 2) -> torch.Tensor:
     return d
 
 
-def whittaker(y: torch.Tensor, w: torch.Tensor | None = None,
-              lam: float = 100.0, order: int = 2) -> torch.Tensor:
+def whittaker(
+    y: torch.Tensor, w: torch.Tensor | None = None, lam: float = 100.0, order: int = 2
+) -> torch.Tensor:
     """(T,) series → smoothed (T,). w=0 cells are filled, not fit."""
     y = y.to(DTYPE)
     t = y.numel()
@@ -49,46 +50,50 @@ def whittaker(y: torch.Tensor, w: torch.Tensor | None = None,
     return torch.linalg.solve(a, b)
 
 
-def _reweight(y: torch.Tensor, z: torch.Tensor, w: torch.Tensor,
-              floor: float = 0.2) -> torch.Tensor:
+def _reweight(
+    y: torch.Tensor, z: torch.Tensor, w: torch.Tensor, floor: float = 0.2
+) -> torch.Tensor:
     """Upper-envelope update: points below the fit lose weight."""
     under = (torch.nan_to_num(y, nan=-torch.inf) < z) & (w > 0)
     return torch.where(under, w * floor, w)
 
 
-def _day_of(dates: numpy.ndarray) -> numpy.ndarray:
+def _day_of(dates: np.ndarray) -> np.ndarray:
     """yyyymmdd → ordinal day index within the series' own span."""
-    d0 = dt.date(dates.min() // 10000, dates.min() // 100 % 100,
-                 dates.min() % 100).toordinal()
-    output = numpy.empty(len(dates), numpy.int64)
+    d0 = dt.date(dates.min() // 10000, dates.min() // 100 % 100, dates.min() % 100).toordinal()
+    output = np.empty(len(dates), np.int64)
     for i, d in enumerate(dates):
-        output[i] = (dt.date(d // 10000, d // 100 % 100, d % 100).toordinal()
-                  - d0)
+        output[i] = dt.date(d // 10000, d // 100 % 100, d % 100).toordinal() - d0
     return output
 
 
-def fill_series(dates: numpy.ndarray, values: numpy.ndarray,
-                weights: numpy.ndarray | None = None, lam: float = 100.0,
-                envelope: int = 0) -> tuple[numpy.ndarray, numpy.ndarray, numpy.ndarray]:
+def fill_series(
+    dates: np.ndarray,
+    values: np.ndarray,
+    weights: np.ndarray | None = None,
+    lam: float = 100.0,
+    envelope: int = 0,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Irregular obs → regular daily grid.
 
     Returns (day_index, filled, obs_weight): obs_weight=0 marks filled
     cells — downstream losses can mask or down-weight them.
     """
-    dates = numpy.asarray(dates, numpy.int64)
+    dates = np.asarray(dates, np.int64)
     index = _day_of(dates)
     n = int(index.max()) + 1
-    v = numpy.asarray(values, numpy.float64)
-    w_in = numpy.ones_like(v) if weights is None else numpy.asarray(weights, numpy.float64)
-    w_in = numpy.where(numpy.isfinite(v), w_in, 0.0)
-    number = numpy.zeros(n); density = numpy.zeros(n)
-    numpy.add.at(number, index, w_in * numpy.nan_to_num(v))
-    numpy.add.at(density, index, w_in)
+    v = np.asarray(values, np.float64)
+    w_in = np.ones_like(v) if weights is None else np.asarray(weights, np.float64)
+    w_in = np.where(np.isfinite(v), w_in, 0.0)
+    number = np.zeros(n)
+    density = np.zeros(n)
+    np.add.at(number, index, w_in * np.nan_to_num(v))
+    np.add.at(density, index, w_in)
     w = density.clip(0.0, 1.0)
-    y = numpy.where(density > 0, number / numpy.maximum(density, 1e-12), numpy.nan)
+    y = np.where(density > 0, number / np.maximum(density, 1e-12), np.nan)
     wt, yt = torch.from_numpy(w), torch.from_numpy(y)
     for _ in range(envelope):
         z = whittaker(yt, wt, lam)
         wt = _reweight(yt, z, wt)
     z = whittaker(yt, wt, lam)
-    return numpy.arange(n), z.numpy(), w
+    return np.arange(n), z.numpy(), w

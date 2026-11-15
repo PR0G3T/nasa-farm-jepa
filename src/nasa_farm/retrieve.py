@@ -39,19 +39,22 @@ class StateLibrary:
             raise ValueError("StateLibrary is empty — record rollouts first")
         g = goal.reshape(-1, goal.shape[-1]).to(DTYPE)
         d = torch.cdist(g, self.rows)
-        index = (d.argmin(-1) if k == 1
-               else d.topk(k, largest=False).indices)
+        index = d.argmin(-1) if k == 1 else d.topk(k, largest=False).indices
         return self.rows[index]
 
 
-def record(lib: StateLibrary, model, field: Field, forcing: Forcing,
-           actions: Actions, every: int = 1) -> None:
+def record(
+    lib: StateLibrary, model, field: Field, forcing: Forcing, actions: Actions, every: int = 1
+) -> None:
     """Roll once, append realized states. `every` subsamples days."""
     with torch.inference_mode():
         for t in range(forcing.days):
             forcing_day, action = forcing.day(t), actions.day(t)
             field, _ = model.step(field, action, forcing_day, t)
             if (t + 1) % every == 0 or t == forcing.days - 1:
-                v = (field.state.z if field.state.z is not None
-                     else _day_feats(model, field.state, forcing_day, action))
+                v = (
+                    field.state.z
+                    if field.state.z is not None
+                    else _day_feats(model, field.state, forcing_day, action)
+                )
                 lib.append(v)

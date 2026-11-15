@@ -22,9 +22,10 @@ import os
 import re
 import threading
 import time
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Iterable, Sequence
+from typing import TYPE_CHECKING, Any
 
 from nasa_farm.acquire.base import Bounds, Temporal
 from nasa_farm.grid.target import TargetGrid
@@ -55,8 +56,7 @@ class Context:
         return self.grid.bbox_ll(buffer_km)
 
     def window(self, days: int) -> Temporal:
-        return Temporal(str(self.date - dt.timedelta(days)),
-                        str(self.date + dt.timedelta(days)))
+        return Temporal(str(self.date - dt.timedelta(days)), str(self.date + dt.timedelta(days)))
 
     def note(self, msg: str) -> None:
         self.notes.append(msg)
@@ -71,7 +71,7 @@ class Skip(RuntimeError):
 def _netrc_login(host: str) -> tuple[str, str] | None:
     try:
         a = netrc.netrc().authenticators(host)
-    except (FileNotFoundError, netrc.NetrcParseError):
+    except FileNotFoundError, netrc.NetrcParseError:
         return None
     return (a[0], a[2]) if a else None
 
@@ -83,8 +83,11 @@ def earthdata_userpass() -> tuple[str, str] | None:
 
 def available() -> dict[str, bool]:
     """Which credential families are configured on this machine."""
-    aws = bool(os.environ.get("AWS_ACCESS_KEY_ID") or os.environ.get("AWS_PROFILE")
-               or (Path.home() / ".aws" / "credentials").exists())
+    aws = bool(
+        os.environ.get("AWS_ACCESS_KEY_ID")
+        or os.environ.get("AWS_PROFILE")
+        or (Path.home() / ".aws" / "credentials").exists()
+    )
     return {
         "earthdata": earthdata_userpass() is not None,
         "openet": bool(os.environ.get("OPENET_API_KEY")),
@@ -97,30 +100,48 @@ def available() -> dict[str, bool]:
 # --- generic HTTP ------------------------------------------------------------
 def session():
     import requests
+
     s = requests.Session()
     s.headers.update(UA)
     return s
 
 
-def download(url: str, dest: Path, *, sess=None, params=None, headers=None,
-             method: str = "GET", json_body=None, timeout: int = 600) -> Path:
+def download(
+    url: str,
+    dest: Path,
+    *,
+    sess=None,
+    params=None,
+    headers=None,
+    method: str = "GET",
+    json_body=None,
+    timeout: int = 600,
+) -> Path:
     """Stream a URL to `dest` (cached: skipped if it exists and is non-empty)."""
     if dest.exists() and dest.stat().st_size > 0:
         return dest
     s = sess or session()
-    with s.request(method, url, params=params, headers=headers, json=json_body,
-                   stream=True, timeout=timeout) as r:
+    with s.request(
+        method, url, params=params, headers=headers, json=json_body, stream=True, timeout=timeout
+    ) as r:
         r.raise_for_status()
         tmp = dest.with_suffix(dest.suffix + ".part")
-        with open(tmp, "wb") as f:
+        with tmp.open("wb") as f:
             for chunk in r.iter_content(1 << 20):
                 f.write(chunk)
         tmp.rename(dest)
     return dest
 
 
-def download_ranged(url: str, dest: Path, *, sess=None, chunk: int = 64 << 20,
-                    timeout: int = 300, context: "Context | None" = None) -> Path:
+def download_ranged(
+    url: str,
+    dest: Path,
+    *,
+    sess=None,
+    chunk: int = 64 << 20,
+    timeout: int = 300,
+    context: Context | None = None,
+) -> Path:
     """Large file fetched as successive HTTP Range requests, resumable.
 
     For servers that fail a single whole-file GET but serve byte ranges
@@ -134,15 +155,15 @@ def download_ranged(url: str, dest: Path, *, sess=None, chunk: int = 64 << 20,
     h.raise_for_status()
     total = int(h.headers.get("Content-Length") or 0)
     if not total or h.headers.get("Accept-Ranges", "").lower() != "bytes":
-        return download(url, dest, sess=s, timeout=timeout)   # no ranges: plain GET
+        return download(url, dest, sess=s, timeout=timeout)  # no ranges: plain GET
     tmp = dest.with_suffix(dest.suffix + ".part")
     done = tmp.stat().st_size if tmp.exists() else 0
-    if done > total:                                  # stale partial of another file
+    if done > total:  # stale partial of another file
         tmp.unlink()
         done = 0
     if done and context is not None:
         context.note(f"resuming {dest.name} at {done / total:.0%}")
-    with open(tmp, "ab") as f:
+    with tmp.open("ab") as f:
         while done < total:
             lo, hi = done, min(done + chunk, total) - 1
 
@@ -150,14 +171,16 @@ def download_ranged(url: str, dest: Path, *, sess=None, chunk: int = 64 << 20,
                 r = s.get(url, headers={"Range": f"bytes={lo}-{hi}"}, timeout=timeout)
                 r.raise_for_status()
                 if r.status_code != 206:
-                    raise RuntimeError(f"{url}: server ignored the Range header "
-                                       f"(HTTP {r.status_code})")
+                    raise RuntimeError(
+                        f"{url}: server ignored the Range header (HTTP {r.status_code})"
+                    )
                 if len(r.content) != hi - lo + 1:
                     raise ConnectionError(f"short range read {len(r.content)} of {hi - lo + 1} B")
                 return r.content
 
-            data = retry_transient(get, attempts=5, wait=10, what=f"{dest.name} @{lo}",
-                                   context=context)
+            data = retry_transient(
+                get, attempts=5, wait=10, what=f"{dest.name} @{lo}", context=context
+            )
             f.write(data)
             f.flush()
             done += len(data)
@@ -197,6 +220,7 @@ def is_transient(e: BaseException) -> bool:
     """Server-side or network hiccup worth retrying: HTTP 429/5xx (aiohttp,
     as raised by fsspec streams, or requests) and dropped connections."""
     import asyncio
+
     status = getattr(e, "status", None)
     if status is None and getattr(e, "response", None) is not None:
         status = getattr(e.response, "status_code", None)
@@ -204,19 +228,24 @@ def is_transient(e: BaseException) -> bool:
         return status == 429 or status >= 500
     try:
         import requests
-        if isinstance(e, (requests.ConnectionError, requests.Timeout,
-                          requests.exceptions.ChunkedEncodingError)):
+
+        if isinstance(
+            e,
+            (requests.ConnectionError, requests.Timeout, requests.exceptions.ChunkedEncodingError),
+        ):
             return True
     except ImportError:
         pass
     try:
         import aiohttp
+
         if isinstance(e, (aiohttp.ClientConnectionError, aiohttp.ClientPayloadError)):
             return True
     except ImportError:
         pass
     try:
         from fsspec.exceptions import FSTimeoutError
+
         if isinstance(e, FSTimeoutError):
             return True
     except ImportError:
@@ -224,8 +253,9 @@ def is_transient(e: BaseException) -> bool:
     return isinstance(e, (asyncio.TimeoutError, ConnectionError, TimeoutError))
 
 
-def retry_transient(fn, *, attempts: int = 4, wait: float = 30.0,
-                    what: str = "read", context: "Context | None" = None):
+def retry_transient(
+    fn, *, attempts: int = 4, wait: float = 30.0, what: str = "read", context: Context | None = None
+):
     """fn() retried with linear backoff on transient errors only; any other
     error (missing variable, bad path…) is raised at once. For long
     streamed reads, where one 502 among hundreds of range requests would
@@ -233,13 +263,16 @@ def retry_transient(fn, *, attempts: int = 4, wait: float = 30.0,
     for k in range(attempts):
         try:
             return fn()
-        except Exception as e:  # noqa: BLE001 — filtered just below
+        except Exception as e:
             if not is_transient(e) or k + 1 == attempts:
                 raise
             if context is not None:
-                context.note(f"{what}: {type(e).__name__} "
-                             f"{getattr(e, 'status', '')} → retry {k + 1}/{attempts - 1}")
+                context.note(
+                    f"{what}: {type(e).__name__} "
+                    f"{getattr(e, 'status', '')} → retry {k + 1}/{attempts - 1}"
+                )
             time.sleep(wait * (k + 1))
+    return None
 
 
 # --- granule choice ------------------------------------------------------------
@@ -248,6 +281,7 @@ _STAMP = re.compile(r"(?<!\d)((?:19|20)\d{5}T\d{4}|(?:19|20)\d{6}T\d{4})")
 
 def _day_of(gid: str, raw: Any = None) -> int | None:
     from nasa_farm.grid.sources import granule_day
+
     return granule_day(gid, raw)
 
 
@@ -256,21 +290,26 @@ def _to_date(yyyymmdd: int) -> dt.date:
     return dt.date(int(s[:4]), int(s[4:6]), int(s[6:8]))
 
 
-def pick_closest(items: Sequence[Any], ids: Sequence[str], when: dt.date, *,
-                 days: Sequence[int | None] | None = None,
-                 cloud: Sequence[float | None] | None = None,
-                 max_tiles: int = 4) -> list[int]:
+def pick_closest(
+    items: Sequence[Any],
+    ids: Sequence[str],
+    when: dt.date,
+    *,
+    days: Sequence[int | None] | None = None,
+    cloud: Sequence[float | None] | None = None,
+    max_tiles: int = 4,
+) -> list[int]:
     """Indices of the acquisition closest to `when` — all tiles sharing its
     time stamp (mosaic), least cloudy first on ties."""
     if not items:
         return []
     days = days or [_day_of(i) for i in ids]
     keys = []
-    for k, (gid, d) in enumerate(zip(ids, days)):
+    for k, (gid, d) in enumerate(zip(ids, days, strict=True)):
         m = _STAMP.search(gid)
         stamp = m.group(1) if m else str(d)
-        dist = abs((_to_date(d) - when).days) if d else 10 ** 6
-        cc = (cloud[k] if cloud and cloud[k] is not None else 0.0)
+        dist = abs((_to_date(d) - when).days) if d else 10**6
+        cc = cloud[k] if cloud and cloud[k] is not None else 0.0
         keys.append((dist, cc, stamp, k))
     best = min(keys)
     same = [k for (dist, cc, stamp, k) in sorted(keys) if stamp == best[2]]
@@ -278,56 +317,76 @@ def pick_closest(items: Sequence[Any], ids: Sequence[str], when: dt.date, *,
 
 
 # --- NASA Earthdata ------------------------------------------------------------
-def earthdata_granules(src: "Collection", context: Context, days: int, *, pick: str | None = None,
-                cloud_max: int | None = None, max_tiles: int = 4,
-                buffer_km: float = 0.0) -> list[Any]:
+def earthdata_granules(
+    src: Collection,
+    context: Context,
+    days: int,
+    *,
+    pick: str | None = None,
+    cloud_max: int | None = None,
+    max_tiles: int = 4,
+    buffer_km: float = 0.0,
+) -> list[Any]:
     """CMR search over the AOI within ±days → the closest acquisition."""
     import earthaccess
+
     w = context.window(days)
-    kw: dict[str, Any] = {"short_name": src.short_name,
-                          "temporal": (w.start, w.end),
-                          "bounding_box": context.bbox(buffer_km).as_tuple(),
-                          "count": 500}
+    kw: dict[str, Any] = {
+        "short_name": src.short_name,
+        "temporal": (w.start, w.end),
+        "bounding_box": context.bbox(buffer_km).as_tuple(),
+        "count": 500,
+    }
     if src.version:
         kw["version"] = src.version
     if cloud_max is not None:
         kw["cloud_cover"] = (0, cloud_max)
     res = earthaccess.search_data(**kw)
     from nasa_farm.grid.sources import granule_id
+
     ids = [granule_id(r) for r in res]
     if pick:
         keep = [k for k, g in enumerate(ids) if re.search(pick, g)]
         res, ids = [res[k] for k in keep], [ids[k] for k in keep]
     if not res:
-        raise FileNotFoundError(f"{src.short_name} v{src.version}: no granule "
-                                f"within ±{days} d of {context.date}")
+        raise FileNotFoundError(
+            f"{src.short_name} v{src.version}: no granule within ±{days} d of {context.date}"
+        )
     cc = []
     for r in res:
         try:
             cc.append(float(r["umm"].get("CloudCover")))
-        except (TypeError, ValueError, KeyError):
+        except TypeError, ValueError, KeyError:
             cc.append(None)
-    sel = pick_closest(res, ids, context.date,
-                       days=[_day_of(g, r) for g, r in zip(ids, res)],
-                       cloud=cc, max_tiles=max_tiles)
+    sel = pick_closest(
+        res,
+        ids,
+        context.date,
+        days=[_day_of(g, r) for g, r in zip(ids, res, strict=True)],
+        cloud=cc,
+        max_tiles=max_tiles,
+    )
     chosen = [res[k] for k in sel]
-    context.note(f"{src.short_name} v{src.version}: " +
-             ", ".join(ids[k] for k in sel))
+    context.note(f"{src.short_name} v{src.version}: " + ", ".join(ids[k] for k in sel))
     return chosen
 
 
-def earthdata_download(granules: Iterable[Any], context: Context,
-                suffixes: Sequence[str] | None = None) -> list[Path]:
+def earthdata_download(
+    granules: Iterable[Any], context: Context, suffixes: Sequence[str] | None = None
+) -> list[Path]:
     """Download the granules' data files (only those ending with one of
     `suffixes`, e.g. ECOSTRESS "_LST.tif") into context.raw."""
     import earthaccess
+
     from nasa_farm.grid.sources import login
+
     login()
-    urls = []
-    for g in granules:
-        for u in g.data_links(access="external"):
-            if suffixes is None or any(u.endswith(s) for s in suffixes):
-                urls.append(u)
+    urls = [
+        u
+        for g in granules
+        for u in g.data_links(access="external")
+        if suffixes is None or any(u.endswith(s) for s in suffixes)
+    ]
     if not urls:
         raise FileNotFoundError(f"no data link ending with {suffixes}")
     todo = [u for u in urls if not (context.raw / u.rsplit("/", 1)[-1]).exists()]
@@ -336,8 +395,7 @@ def earthdata_download(granules: Iterable[Any], context: Context,
     return [context.raw / u.rsplit("/", 1)[-1] for u in urls]
 
 
-def earthdata_open(granules: Iterable[Any],
-                   suffixes: Sequence[str] | None = None) -> list[Any]:
+def earthdata_open(granules: Iterable[Any], suffixes: Sequence[str] | None = None) -> list[Any]:
     """HTTPS file-likes (fsspec) — HDF5 read in place, only the chunks of
     the requested window travel (SMAP L4 146 MB → a few MB).
 
@@ -345,12 +403,18 @@ def earthdata_open(granules: Iterable[Any],
     `.h5.iso.xml`), and `earthaccess.open` opens all of them: pass `suffixes`
     (e.g. (".h5",)) to open only the data files, one handle per match."""
     import earthaccess
+
     from nasa_farm.grid.sources import login
+
     login()
     if suffixes is None:
         return earthaccess.open(list(granules))
-    urls = [u for g in granules for u in g.data_links(access="external")
-            if any(u.endswith(s) for s in suffixes)]
+    urls = [
+        u
+        for g in granules
+        for u in g.data_links(access="external")
+        if any(u.endswith(s) for s in suffixes)
+    ]
     if not urls:
         raise FileNotFoundError(f"no data link ending with {tuple(suffixes)}")
     return earthaccess.open(urls)
@@ -364,8 +428,8 @@ class AppEEARS:
     Asynchronous: a task takes minutes to an hour."""
 
     base = "https://appeears.earthdatacloud.nasa.gov/api"
-    _token: str | None = None          # one login per process, shared by products
-    _failed: str | None = None         # …and one failure: later products fail fast
+    _token: str | None = None  # one login per process, shared by products
+    _failed: str | None = None  # …and one failure: later products fail fast
     _token_lock = threading.Lock()
 
     def __init__(self) -> None:
@@ -377,6 +441,7 @@ class AppEEARS:
         """POST /login, retried: the endpoint intermittently answers HTTP 504
         (gateway timeout at 60 s) while the rest of the API is up."""
         import requests
+
         with cls._token_lock:
             if cls._token:
                 return cls._token
@@ -393,17 +458,21 @@ class AppEEARS:
                         cls._token = r.json()["token"]
                         return cls._token
                     if r.status_code in (401, 403):
-                        raise PermissionError(f"AppEEARS login refused: HTTP {r.status_code} "
-                                              "(check the Earthdata credentials)")
+                        raise PermissionError(
+                            f"AppEEARS login refused: HTTP {r.status_code} "
+                            "(check the Earthdata credentials)"
+                        )
                     last = f"HTTP {r.status_code}"
                 except (requests.Timeout, requests.ConnectionError) as e:
                     last = type(e).__name__
                 if k + 1 < attempts:
                     time.sleep(30 * (k + 1))
-            cls._failed = (f"AppEEARS /login failed {attempts}× ({last}). Bad credentials get "
-                           "a fast 401, so a 504 means the account was accepted but not set up "
-                           "for AppEEARS: sign in once at https://appeears.earthdatacloud.nasa.gov "
-                           "(authorizes the app in Earthdata Login), then retry")
+            cls._failed = (
+                f"AppEEARS /login failed {attempts}× ({last}). Bad credentials get "
+                "a fast 401, so a 504 means the account was accepted but not set up "
+                "for AppEEARS: sign in once at https://appeears.earthdatacloud.nasa.gov "
+                "(authorizes the app in Earthdata Login), then retry"
+            )
             raise ConnectionError(cls._failed)
 
     def layers(self, product: str) -> list[str]:
@@ -411,29 +480,48 @@ class AppEEARS:
         r.raise_for_status()
         return list(r.json())
 
-    def area(self, context: Context, product: str, layers: Sequence[str],
-             start: dt.date, end: dt.date, name: str | None = None,
-             timeout: float = 3600) -> list[Path]:
+    def area(
+        self,
+        context: Context,
+        product: str,
+        layers: Sequence[str],
+        start: dt.date,
+        end: dt.date,
+        name: str | None = None,
+        timeout: float = 3600,
+    ) -> list[Path]:
         cache = context.raw / f"appeears_{product}_{start}_{end}.json"
         if cache.exists():
             files = [context.raw / f for f in json.loads(cache.read_text())]
             if all(f.exists() for f in files):
                 return files
         b = context.bbox(buffer_km=2.0)
-        poly = [[b.west, b.south], [b.east, b.south], [b.east, b.north],
-                [b.west, b.north], [b.west, b.south]]
+        poly = [
+            [b.west, b.south],
+            [b.east, b.south],
+            [b.east, b.north],
+            [b.west, b.north],
+            [b.west, b.south],
+        ]
         task = {
             "task_type": "area",
             "task_name": name or f"nasa-farm-{product}-{start}",
             "params": {
-                "dates": [{"startDate": start.strftime("%m-%d-%Y"),
-                           "endDate": end.strftime("%m-%d-%Y")}],
-                "layers": [{"product": product, "layer": l} for l in layers],
-                "geo": {"type": "FeatureCollection", "features": [{
-                    "type": "Feature", "properties": {},
-                    "geometry": {"type": "Polygon", "coordinates": [poly]}}]},
-                "output": {"format": {"type": "geotiff"},
-                           "projection": "geographic"},
+                "dates": [
+                    {"startDate": start.strftime("%m-%d-%Y"), "endDate": end.strftime("%m-%d-%Y")}
+                ],
+                "layers": [{"product": product, "layer": layer} for layer in layers],
+                "geo": {
+                    "type": "FeatureCollection",
+                    "features": [
+                        {
+                            "type": "Feature",
+                            "properties": {},
+                            "geometry": {"type": "Polygon", "coordinates": [poly]},
+                        }
+                    ],
+                },
+                "output": {"format": {"type": "geotiff"}, "projection": "geographic"},
             },
         }
         r = self.s.post(f"{self.base}/task", json=task, timeout=120)
@@ -464,31 +552,49 @@ class AppEEARS:
 PLANETARY_STAC = "https://planetarycomputer.microsoft.com/api/stac/v1"
 
 
-def planetary_items(collection: str, context: Context, days: int | None, *,
-             query: dict | None = None, max_items: int = 200,
-             datetime: str | None = None, max_tiles: int = 4) -> list[Any]:
+def planetary_items(
+    collection: str,
+    context: Context,
+    days: int | None,
+    *,
+    query: dict | None = None,
+    max_items: int = 200,
+    datetime: str | None = None,
+    max_tiles: int = 4,
+) -> list[Any]:
     """STAC search → the acquisition closest to context.date (all its tiles),
     least cloudy first. days=None → no date filter (static collections)."""
     import planetary_computer
     import pystac_client
+
     cat = pystac_client.Client.open(PLANETARY_STAC, modifier=planetary_computer.sign_inplace)
     if datetime is None and days is not None:
         w = context.window(days)
         datetime = f"{w.start}/{w.end}"
-    items = list(cat.search(collections=[collection],
-                            bbox=context.bbox().as_tuple(), datetime=datetime,
-                            query=query, max_items=max_items).items())
+    items = list(
+        cat.search(
+            collections=[collection],
+            bbox=context.bbox().as_tuple(),
+            datetime=datetime,
+            query=query,
+            max_items=max_items,
+        ).items()
+    )
     if not items:
         raise FileNotFoundError(f"PC {collection}: no item near {context.date}")
     if days is None:
         return items[:max_tiles]
-    d = [int(i.datetime.strftime("%Y%m%d")) if i.datetime else
-         int(str(i.properties.get("start_datetime", ""))[:10].replace("-", "") or 0) or None
-         for i in items]
+    d = [
+        int(i.datetime.strftime("%Y%m%d"))
+        if i.datetime
+        else int(str(i.properties.get("start_datetime", ""))[:10].replace("-", "") or 0) or None
+        for i in items
+    ]
     cc = [i.properties.get("eo:cloud_cover") for i in items]
     # tiles of one acquisition share a date, not always a time stamp
-    sel = pick_closest(items, [f"{x}" for x in d], context.date, days=d, cloud=cc,
-                       max_tiles=max_tiles)
+    sel = pick_closest(
+        items, [f"{x}" for x in d], context.date, days=d, cloud=cc, max_tiles=max_tiles
+    )
     chosen = [items[k] for k in sel]
     context.note(f"PC {collection}: " + ", ".join(i.id for i in chosen))
     return chosen
@@ -496,8 +602,7 @@ def planetary_items(collection: str, context: Context, days: int | None, *,
 
 def planetary_href(item, asset: str) -> str:
     if asset not in item.assets:
-        raise KeyError(f"{item.id}: no asset {asset!r}; has "
-                       f"{sorted(item.assets)[:40]}")
+        raise KeyError(f"{item.id}: no asset {asset!r}; has {sorted(item.assets)[:40]}")
     return item.assets[asset].href  # already signed by sign_inplace
 
 
@@ -505,23 +610,19 @@ def planetary_assets(item, pattern: str) -> list[str]:
     rx = re.compile(pattern)
     keys = [k for k in item.assets if rx.fullmatch(k)]
     if not keys:
-        raise KeyError(f"{item.id}: no asset matching {pattern!r}; has "
-                       f"{sorted(item.assets)[:40]}")
+        raise KeyError(f"{item.id}: no asset matching {pattern!r}; has {sorted(item.assets)[:40]}")
     return sorted(keys)
 
 
 # --- public buckets ------------------------------------------------------------
-def gcs_list(bucket: str, prefix: str, pattern: str | None = None,
-             limit: int = 20000) -> list[str]:
+def gcs_list(bucket: str, prefix: str, pattern: str | None = None, limit: int = 20000) -> list[str]:
     """Object names of a public GCS bucket (JSON API, anonymous)."""
     s, out, tok = session(), [], None
     while len(out) < limit:
-        p = {"prefix": prefix, "fields": "items(name),nextPageToken",
-             "maxResults": 1000}
+        p = {"prefix": prefix, "fields": "items(name),nextPageToken", "maxResults": 1000}
         if tok:
             p["pageToken"] = tok
-        r = s.get(f"https://storage.googleapis.com/storage/v1/b/{bucket}/o",
-                  params=p, timeout=60)
+        r = s.get(f"https://storage.googleapis.com/storage/v1/b/{bucket}/o", params=p, timeout=60)
         r.raise_for_status()
         j = r.json()
         out += [i["name"] for i in j.get("items", [])]
@@ -543,9 +644,11 @@ REQUESTER_PAYS = {"AWS_REQUEST_PAYER": "requester"}
 bytes are billed (cents for a 30 km AOI)."""
 
 
-def s3_list(prefix: str, pattern: str | None = None,
-            requester_pays: bool = False, anon: bool = False) -> list[str]:
+def s3_list(
+    prefix: str, pattern: str | None = None, requester_pays: bool = False, anon: bool = False
+) -> list[str]:
     import s3fs
+
     fs = s3fs.S3FileSystem(anon=anon, requester_pays=requester_pays)
     names = fs.find(prefix)
     if pattern:
@@ -560,14 +663,13 @@ SDA_URL = "https://sdmdataaccess.sc.egov.usda.gov/Tabular/post.rest"
 
 def sda_query(sql: str) -> list[dict[str, Any]]:
     """USDA Soil Data Access SQL → list of row dicts."""
-    r = session().post(SDA_URL, json={"query": sql, "format": "JSON+COLUMNNAME"},
-                       timeout=300)
+    r = session().post(SDA_URL, json={"query": sql, "format": "JSON+COLUMNNAME"}, timeout=300)
     r.raise_for_status()
     t = r.json().get("Table", [])
     if not t:
         return []
     cols = t[0]
-    return [dict(zip(cols, row)) for row in t[1:]]
+    return [dict(zip(cols, row, strict=True)) for row in t[1:]]
 
 
 USGS_OGC = "https://api.waterdata.usgs.gov/ogcapi/v0"
@@ -585,7 +687,7 @@ def usgs_items(collection: str, params: dict[str, Any]) -> list[dict]:
         r.raise_for_status()
         j = r.json()
         feats += j.get("features", [])
-        url = next((l["href"] for l in j.get("links", []) if l.get("rel") == "next"), None)
+        url = next((link["href"] for link in j.get("links", []) if link.get("rel") == "next"), None)
         p = None
     return feats
 
@@ -599,19 +701,31 @@ difference between our geodesic estimate and the server's."""
 def _ll_tiles(b: Bounds, max_acres: float) -> list[Bounds]:
     """Split a lon/lat box into k × k equal tiles, each under `max_acres`."""
     import math
+
     from pyproj import Geod
+
     area_m2, _ = Geod(ellps="WGS84").polygon_area_perimeter(
-        [b.west, b.east, b.east, b.west], [b.south, b.south, b.north, b.north])
+        [b.west, b.east, b.east, b.west], [b.south, b.south, b.north, b.north]
+    )
     k = max(1, math.ceil(math.sqrt(abs(area_m2) / 4046.8564224 / max_acres)))
     dx, dy = (b.east - b.west) / k, (b.north - b.south) / k
-    return [Bounds(b.west + i * dx, b.south + j * dy,
-                   b.west + (i + 1) * dx, b.south + (j + 1) * dy)
-            for j in range(k) for i in range(k)]
+    return [
+        Bounds(b.west + i * dx, b.south + j * dy, b.west + (i + 1) * dx, b.south + (j + 1) * dy)
+        for j in range(k)
+        for i in range(k)
+    ]
 
 
-def openet_export(context: Context, bbox: Bounds, day: dt.date, *, variable: str = "ET",
-                  model: str = "Ensemble", interval: str = "daily",
-                  max_acres: float = OPENET_MAX_ACRES) -> Path:
+def openet_export(
+    context: Context,
+    bbox: Bounds,
+    day: dt.date,
+    *,
+    variable: str = "ET",
+    model: str = "Ensemble",
+    interval: str = "daily",
+    max_acres: float = OPENET_MAX_ACRES,
+) -> Path:
     """OpenET `/raster/geotiff/stack` → one merged 30 m GeoTIFF (EPSG:4326).
 
     The endpoint answers synchronously with `{date: link}`; the link (valid
@@ -621,8 +735,10 @@ def openet_export(context: Context, bbox: Bounds, day: dt.date, *, variable: str
     no 1 km cell is averaged from a partial tile. Each tile costs one query
     of the monthly quota (100 on the free tier)."""
     import zipfile
+
     import rasterio
     from rasterio.merge import merge
+
     key = os.environ.get("OPENET_API_KEY")
     if not key:
         raise Skip("OpenET needs OPENET_API_KEY")
@@ -636,16 +752,22 @@ def openet_export(context: Context, bbox: Bounds, day: dt.date, *, variable: str
     for k, t in enumerate(tiles):
         zp = context.raw / f"{dest.stem}_tile{k}.zip"
         if not (zp.exists() and zp.stat().st_size > 0):
-            body = {"date_range": [str(day), str(day)], "interval": interval,
-                    "geometry": [t.west, t.north, t.east, t.north, t.east, t.south,
-                                 t.west, t.south],
-                    "model": model, "variable": variable,
-                    "reference_et": "gridMET", "units": "mm"}
+            body = {
+                "date_range": [str(day), str(day)],
+                "interval": interval,
+                "geometry": [t.west, t.north, t.east, t.north, t.east, t.south, t.west, t.south],
+                "model": model,
+                "variable": variable,
+                "reference_et": "gridMET",
+                "units": "mm",
+            }
             import requests
-            for attempt in range(4):        # transient resets (rate limit: 20/min)
+
+            for attempt in range(4):  # transient resets (rate limit: 20/min)
                 try:
-                    r = s.post("https://openet-api.org/raster/geotiff/stack",
-                               json=body, timeout=300)
+                    r = s.post(
+                        "https://openet-api.org/raster/geotiff/stack", json=body, timeout=300
+                    )
                     break
                 except requests.ConnectionError:
                     if attempt == 3:
@@ -656,7 +778,7 @@ def openet_export(context: Context, bbox: Bounds, day: dt.date, *, variable: str
             urls = find_urls(r.json())
             if not urls:
                 raise FileNotFoundError(f"OpenET: no raster for {day} ({r.text[:200]})")
-            download(urls[0], zp, sess=session())   # signed link: no API key header
+            download(urls[0], zp, sess=session())  # signed link: no API key header
         with zipfile.ZipFile(zp) as z:
             tif = next((n for n in z.namelist() if n.lower().endswith((".tif", ".tiff"))), None)
         if tif is None:
@@ -667,9 +789,14 @@ def openet_export(context: Context, bbox: Bounds, day: dt.date, *, variable: str
     try:
         nodata = srcs[0].nodata if srcs[0].nodata is not None else float("nan")
         data, transform = merge(srcs, nodata=nodata)
-        profile = srcs[0].profile | {"driver": "GTiff", "height": data.shape[1],
-                                     "width": data.shape[2], "transform": transform,
-                                     "nodata": nodata, "compress": "deflate"}
+        profile = srcs[0].profile | {
+            "driver": "GTiff",
+            "height": data.shape[1],
+            "width": data.shape[2],
+            "transform": transform,
+            "nodata": nodata,
+            "compress": "deflate",
+        }
     finally:
         for src in srcs:
             src.close()
@@ -696,10 +823,16 @@ def lfps_job(context: Context, layers: Sequence[str], timeout: float = 3600) -> 
         return dest
     b = context.bbox(buffer_km=1.0)
     s = session()
-    r = s.get(f"{LFPS}/job/submit", params={
-        "Email": email, "Layer_List": ";".join(layers),
-        "Area_of_Interest": f"{b.west} {b.south} {b.east} {b.north}",
-        "Output_Projection": "5070"}, timeout=120)
+    r = s.get(
+        f"{LFPS}/job/submit",
+        params={
+            "Email": email,
+            "Layer_List": ";".join(layers),
+            "Area_of_Interest": f"{b.west} {b.south} {b.east} {b.north}",
+            "Output_Projection": "5070",
+        },
+        timeout=120,
+    )
     r.raise_for_status()
     j = r.json()
     job = j.get("jobId") or j.get("JobId") or j.get("job_id")

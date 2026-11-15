@@ -17,35 +17,40 @@ class TestDrift:
         a = torch.randn(400, 5, generator=G, dtype=DTYPE)
         b = a + 0.01 * torch.randn(400, 5, generator=G, dtype=DTYPE)
         from nasa_farm.observe.drift import psi
+
         assert float(psi(a, b).max()) < 0.25
 
     def test_psi_shift(self):
         from nasa_farm.observe.drift import psi
+
         a = torch.randn(400, 3, generator=G, dtype=DTYPE)
         b = a + 3.0
         assert float(psi(a, b).min()) > 0.25
 
     def test_energy_zero_same(self):
         from nasa_farm.observe.drift import energy
+
         a = torch.randn(300, 4, generator=G, dtype=DTYPE)
         assert float(energy(a, a)) == pytest.approx(0.0, abs=1e-9)
 
     def test_energy_positive_shift(self):
         from nasa_farm.observe.drift import energy
+
         a = torch.randn(300, 4, generator=G, dtype=DTYPE)
         assert float(energy(a, a + 2.0)) > 1.0
 
     def test_drifted(self):
         from nasa_farm.observe.drift import drifted
+
         a = torch.randn(300, 3, generator=G, dtype=DTYPE)
-        assert not drifted(a, a + 0.01 * torch.randn(
-            300, 3, generator=G, dtype=DTYPE))
+        assert not drifted(a, a + 0.01 * torch.randn(300, 3, generator=G, dtype=DTYPE))
         assert drifted(a, a + 4.0)
 
 
 class TestGate:
     def test_promote_better(self):
         from nasa_farm.optimize.gate import gate
+
         m = nn.Linear(2, 1, dtype=DTYPE)
         score = {"v": 1.0}
         rep = gate(m, lambda: score.update(v=0.5), lambda: score["v"])
@@ -53,13 +58,16 @@ class TestGate:
 
     def test_reject_worse_restores(self):
         from nasa_farm.optimize.gate import gate
+
         m = nn.Linear(2, 1, dtype=DTYPE)
         before = {k: v.clone() for k, v in m.state_dict().items()}
         score = {"v": 1.0}
+
         def bad_fit():
             score["v"] = 5.0
             with torch.no_grad():
                 m.weight.fill_(99.0)
+
         rep = gate(m, bad_fit, lambda: score["v"])
         assert not rep["promoted"]
         for k, v in m.state_dict().items():
@@ -69,11 +77,15 @@ class TestGate:
 class TestLibrary:
     def test_nearest_returns_realized(self, physics_model, field, crops):
         from nasa_farm.retrieve import StateLibrary, record
+
         forcing = synthetic_year(42.0, seed=3)
         sow = torch.zeros(1, 365, dtype=torch.long)
         sow[:, 100] = crops.index("maize")
-        actions = Actions(sow=sow, irrigation=torch.zeros(1, 365, dtype=DTYPE),
-                       n_fert=torch.zeros(1, 365, dtype=DTYPE))
+        actions = Actions(
+            sow=sow,
+            irrigation=torch.zeros(1, 365, dtype=DTYPE),
+            n_fert=torch.zeros(1, 365, dtype=DTYPE),
+        )
         lib = StateLibrary()
         record(lib, physics_model, field, forcing, actions, every=30)
         assert len(lib) > 0
@@ -86,6 +98,7 @@ class TestLibrary:
 
     def test_empty_library_raises(self):
         from nasa_farm.retrieve import StateLibrary
+
         with pytest.raises(ValueError):
             StateLibrary().nearest(torch.zeros(4, dtype=DTYPE))
 
@@ -94,7 +107,8 @@ class TestSbc:
     def test_ranks_uniform_gaussian(self):
         """Conjugate Gaussian: trained posterior must produce ~uniform
         ranks — the SBC calibration certificate."""
-        from nasa_farm.optimize.inference import fit_posterior, calibration_ranks
+        from nasa_farm.optimize.inference import calibration_ranks, fit_posterior
+
         g = torch.Generator().manual_seed(1)
         n = 400
         theta = torch.randn(n, 2, generator=g, dtype=DTYPE)
@@ -115,13 +129,20 @@ class TestSbc:
 class TestIdm:
     def _demo(self, field, irrigation, crops, seed):
         from nasa_farm.forcing import span
+
         days = 60
         forcing = span(synthetic_year(42.0, seed=seed), 0, days)
         sow = torch.zeros(1, days, dtype=torch.long)
         sow[:, 0] = crops.index("maize")
-        return field, forcing, Actions(
-            sow=sow, irrigation=torch.full((1, days), irrigation, dtype=DTYPE),
-            n_fert=torch.zeros(1, days, dtype=DTYPE))
+        return (
+            field,
+            forcing,
+            Actions(
+                sow=sow,
+                irrigation=torch.full((1, days), irrigation, dtype=DTYPE),
+                n_fert=torch.zeros(1, days, dtype=DTYPE),
+            ),
+        )
 
     def test_goal_selectivity(self, physics_model, field, crops):
         """Two demos identical except the irrigation rate: on the *same*
@@ -129,11 +150,12 @@ class TestIdm:
         conditioning on the realized outcome is what makes it inverse
         dynamics rather than imitation."""
         from nasa_farm.policy import _day_feats, fit_inverse
-        gfn = lambda s: s.sw.sum(-1, keepdim=True)  # terminal soil water
-        demos = [self._demo(field, 0.0, crops, 3),
-                 self._demo(field, 10.0, crops, 3)]
-        inverse = fit_inverse(physics_model, demos, goal_fn=gfn,
-                      epochs=300, seed=0)
+
+        def gfn(s):
+            return s.sw.sum(-1, keepdim=True)  # terminal soil water
+
+        demos = [self._demo(field, 0.0, crops, 3), self._demo(field, 10.0, crops, 3)]
+        inverse = fit_inverse(physics_model, demos, goal_fn=gfn, epochs=300, seed=0)
         field, forcing, actions = demos[0]
         for t in range(forcing.days):
             with torch.inference_mode():
@@ -145,8 +167,7 @@ class TestIdm:
                 field, _ = physics_model.step(field, actions.day(t), forcing.day(t), t)
         g_wet = gfn(field.state)
         assert float(g_wet - g_dry) > 0.0
-        f0 = _day_feats(physics_model, field.state,
-                        demos[0][1].day(0), demos[0][2].day(0))
+        f0 = _day_feats(physics_model, field.state, demos[0][1].day(0), demos[0][2].day(0))
         remaining = torch.ones(1, 1, dtype=DTYPE)
         a_dry = float(inverse(f0, g_dry, remaining).detach()[0, 0])
         a_wet = float(inverse(f0, g_wet, remaining).detach()[0, 0])
@@ -157,9 +178,11 @@ class TestIdm:
 
     def test_idm_actions_shape(self, physics_model, field, crops):
         from nasa_farm.policy import fit_inverse, inverse_actions
+
         f_, forcing, actions = self._demo(field, 5.0, crops, 3)
         inverse = fit_inverse(physics_model, [(f_, forcing, actions)], epochs=5, seed=0)
-        output = inverse_actions(inverse, physics_model, f_, forcing, actions,
-                          torch.zeros(inverse.goal_dim, dtype=DTYPE))
+        output = inverse_actions(
+            inverse, physics_model, f_, forcing, actions, torch.zeros(inverse.goal_dim, dtype=DTYPE)
+        )
         assert output.irrigation.shape == actions.irrigation.shape
         assert (output.irrigation >= 0).all()

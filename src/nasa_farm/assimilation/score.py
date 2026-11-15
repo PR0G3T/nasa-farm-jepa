@@ -49,11 +49,17 @@ def _linearize(x: torch.Tensor, y_pred: torch.Tensor) -> torch.Tensor:
     return torch.linalg.solve(cxx + 1e-9 * eye, cyx.t()).t()
 
 
-def _likelihood_grad(z: torch.Tensor, state: FieldState,
-                     names: tuple[str, ...], channels: tuple[str, ...] | None,
-                     y: torch.Tensor, r_inv: torch.Tensor,
-                     h_lin: torch.Tensor, y_mean: torch.Tensor,
-                     x_mean: torch.Tensor) -> torch.Tensor:
+def _likelihood_grad(
+    z: torch.Tensor,
+    state: FieldState,
+    names: tuple[str, ...],
+    channels: tuple[str, ...] | None,
+    y: torch.Tensor,
+    r_inv: torch.Tensor,
+    h_lin: torch.Tensor,
+    y_mean: torch.Tensor,
+    x_mean: torch.Tensor,
+) -> torch.Tensor:
     """grad_z log N(y | h(z), R) — exact autograd when channels given."""
     if channels is None:
         return (y - y_mean - (z - x_mean) @ h_lin.t()) @ r_inv @ h_lin
@@ -64,20 +70,25 @@ def _likelihood_grad(z: torch.Tensor, state: FieldState,
             updated = _put_variables(state, names, xb)
             return observables(updated, channels)
 
-        full = torch.func.jacrev(h_batch)(zz)         # (B,C,B,V)
+        full = torch.func.jacrev(h_batch)(zz)  # (B,C,B,V)
         jac = full.diagonal(dim1=0, dim2=2).permute(2, 0, 1)  # (B,C,V)
         h_z = h_batch(zz)
     return torch.einsum("bcv,bc->bv", jac, (y - h_z) @ r_inv)
 
 
-def score_update(state: FieldState, observed_prediction: torch.Tensor,
-                 observed: torch.Tensor, r: torch.Tensor | float,
-                 names: tuple[str, ...] = STATE_VARS,
-                 channels: tuple[str, ...] | None = None,
-                 steps: int = 40, eps_alpha: float = _EPS_ALPHA,
-                 eps_beta: float = _EPS_BETA,
-                 perturb: bool = True, generation: torch.Generator | None = None,
-                 ) -> FieldState:
+def score_update(
+    state: FieldState,
+    observed_prediction: torch.Tensor,
+    observed: torch.Tensor,
+    r: torch.Tensor | float,
+    names: tuple[str, ...] = STATE_VARS,
+    channels: tuple[str, ...] | None = None,
+    steps: int = 40,
+    eps_alpha: float = _EPS_ALPHA,
+    eps_beta: float = _EPS_BETA,
+    perturb: bool = True,
+    generation: torch.Generator | None = None,
+) -> FieldState:
     """EnSF analysis: resample the posterior by backward-SDE paths.
 
     state/observed_prediction: (B,) ensemble and (B, C) predicted
@@ -94,8 +105,7 @@ def score_update(state: FieldState, observed_prediction: torch.Tensor,
         r_inv = torch.diag(1.0 / r_t.expand(observed.numel()))
     h_lin = _linearize(x, observed_prediction)
     y_mean, x_mean = observed_prediction.mean(0), x.mean(0)
-    z = torch.randn(b, v, generator=generation, dtype=x.dtype,
-                    device=x.device)
+    z = torch.randn(b, v, generator=generation, dtype=x.dtype, device=x.device)
     z = (z - z.mean(0)) / z.std(0).clamp(min=1e-9)
     dtau = 1.0 / steps
     for k in range(steps, 0, -1):
@@ -106,12 +116,10 @@ def score_update(state: FieldState, observed_prediction: torch.Tensor,
         diff2 = (1.0 - eps_beta) + 2.0 * beta2 * (1.0 - eps_alpha) / alpha
         s_prior = (alpha * x - z) / beta2
         s_like = _likelihood_grad(
-            z, state, names, channels, observed, r_inv,
-            h_lin, y_mean, x_mean).clamp(-_CLIP, _CLIP)
+            z, state, names, channels, observed, r_inv, h_lin, y_mean, x_mean
+        ).clamp(-_CLIP, _CLIP)
         s_post = s_prior + (1.0 - tau) * s_like
-        noise = torch.randn(z.shape, generator=generation,
-                            dtype=z.dtype, device=z.device)
-        z = z - (drift * z - diff2 * s_post) * dtau \
-            + math.sqrt(diff2 * dtau) * noise
+        noise = torch.randn(z.shape, generator=generation, dtype=z.dtype, device=z.device)
+        z = z - (drift * z - diff2 * s_post) * dtau + math.sqrt(diff2 * dtau) * noise
     z = torch.nan_to_num(z).clamp(min=0.0)
     return _put_variables(state, names, z)

@@ -69,8 +69,35 @@ google-crc32c = { path = "wheels/google_crc32c-1.9.0-py3-none-any.whl" }
 dev = [
     "hypothesis>=6.170.15",
     "pytest>=9.2.0",
+    "ruff>=0.17.5",
 ]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-q"
+
+[tool.ruff]
+extend = "../rules/python/ruff.base.toml"
+target-version = "py315"
+extend-exclude = ["README.md"]
+
+[tool.ruff.lint]
+extend-select = [
+    "A", "ASYNC", "C4", "DTZ", "EM", "ERA", "FLY", "G", "ICN", "INT",
+    "ISC", "LOG", "PERF", "PGH", "PIE", "PTH", "Q", "RET", "RUF", "S",
+    "SLOT", "T10", "TRY", "W", "YTT",
+]
+ignore = [
+    # Scientific notation (×, ≤, °C, σ) in docs/comments is deliberate.
+    "RUF001", "RUF002", "RUF003",
+    # Inline f-string raise messages are the project style.
+    "EM101", "EM102", "TRY003",
+    # NASA endpoints, cloudflared tunnels and the lake's SQL are the features.
+    "S310", "S603", "S608",
+    # Local calendar dates are meaningful for agronomic forcing.
+    "DTZ011",
+]
+
+[tool.ruff.lint.per-file-ignores]
+"src/nasa_farm/state/crops.py" = ["E501"]
+"tests/**" = ["S101"]

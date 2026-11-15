@@ -19,9 +19,15 @@ from nasa_farm.dynamics.latent import regularization
 class Replay:
     """Ring-buffer replay + one-step latent-prediction updates."""
 
-    def __init__(self, model, cap: int = 512, batch: int = 32,
-                 rate: float = 3e-3, sig_weight: float = 0.1,
-                 seed: int = 0) -> None:
+    def __init__(
+        self,
+        model,
+        cap: int = 512,
+        batch: int = 32,
+        rate: float = 3e-3,
+        sig_weight: float = 0.1,
+        seed: int = 0,
+    ) -> None:
         if model.latent is None:
             raise ValueError("TTT needs a model built with latent_dim > 0")
         self.latent = model.latent
@@ -32,12 +38,14 @@ class Replay:
         self.generation = torch.Generator().manual_seed(seed)
         self.history: list[float] = []
 
-    def push(self, features: torch.Tensor, z: torch.Tensor,
-             zh: torch.Tensor, target: torch.Tensor) -> None:
+    def push(
+        self, features: torch.Tensor, z: torch.Tensor, zh: torch.Tensor, target: torch.Tensor
+    ) -> None:
         """Store one transition (detached rows). Shapes (B, ·)."""
         for i in range(features.shape[0]):
-            self.buffer.append((features[i].detach(), z[i].detach(),
-                             zh[i].detach(), target[i].detach()))
+            self.buffer.append(
+                (features[i].detach(), z[i].detach(), zh[i].detach(), target[i].detach())
+            )
 
     def step(self, n: int = 1) -> float:
         """n minibatch updates on the predictor → mean loss."""
@@ -45,7 +53,7 @@ class Replay:
             return float("nan")
         losses = []
         for _ in range(n):
-            index = torch.randperm(len(self.buffer), generator=self.generation)[:self.batch]
+            index = torch.randperm(len(self.buffer), generator=self.generation)[: self.batch]
             rows = [self.buffer[i] for i in index.tolist()]
             f = torch.stack([r[0] for r in rows])
             z = torch.stack([r[1] for r in rows])
@@ -53,8 +61,7 @@ class Replay:
             target = torch.stack([r[3] for r in rows])
             self.opt.zero_grad(set_to_none=True)
             predicted, _ = self.latent(f, z, zh)
-            loss = (predicted - target).pow(2).mean() \
-                + self.sig_weight * regularization(predicted)
+            loss = (predicted - target).pow(2).mean() + self.sig_weight * regularization(predicted)
             loss.backward()
             torch.nn.utils.clip_grad_norm_(self.latent.parameters(), 1.0)
             self.opt.step()

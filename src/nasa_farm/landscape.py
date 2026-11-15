@@ -31,11 +31,11 @@ class FieldGraph:
     surface runoff reaching field j next day. Row sums ≤ 1; the remainder
     leaves the basin."""
 
-    w: torch.Tensor          # (B, B)
+    w: torch.Tensor  # (B, B)
     share_aquifer: bool = True
 
     @classmethod
-    def chain(cls, n: int, fraction: float = 0.5) -> "FieldGraph":
+    def chain(cls, n: int, fraction: float = 0.5) -> FieldGraph:
         """1-D hillside: each field passes `frac` of runoff to i+1."""
         w = torch.zeros(n, n, dtype=DTYPE)
         index = torch.arange(n - 1)
@@ -45,7 +45,7 @@ class FieldGraph:
     def weights(self, field: Field, fluxes: dict) -> torch.Tensor:
         return self.w
 
-    def to(self, device) -> "FieldGraph":
+    def to(self, device) -> FieldGraph:
         return FieldGraph(self.w.to(device), self.share_aquifer)
 
 
@@ -57,19 +57,15 @@ class Route(nn.Module):
     Node features: [sw_col, runoff, tws] of that day — the driver sees
     both how much water is moving and the local wetness memory."""
 
-    def __init__(self, n_feats: int = 3, hidden: int = 32,
-                 seed: int | None = None) -> None:
+    def __init__(self, n_feats: int = 3, hidden: int = 32, seed: int | None = None) -> None:
         super().__init__()
         if seed is not None:
             torch.manual_seed(seed)
-        self.embed = nn.Sequential(
-            nn.Linear(n_feats, hidden), nn.SiLU(),
-            nn.Linear(hidden, hidden))
+        self.embed = nn.Sequential(nn.Linear(n_feats, hidden), nn.SiLU(), nn.Linear(hidden, hidden))
         self.score = nn.Linear(2 * hidden, 1)
         self.to(DTYPE)
 
-    def forward(self, features: torch.Tensor,
-                adjacency: torch.Tensor) -> torch.Tensor:
+    def forward(self, features: torch.Tensor, adjacency: torch.Tensor) -> torch.Tensor:
         """feats (B, F) → W (B, B) row-stochastic on `adj` (incl self)."""
         h = self.embed(features)
         b = h.shape[0]
@@ -85,15 +81,20 @@ class RouteGraph:
     """Learned routing: `net` produces a dynamic row-stochastic W_t on a
     fixed directed adjacency built from topography (`from_topo`)."""
 
-    adjacency: torch.Tensor        # (B, B) bool — directed downstream edges
+    adjacency: torch.Tensor  # (B, B) bool — directed downstream edges
     net: Route
     share_aquifer: bool = True
 
     @classmethod
-    def from_topo(cls, latitude: torch.Tensor, longitude: torch.Tensor,
-                  elevation: torch.Tensor, k: int = 3,
-                  hidden: int = 32,
-                  seed: int | None = None) -> "RouteGraph":
+    def from_topo(
+        cls,
+        latitude: torch.Tensor,
+        longitude: torch.Tensor,
+        elevation: torch.Tensor,
+        k: int = 3,
+        hidden: int = 32,
+        seed: int | None = None,
+    ) -> RouteGraph:
         """Adjacency: each field links to its k nearest downhill neighbors
         plus itself; fields at local minima only keep their self-loop, so
         their runoff ponds locally instead of vanishing."""
@@ -104,8 +105,7 @@ class RouteGraph:
         adjacency = torch.zeros(b, b, dtype=torch.bool)
         elevation = elevation.to(DTYPE)
         for i in range(b):
-            low = [j for j in nbr[i].tolist()
-                  if j != i and elevation[j] <= elevation[i]]
+            low = [j for j in nbr[i].tolist() if j != i and elevation[j] <= elevation[i]]
             adjacency[i, i] = True
             adjacency[i, torch.tensor(low or [i], dtype=torch.long)] = True
         return cls(adjacency=adjacency, net=Route(3, hidden, seed))
@@ -113,15 +113,23 @@ class RouteGraph:
     def weights(self, field: Field, fluxes: dict) -> torch.Tensor:
         s = field.state
         features = torch.stack(
-            [s.sw.sum(-1) / s.sw.sum(-1).max().clamp(min=1e-9),
-             fluxes["runoff"] / fluxes["runoff"].max().clamp(min=1e-9),
-             s.tws / s.tws.max().clamp(min=1e-9)], dim=-1)
+            [
+                s.sw.sum(-1) / s.sw.sum(-1).max().clamp(min=1e-9),
+                fluxes["runoff"] / fluxes["runoff"].max().clamp(min=1e-9),
+                s.tws / s.tws.max().clamp(min=1e-9),
+            ],
+            dim=-1,
+        )
         return self.net(features, self.adjacency)
 
 
-def fit_route(graph: RouteGraph, features: torch.Tensor,
-              w_ref: torch.Tensor, epochs: int = 100,
-              rate: float = 1e-3) -> dict:
+def fit_route(
+    graph: RouteGraph,
+    features: torch.Tensor,
+    w_ref: torch.Tensor,
+    epochs: int = 100,
+    rate: float = 1e-3,
+) -> dict:
     """Imitation-fit the router on (features → reference matrix) pairs:
     daily flux snapshots against a routing prior or observed downstream
     arrival proportions. Returns the loss history."""
@@ -154,26 +162,24 @@ class Landscape:
         self.graph = graph
         self.pending: torch.Tensor | None = None
 
-    def step(self, field: Field, action: dict, forcing_day: dict,
-             t: int = 0) -> tuple[Field, dict]:
+    def step(self, field: Field, action: dict, forcing_day: dict, t: int = 0) -> tuple[Field, dict]:
         if self.pending is None:
-            self.pending = torch.zeros(field.batch, dtype=DTYPE,
-                                       device=field.state.sw.device)
+            self.pending = torch.zeros(field.batch, dtype=DTYPE, device=field.state.sw.device)
         f2, fluxes = self.model.step(
-            field, action,
-            {**forcing_day, "precip": forcing_day["precip"] + self.pending}, t)
+            field, action, {**forcing_day, "precip": forcing_day["precip"] + self.pending}, t
+        )
         s = f2.state
         routed = self.graph.weights(f2, fluxes).t() @ fluxes["runoff"]
         self.pending = routed
         if self.graph.share_aquifer:
             mean_tws = s.tws.mean().expand_as(s.tws)
             s = s.replace(tws=s.tws + 0.5 * (mean_tws - s.tws))
-        f2 = f2.__class__(state=s, soil=f2.soil, latitude=f2.latitude,
-                          elevation=f2.elevation, context=f2.context)
+        f2 = f2.__class__(
+            state=s, soil=f2.soil, latitude=f2.latitude, elevation=f2.elevation, context=f2.context
+        )
         return f2, fluxes
 
-    def rollout(self, field: Field, forcing, actions,
-                observer=None) -> Field:
+    def rollout(self, field: Field, forcing, actions, observer=None) -> Field:
         for t in range(forcing.days):
             field, fx = self.step(field, actions.day(t), forcing.day(t), t)
             if observer is not None:

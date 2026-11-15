@@ -11,31 +11,43 @@ from __future__ import annotations
 
 import torch
 
-from nasa_farm.constants import DTYPE
 from nasa_farm.dynamics.residual import N_FEATURES
 
 FEAT_NAMES: tuple[str, ...] = (
-    "sw0", "swr", "n_min", "lai", "biomass", "gdd", "growing",
-    "tmin", "tmax", "srad", "precip", "irrigation", "n_fert", "sow")
+    "sw0",
+    "swr",
+    "n_min",
+    "lai",
+    "biomass",
+    "gdd",
+    "growing",
+    "tmin",
+    "tmax",
+    "srad",
+    "precip",
+    "irrigation",
+    "n_fert",
+    "sow",
+)
 
 
 def basis(x: torch.Tensor) -> torch.Tensor:
     """(B, F) features → (B, L) library: x, x², tanh, pairwise products of
     the first-order terms, plus bias. L = 1 + 3F + F(F−1)/2."""
     f = x.shape[-1]
-    cols = [torch.ones(x.shape[0], 1, dtype=x.dtype, device=x.device),
-            x, x ** 2, torch.tanh(x)]
-    pairs = [x[..., i:i + 1] * x[..., j:j + 1]
-             for i in range(f) for j in range(i + 1, f)]
+    cols = [torch.ones(x.shape[0], 1, dtype=x.dtype, device=x.device), x, x**2, torch.tanh(x)]
+    pairs = [x[..., i : i + 1] * x[..., j : j + 1] for i in range(f) for j in range(i + 1, f)]
     return torch.cat(cols + pairs, dim=-1)
 
 
 def basis_names(f: int = N_FEATURES) -> list[str]:
-    names = ["1"] + list(FEAT_NAMES)[:f] + \
-        [f"{n}^2" for n in FEAT_NAMES[:f]] + \
-        [f"tanh({n})" for n in FEAT_NAMES[:f]]
-    names += [f"{FEAT_NAMES[i]}*{FEAT_NAMES[j]}"
-              for i in range(f) for j in range(i + 1, f)]
+    names = (
+        ["1"]
+        + list(FEAT_NAMES)[:f]
+        + [f"{n}^2" for n in FEAT_NAMES[:f]]
+        + [f"tanh({n})" for n in FEAT_NAMES[:f]]
+    )
+    names += [f"{FEAT_NAMES[i]}*{FEAT_NAMES[j]}" for i in range(f) for j in range(i + 1, f)]
     return names
 
 
@@ -56,8 +68,9 @@ def pursuit(F: torch.Tensor, y: torch.Tensor, k: int) -> tuple[torch.Tensor, tor
     return torch.tensor(index), w
 
 
-def grow(x: torch.Tensor, y: torch.Tensor, k: int = 6,
-         rounds: int = 2) -> tuple[torch.Tensor, torch.Tensor, list[str]]:
+def grow(
+    x: torch.Tensor, y: torch.Tensor, k: int = 6, rounds: int = 2
+) -> tuple[torch.Tensor, torch.Tensor, list[str]]:
     """AutoSINDy-style library growth.
 
     Start from the fixed basis; after each OMP fit, augment the library
@@ -91,20 +104,23 @@ def grow(x: torch.Tensor, y: torch.Tensor, k: int = 6,
     return index, w, names
 
 
-def distill_residual(net, features: torch.Tensor, k: int = 6,
-                     autogrow: bool = False,
-                     ) -> dict[str, list[tuple[str, float]]]:
+def distill_residual(
+    net,
+    features: torch.Tensor,
+    k: int = 6,
+    autogrow: bool = False,
+) -> dict[str, list[tuple[str, float]]]:
     """ResidualNet → {output_var: [(term, coef)]} human-readable sparse
     equations per output channel. autogrow=True grows the library from
     selected terms (AutoSINDy-style) before the final OMP fit."""
     from nasa_farm.dynamics.residual import RESIDUAL_VARS
+
     y = net(features)
     if autogrow:
         output: dict[str, list[tuple[str, float]]] = {}
         for j, v in enumerate(RESIDUAL_VARS):
             index, w, names = grow(features, y[:, j], k)
-            output[v] = [(names[i], float(c)) for i, c in
-                      zip(index.tolist(), w)]
+            output[v] = [(names[i], float(c)) for i, c in zip(index.tolist(), w, strict=True)]
         return output
     F = basis(features)
     F = (F - F.mean(0)) / F.std(0).clamp(min=1e-9)
@@ -112,5 +128,5 @@ def distill_residual(net, features: torch.Tensor, k: int = 6,
     output: dict[str, list[tuple[str, float]]] = {}
     for j, v in enumerate(RESIDUAL_VARS):
         index, w = pursuit(F, y[:, j], k)
-        output[v] = [(names[i], float(c)) for i, c in zip(index.tolist(), w)]
+        output[v] = [(names[i], float(c)) for i, c in zip(index.tolist(), w, strict=True)]
     return output

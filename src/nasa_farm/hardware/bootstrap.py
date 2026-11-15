@@ -24,15 +24,12 @@ _ALLOC_DEFAULTS = {"expandable_segments": "True"}
 
 
 def _merge_allocation_config() -> None:
-    current = os.environ.get("PYTORCH_ALLOC_CONF") or \
-        os.environ.get("PYTORCH_CUDA_ALLOC_CONF", "")
-    kv = dict(
-        pair.split(":", 1) for pair in current.split(",") if ":" in pair)
+    current = os.environ.get("PYTORCH_ALLOC_CONF") or os.environ.get("PYTORCH_CUDA_ALLOC_CONF", "")
+    kv = dict(pair.split(":", 1) for pair in current.split(",") if ":" in pair)
     if kv.get("backend") == "cudaMallocAsync":
         return  # foreign allocator — native-only keys must not be injected
     kv = {**_ALLOC_DEFAULTS, **kv}
-    os.environ["PYTORCH_ALLOC_CONF"] = ",".join(
-        f"{k}:{v}" for k, v in kv.items())
+    os.environ["PYTORCH_ALLOC_CONF"] = ",".join(f"{k}:{v}" for k, v in kv.items())
 
 
 def bootstrap() -> None:

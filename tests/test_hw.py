@@ -2,7 +2,6 @@
 probe cache, scheduler ladder, telemetry. Everything runs on CPU-only
 hosts; accelerator paths skip cleanly."""
 
-import threading
 import time
 
 import pytest
@@ -57,7 +56,7 @@ class TestCaps:
 
     def test_cpu_workers_bounds(self):
         assert capabilities.processor_workers() >= 1
-        assert capabilities.processor_workers(rows=10) == 1   # shard floor
+        assert capabilities.processor_workers(rows=10) == 1  # shard floor
 
 
 class TestMem:
@@ -80,8 +79,7 @@ class TestPool:
     def test_map_order(self):
         ex = pool.make(2)
         try:
-            assert list(ex.map(lambda x: x * 2, range(6))) == \
-                [0, 2, 4, 6, 8, 10]
+            assert list(ex.map(lambda x: x * 2, range(6))) == [0, 2, 4, 6, 8, 10]
         finally:
             ex.shutdown(wait=True)
 
@@ -110,12 +108,16 @@ class TestGraphs:
         inp = (torch.ones(2),)
         assert c.get((2,), lambda *t: t[0], inp) is None
         assert c.get((2,), lambda *t: t[0], inp) is None
-        assert calls["n"] == 1          # retried never for the same shape
+        assert calls["n"] == 1  # retried never for the same shape
 
     def test_replayer_copies_and_replays(self):
         class G:
-            def __init__(self): self.n = 0
-            def replay(self): self.n += 1
+            def __init__(self):
+                self.n = 0
+
+            def replay(self):
+                self.n += 1
+
         g = G()
         static = (torch.zeros(2),)
         rep = graphs.Replayer(g, static, torch.tensor([9.0, 9.0]))
@@ -130,9 +132,9 @@ class TestProbe:
         assert probe.worth(1000, 4, 365)
 
     def test_signature_stable(self, physics_model):
+        from nasa_farm.forcing import climatology_ensemble, synthetic_year
         from nasa_farm.plan import enumerate_rotations
-        from nasa_farm.forcing import synthetic_year
-        from nasa_farm.forcing import climatology_ensemble
+
         plans = enumerate_rotations([0], 1)
         ensemble = climatology_ensemble([synthetic_year(42.0, seed=1)], 1)
         a = probe.signature(physics_model, plans, ensemble, 1)
@@ -148,7 +150,7 @@ class TestProbe:
 
     def test_measure_cpu(self):
         lane = schedule.Lane(name="cpu", device=torch.device("cpu"))
-        lane.function = lambda l, s, blk: blk.float().sum()
+        lane.function = lambda lane, s, blk: blk.float().sum()
         rate, g = probe.measure(lane, torch.ones(8, 2))
         assert rate > 0 and g is False
 
@@ -169,8 +171,7 @@ class TestThermo:
         assert not m.throttled.is_set()
 
     def test_throttle_flag(self):
-        m = Monitor(torch.device("cuda", 0), hz=200.0,
-                    sampler=lambda: (10.0, 90.0, 0x1))
+        m = Monitor(torch.device("cuda", 0), hz=200.0, sampler=lambda: (10.0, 90.0, 0x1))
         with m:
             time.sleep(0.05)
         assert m.throttled.is_set()
@@ -185,11 +186,11 @@ class TestThermo:
 
 class TestSched:
     def _lane(self, name="cpu", function=None, block=4, workers=1):
-        l = schedule.Lane(name=name, device=torch.device("cpu"),
-                       workers=workers, block_rows=block,
-                       cap_rows=block)
-        l.function = function or (lambda lane, s, blk: blk.to(DTYPE).unsqueeze(1))
-        return l
+        lane = schedule.Lane(
+            name=name, device=torch.device("cpu"), workers=workers, block_rows=block, cap_rows=block
+        )
+        lane.function = function or (lambda lane, s, blk: blk.to(DTYPE).unsqueeze(1))
+        return lane
 
     def test_run_assembles_in_order(self):
         """Two lanes pull from one cursor; slots assemble by row index —
@@ -204,9 +205,9 @@ class TestSched:
     def test_oom_lane_dies_survivor_absorbs(self):
         plans = torch.arange(8).reshape(4, 2)
         output = torch.zeros(4, 1, 2, dtype=DTYPE)
-        bad = self._lane("bad", block=1,
-                         function=lambda l, s, b: (_ for _ in ()).throw(
-                             MemoryError("oom")))
+        bad = self._lane(
+            "bad", block=1, function=lambda lane, s, b: (_ for _ in ()).throw(MemoryError("oom"))
+        )
         good = self._lane("good", block=2)
         schedule.run([bad, good], plans, output, 1)
         assert not bad.alive and good.alive
@@ -215,17 +216,16 @@ class TestSched:
     def test_all_lanes_dead_raises(self):
         plans = torch.arange(8).reshape(4, 2)
         output = torch.zeros(4, 1, 2, dtype=DTYPE)
-        dead = self._lane("d", block=1,
-                          function=lambda l, s, b: (_ for _ in ()).throw(
-                              MemoryError("oom")))
+        dead = self._lane(
+            "d", block=1, function=lambda lane, s, b: (_ for _ in ()).throw(MemoryError("oom"))
+        )
         with pytest.raises(MemoryError):
             schedule.run([dead], plans, output, 1)
 
     def test_non_oom_aborts(self):
         plans = torch.arange(8).reshape(4, 2)
         output = torch.zeros(4, 1, 2, dtype=DTYPE)
-        bad = self._lane("x", function=lambda l, s, b: (_ for _ in ()).throw(
-            ValueError("bug")))
+        bad = self._lane("x", function=lambda lane, s, b: (_ for _ in ()).throw(ValueError("bug")))
         with pytest.raises(ValueError, match="bug"):
             schedule.run([bad], plans, output, 1)
 
@@ -241,13 +241,13 @@ class TestSched:
         output = torch.zeros(5, 1, 2, dtype=DTYPE)
         state = {"n": 0}
 
-        def flaky(l, s, b):
+        def flaky(lane, s, b):
             state["n"] += 1
             if state["n"] == 1:
                 raise MemoryError("transient")
             return b.to(DTYPE).unsqueeze(1)
 
-        l = self._lane("flaky", function=flaky, block=4)
-        schedule.run([l], plans, output, 1)
+        lane = self._lane("flaky", function=flaky, block=4)
+        schedule.run([lane], plans, output, 1)
         assert torch.equal(output, plans.to(DTYPE).unsqueeze(1))
         assert state["n"] >= 2

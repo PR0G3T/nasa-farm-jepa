@@ -13,8 +13,7 @@ from nasa_farm.observe import CHANNELS, observables
 
 
 class ObservationTrace:
-    def __init__(self, days: int, channels: tuple[str, ...] = ("ndvi",),
-                 every: int = 5) -> None:
+    def __init__(self, days: int, channels: tuple[str, ...] = ("ndvi",), every: int = 5) -> None:
         for c in channels:
             if c not in CHANNELS:
                 raise KeyError(f"unknown observable channel: {c}")
@@ -26,8 +25,7 @@ class ObservationTrace:
         if t % self.every != 0:
             return
         if self.record is None:
-            self.record = state.sw.new_zeros(state.batch, self.n,
-                                          len(self.channels))
+            self.record = state.sw.new_zeros(state.batch, self.n, len(self.channels))
         self.record[:, t // self.every] = observables(state, self.channels)
 
     def result(self) -> torch.Tensor:
@@ -42,8 +40,9 @@ class EmbeddingTrace:
     trajectory as advanced inside `WorldModel.step`. One observer, one
     rollout, two preallocated buffers — no trajectory materialized."""
 
-    def __init__(self, days: int, z_dim: int,
-                 channels: tuple[str, ...] = ("ndvi",), every: int = 5) -> None:
+    def __init__(
+        self, days: int, z_dim: int, channels: tuple[str, ...] = ("ndvi",), every: int = 5
+    ) -> None:
         for c in channels:
             if c not in CHANNELS:
                 raise KeyError(f"unknown observable channel: {c}")
@@ -56,13 +55,12 @@ class EmbeddingTrace:
         if t % self.every != 0:
             return
         if self.observed is None:
-            self.observed = state.sw.new_zeros(state.batch, self.n,
-                                          len(self.channels))
+            self.observed = state.sw.new_zeros(state.batch, self.n, len(self.channels))
             self.z = state.sw.new_zeros(state.batch, self.n, self.z_dim)
         i = t // self.every
         self.observed[:, i] = observables(state, self.channels)
         if state.z is not None and self.z_dim:
-            self.z[:, i] = state.z[:, :self.z_dim]
+            self.z[:, i] = state.z[:, : self.z_dim]
 
     def result(self) -> tuple[torch.Tensor, torch.Tensor]:
         """(obs (B, N, C), z (B, N, K))."""

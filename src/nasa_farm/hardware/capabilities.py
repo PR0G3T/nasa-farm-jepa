@@ -22,16 +22,13 @@ def accelerators() -> list[torch.device]:
     accumulate = torch.accelerator.current_accelerator()
     if accumulate is None:
         return []
-    return [torch.device(accumulate.type, i)
-            for i in range(torch.accelerator.device_count())]
+    return [torch.device(accumulate.type, i) for i in range(torch.accelerator.device_count())]
 
 
 def supports(dtype: torch.dtype, device: torch.device) -> bool:
     """Whether `device` can natively run `dtype` (MPS lacks float64; an
     actual probe alloc settles anything the table doesn't know)."""
-    if device.type == "mps" and dtype in (torch.float64, torch.complex128):
-        return False
-    return True
+    return not (device.type == "mps" and dtype in (torch.float64, torch.complex128))
 
 
 def device_memory(device: torch.device) -> tuple[int, int]:
@@ -41,7 +38,7 @@ def device_memory(device: torch.device) -> tuple[int, int]:
     try:
         free, total = torch.accelerator.memory.get_memory_info(device)
         return int(free), int(total)
-    except (AttributeError, RuntimeError, TypeError):
+    except AttributeError, RuntimeError, TypeError:
         if device.type == "cuda":
             free, total = torch.cuda.mem_get_info(device)
             return int(free), int(total)
@@ -52,6 +49,7 @@ def _avail_ram() -> int:
     """Bytes of *currently available* host RAM (Linux → POSIX → 2 GiB)."""
     import os
     from pathlib import Path
+
     try:
         for line in Path("/proc/meminfo").read_text().splitlines():
             if line.startswith("MemAvailable"):
@@ -59,8 +57,8 @@ def _avail_ram() -> int:
     except OSError:
         pass
     try:
-        return (os.sysconf("SC_AVPHYS_PAGES") * os.sysconf("SC_PAGE_SIZE"))
-    except (ValueError, OSError, AttributeError):
+        return os.sysconf("SC_AVPHYS_PAGES") * os.sysconf("SC_PAGE_SIZE")
+    except ValueError, OSError, AttributeError:
         return 2 << 30
 
 
@@ -69,12 +67,15 @@ def name(device: torch.device) -> str:
     if device.type == "cpu":
         return "cpu"
     try:
-        props = torch.cuda.get_device_properties(device) \
-            if device.type == "cuda" else None
-        return f"{device.type}:{device.index} {props.name}" \
-            if props else f"{device.type}:{device.index}"
+        props = torch.cuda.get_device_properties(device) if device.type == "cuda" else None
     except RuntimeError:
         return f"{device.type}:{device.index}"
+    else:
+        return (
+            f"{device.type}:{device.index} {props.name}"
+            if props
+            else f"{device.type}:{device.index}"
+        )
 
 
 def lanes(dtype: torch.dtype = DTYPE) -> list[torch.device]:
@@ -85,12 +86,10 @@ def lanes(dtype: torch.dtype = DTYPE) -> list[torch.device]:
     return devs
 
 
-def processor_workers(rows: int | None = None, *,
-                min_rows_per_shard: int = 64) -> int:
+def processor_workers(rows: int | None = None, *, min_rows_per_shard: int = 64) -> int:
     """Physical cores — torch kernels release the GIL, so threads scale
     on every build. Floored so shards stay bigger than coordination
     cost; the probe prunes the lane when reality disagrees."""
-    import sys
     cap = physical_cores()
     if rows is not None:
         cap = min(cap, max(1, rows // min_rows_per_shard))

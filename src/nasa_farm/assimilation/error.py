@@ -45,12 +45,13 @@ class Statistic:
         return None if e is None else e.diagonal().clamp(min=1e-12)
 
 
-def inflate(innovation: torch.Tensor, variance: torch.Tensor,
-         r: torch.Tensor | float) -> torch.Tensor:
+def inflate(
+    innovation: torch.Tensor, variance: torch.Tensor, r: torch.Tensor | float
+) -> torch.Tensor:
     """Adaptive observation-error inflation, per channel.
 
     innov (C,) = y − Hx̄_b; var_ens (C,) = ensemble variance of predicted
     obs; r (C,) or scalar baseline variance → inflated variance ≥ r.
     """
     r_t = torch.as_tensor(r, dtype=innovation.dtype, device=innovation.device)
-    return torch.maximum(r_t.expand_as(innovation), innovation ** 2 - variance)
+    return torch.maximum(r_t.expand_as(innovation), innovation**2 - variance)

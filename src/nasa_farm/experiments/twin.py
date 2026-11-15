@@ -24,8 +24,7 @@ def _channel(model, scenario, ch: str) -> torch.Tensor:
     i = METRICS.index(ch)
     f_held = scenario.held_out()
     r = f_held.batch
-    m = season_metrics(model, scenario.field.repeat(r), f_held,
-                       scenario.actions.repeat(r))
+    m = season_metrics(model, scenario.field.repeat(r), f_held, scenario.actions.repeat(r))
     return m[..., i].reshape(-1)
 
 
@@ -40,8 +39,6 @@ def run(specification: Specification) -> dict:
         t = _channel(scenario.truth, scenario, ch)
         s_p = score(_channel(scenario.prior, scenario, ch), t)
         s_c = score(_channel(cal, scenario, ch), t)
-        red = (100.0 * (s_p["rmse"] - s_c["rmse"]) / s_p["rmse"]
-               if s_p["rmse"] > 0 else 0.0)
-        output["channels"][ch] = {"prior": s_p, "cal": s_c,
-                               "rmse_reduction_pct": round(red, 2)}
+        red = 100.0 * (s_p["rmse"] - s_c["rmse"]) / s_p["rmse"] if s_p["rmse"] > 0 else 0.0
+        output["channels"][ch] = {"prior": s_p, "cal": s_c, "rmse_reduction_pct": round(red, 2)}
     return output

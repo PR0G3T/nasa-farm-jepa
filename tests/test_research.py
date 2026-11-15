@@ -5,20 +5,20 @@ TTT replay, learned-Q EnKF, Fisher design, SPW ensembles, Nash gap."""
 import pytest
 import torch
 
-from nasa_farm.constants import DTYPE
-from nasa_farm.dynamics.counterfactual import abduct, counterfactual
-from nasa_farm.dynamics.extra import EXTRAS, step_extra
-from nasa_farm.dynamics.latent import OPS, Factor, Dynamics
-from nasa_farm.optimize.embedding import dissimilarity
-from nasa_farm.dynamics.model import WorldModel
-from nasa_farm.dynamics.residual import N_FEATURES
-from nasa_farm.control import _quasi_newton, path_integral
-from nasa_farm.optimize.rotation import rotation
-from nasa_farm.optimize.identification import identify, library, thresholded
-from nasa_farm.optimize.replay import Replay
+from nasa_farm.allocation import evaluate_policies, nash_gap
 from nasa_farm.assimilation.design import fisher_design
 from nasa_farm.assimilation.kalman import Observation, assimilate
-from nasa_farm.allocation import evaluate_policies, nash_gap
+from nasa_farm.constants import DTYPE
+from nasa_farm.control import _quasi_newton, path_integral
+from nasa_farm.dynamics.counterfactual import abduct, counterfactual
+from nasa_farm.dynamics.extra import EXTRAS, step_extra
+from nasa_farm.dynamics.latent import OPS, Dynamics, Factor
+from nasa_farm.dynamics.model import WorldModel
+from nasa_farm.dynamics.residual import N_FEATURES
+from nasa_farm.optimize.embedding import dissimilarity
+from nasa_farm.optimize.identification import identify, library, thresholded
+from nasa_farm.optimize.replay import Replay
+from nasa_farm.optimize.rotation import rotation
 from nasa_farm.policy import Policy
 from nasa_farm.state.crops import CropLibrary
 from nasa_farm.state.field import Field, initial_state
@@ -29,17 +29,16 @@ from nasa_farm.uncertainty import spw_rollout
 
 def _field(batch: int = 1) -> Field:
     soil = SoilProfile.preset("silt_loam")
-    return Field(initial_state(batch, soil), soil,
-                 torch.full((batch,), 42.0, dtype=DTYPE))
+    return Field(initial_state(batch, soil), soil, torch.full((batch,), 42.0, dtype=DTYPE))
 
 
 def _fa(days: int = 365):
     from nasa_farm.forcing import synthetic_year, tile_to_horizon
     from nasa_farm.plan import expand_actions
+
     crops = CropLibrary.default()
     forcing = tile_to_horizon(synthetic_year(42.0, seed=0), 1)
-    actions = expand_actions(
-        torch.tensor([[crops.index("maize")]]), crops.table)
+    actions = expand_actions(torch.tensor([[crops.index("maize")]]), crops.table)
     return forcing, actions
 
 
@@ -60,33 +59,33 @@ class TestExtra:
         assert f2.state.biomass.shape == (1,)
 
     def test_heat_shock_fires_and_conserves(self):
-        m = WorldModel(residual=False, extra=("heat_shock",))
+        WorldModel(residual=False, extra=("heat_shock",))
         field = _field()
         s = field.state.replace(
             biomass=torch.tensor([5000.0], dtype=DTYPE),
             litter=torch.tensor([1000.0], dtype=DTYPE),
             lai=torch.tensor([3.0], dtype=DTYPE),
-            growing=torch.ones(1, dtype=torch.bool))
+            growing=torch.ones(1, dtype=torch.bool),
+        )
         f_d = {"tmax": torch.tensor([40.0], dtype=DTYPE)}
         s2 = EXTRAS["heat_shock"](s, field.soil, f_d, {}, {})
         assert float(s2.biomass) < float(s.biomass)
-        assert float(s2.litter - s.litter) == pytest.approx(
-            float(s.biomass - s2.biomass), abs=1e-9)
+        assert float(s2.litter - s.litter) == pytest.approx(float(s.biomass - s2.biomass), abs=1e-9)
         assert float(s2.lai) < float(s.lai)
 
     def test_truth_gap_in_step(self):
-        m0 = WorldModel(residual=False)
+        WorldModel(residual=False)
         m1 = WorldModel(residual=False, extra=("crust", "n_immob"))
         field = _field()
         s = field.state.replace(
             sw=torch.tensor([[400.0] * field.state.n_layers], dtype=DTYPE),
-            litter=torch.tensor([4000.0], dtype=DTYPE))
+            litter=torch.tensor([4000.0], dtype=DTYPE),
+        )
         f_d = {"precip": torch.tensor([40.0], dtype=DTYPE)}
         s2 = step_extra(m1.extra, s, field.soil, f_d, {}, {})
         assert float(s2.tws) > float(s.tws)
         assert float(s2.n_org) > float(s.n_org)
-        assert float(s2.sw[:, 0] + s2.tws - s.tws - s.sw[:, 0]) \
-            == pytest.approx(0.0, abs=1e-9)
+        assert float(s2.sw[:, 0] + s2.tws - s.tws - s.sw[:, 0]) == pytest.approx(0.0, abs=1e-9)
 
 
 class TestFactor:
@@ -108,12 +107,12 @@ class TestFactor:
         z = torch.zeros(1, forcing_day.dim, dtype=DTYPE)
         zh = torch.zeros(1, forcing_day.hidden_dimension, dtype=DTYPE)
         f_irrig = features.clone()
-        f_irrig[:, 11] = 5.0          # irrigation column
+        f_irrig[:, 11] = 5.0  # irrigation column
         z_a, _ = forcing_day(features, z, zh)
         z_b, _ = forcing_day(f_irrig, z, zh)
-        w_i, w_d = 0, forcing_day.part_dim     # water slot, bio slot
+        w_i, w_d = 0, forcing_day.part_dim  # water slot, bio slot
         d = (z_b - z_a).detach()
-        assert float(d[:, w_i:w_i + w_d].abs().sum()) > 0
+        assert float(d[:, w_i : w_i + w_d].abs().sum()) > 0
         assert float(d[:, w_d:].abs().sum()) == 0.0
 
     def test_relu_link_nonneg(self):
@@ -125,28 +124,36 @@ class TestFactor:
         assert bool((z >= 0).all())
 
     def test_model_integration(self):
-        m = WorldModel(residual=True, latent_dimension=2, latent_factors="ops",
-                       seed=0)
+        m = WorldModel(residual=True, latent_dimension=2, latent_factors="ops", seed=0)
         field = _field()
         s = field.state.replace(
             z=torch.zeros(1, m.latent.dim, dtype=DTYPE),
-            zh=torch.zeros(1, m.latent.hidden_dimension, dtype=DTYPE))
-        f2, _ = m.step(Field(s, field.soil, field.latitude),
-                       {"sow": torch.tensor([-1]), "irrigation": torch.zeros(1),
-                        "n_fert": torch.zeros(1)},
-                       {"tmin": torch.tensor([10.0]), "tmax": torch.tensor([20.0]),
-                        "doy": torch.tensor([100.0]), "srad": torch.tensor([15.0]),
-                        "rh": torch.tensor([60.0]), "u2": torch.tensor([2.0]),
-                        "precip": torch.zeros(1)})
+            zh=torch.zeros(1, m.latent.hidden_dimension, dtype=DTYPE),
+        )
+        f2, _ = m.step(
+            Field(s, field.soil, field.latitude),
+            {"sow": torch.tensor([-1]), "irrigation": torch.zeros(1), "n_fert": torch.zeros(1)},
+            {
+                "tmin": torch.tensor([10.0]),
+                "tmax": torch.tensor([20.0]),
+                "doy": torch.tensor([100.0]),
+                "srad": torch.tensor([15.0]),
+                "rh": torch.tensor([60.0]),
+                "u2": torch.tensor([2.0]),
+                "precip": torch.zeros(1),
+            },
+        )
         assert f2.state.z.shape == (1, m.latent.dim)
 
 
 class TestSparseDsreg:
     def test_rdmreg_prefers_rectified(self):
         generation = torch.Generator().manual_seed(0)
-        lap = torch.rand(512, 8, generator=generation, dtype=DTYPE).exponential_() \
+        lap = (
+            torch.rand(512, 8, generator=generation, dtype=DTYPE).exponential_()
             - torch.rand(512, 8, generator=generation, dtype=DTYPE).exponential_()
-        z_rect = torch.relu(lap)                    # target family: ReLU(GG)
+        )
+        z_rect = torch.relu(lap)  # target family: ReLU(GG)
         z_dense = torch.randn(512, 8, generator=generation, dtype=DTYPE)
         assert float(dissimilarity(z_rect, generation)) < float(dissimilarity(z_dense, generation))
 
@@ -157,12 +164,11 @@ class TestSparseDsreg:
         q, _ = torch.linalg.qr(torch.randn(d, d, dtype=DTYPE))
         h = z @ q
         x = torch.stack([z[:, 0], z[:, 1], z[:, 2], z[:, 0] * z[:, 1]], -1)
-        R, z_t, rep = rotation(h, x)
+        _R, z_t, _rep = rotation(h, x)
         corr = torch.zeros(d, d)
         for i in range(d):
             for j in range(d):
-                corr[i, j] = abs(float(torch.corrcoef(
-                    torch.stack([z_t[:, i], z[:, j]]))[0, 1]))
+                corr[i, j] = abs(float(torch.corrcoef(torch.stack([z_t[:, i], z[:, j]]))[0, 1]))
         assert float(corr.max(1).values.min()) > 0.9
 
 
@@ -172,7 +178,7 @@ class TestSindy:
         X = torch.randn(500, N_FEATURES, dtype=DTYPE)
         phi, names = library(X)
         j = names.index("sw0*lai")
-        y = 3.0 * phi[:, j:j + 1] + 0.5 * phi[:, 0:1]
+        y = 3.0 * phi[:, j : j + 1] + 0.5 * phi[:, 0:1]
         coef = thresholded(phi, y, threshold=0.05)
         top = set(torch.nonzero(coef[:, 0].abs() > 0).flatten().tolist())
         assert j in top and 0 in top and len(top) <= 3
@@ -184,8 +190,7 @@ class TestSindy:
         f, a = _fa(60)
         rep = identify(m, _field(), f, a)
         assert 0.0 <= rep["r2"] <= 1.0
-        assert set(rep["equations"]) == {"sw0", "swr", "n_min", "lai",
-                                         "biomass"}
+        assert set(rep["equations"]) == {"sw0", "swr", "n_min", "lai", "biomass"}
 
 
 class TestCF:
@@ -196,27 +201,26 @@ class TestCF:
         predicted = torch.ones(1, 6, 1, dtype=DTYPE)
         off = abduct(observed, predicted)
         assert float(off[0, 0]) == 0.0
-        assert float(off[0, 3]) == 9.0      # carried forward
+        assert float(off[0, 3]) == 9.0  # carried forward
         assert float(off[0, 5]) == 13.0
 
     def test_counterfactual_beats_naive(self):
         torch.manual_seed(0)
         from nasa_farm.observe.trace import ObservationTrace
         from nasa_farm.state.crops import INDEX
-        soil = SoilProfile.preset("sand")   # water-limited: irrigation bites
-        field = Field(initial_state(1, soil), soil,
-                    torch.tensor([42.0], dtype=DTYPE))
+
+        soil = SoilProfile.preset("sand")  # water-limited: irrigation bites
+        field = Field(initial_state(1, soil), soil, torch.tensor([42.0], dtype=DTYPE))
         f, a = _fa()
         truth = WorldModel(residual=False)
         m = WorldModel(residual=False)
-        with torch.no_grad():     # structural gap: half the radiation efficiency
+        with torch.no_grad():  # structural gap: half the radiation efficiency
             m.crop_table[:, INDEX["rue"]] *= 0.5
         traits = ObservationTrace(f.days, ("biomass",), 5)
         truth.rollout(field, f, a, observer=traits)
         observed = traits.result()
         pulse = ((torch.arange(f.days) % 10) == 0).to(DTYPE) * 15.0
-        alt = Actions(sow=a.sow, irrigation=a.irrigation + pulse,
-                      n_fert=a.n_fert)
+        alt = Actions(sow=a.sow, irrigation=a.irrigation + pulse, n_fert=a.n_fert)
         tr2 = ObservationTrace(f.days, ("biomass",), 5)
         truth.rollout(field, f, alt, observer=tr2)
         actual = tr2.result()
@@ -237,8 +241,18 @@ class TestControlOpt:
         f, a = _fa(120)
         f120 = _cut_f(f, 120)
         a120 = _cut_a(a, 120)
-        result = path_integral(m, _field(), f120, a120, iterations=2, samples=16,
-                   refine=5, refine_alg="lbfgs", gate_k=2.0, seed=0)
+        result = path_integral(
+            m,
+            _field(),
+            f120,
+            a120,
+            iterations=2,
+            samples=16,
+            refine=5,
+            refine_alg="lbfgs",
+            gate_k=2.0,
+            seed=0,
+        )
         assert result.actions.irrigation.shape[-1] == 120
 
 
@@ -273,15 +287,17 @@ class TestTTTUQ:
 class TestAssimNew:
     def test_learned_q_runs(self):
         m = WorldModel(residual=True, diffusion=True, seed=0)
-        field = Field(initial_state(8, SoilProfile.preset("silt_loam")),
-                    SoilProfile.preset("silt_loam").repeat(8),
-                    torch.full((8,), 42.0, dtype=DTYPE))
+        field = Field(
+            initial_state(8, SoilProfile.preset("silt_loam")),
+            SoilProfile.preset("silt_loam").repeat(8),
+            torch.full((8,), 42.0, dtype=DTYPE),
+        )
         f, a = _fa(60)
         f60 = _cut_f(f, 60).repeat(8)
         a60 = _cut_a(a, 60).repeat(8)
-        schedule = [Observation(t=30, channels=("ndvi",),
-                             values=torch.tensor([0.5], dtype=DTYPE),
-                             std=0.05)]
+        schedule = [
+            Observation(t=30, channels=("ndvi",), values=torch.tensor([0.5], dtype=DTYPE), std=0.05)
+        ]
         output = assimilate(m, field, f60, a60, schedule, learned_q=True)
         assert output.state.sw.shape[0] == 8
 
@@ -290,8 +306,9 @@ class TestAssimNew:
         f, a = _fa(120)
         f120 = _cut_f(f, 120)
         a120 = _cut_a(a, 120)
-        ranked = fisher_design(m, _field(), f120, a120, ("rue",),
-                               days=(10, 80), channels=("ndvi",), eps=0.1)
+        ranked = fisher_design(
+            m, _field(), f120, a120, ("rue",), days=(10, 80), channels=("ndvi",), eps=0.1
+        )
         assert ranked and ranked[0][1] == "ndvi"
 
 
@@ -299,8 +316,7 @@ class TestMarl:
     def test_nash_gap_shape(self):
         m = WorldModel(residual=False)
         soil = SoilProfile.preset("loam").repeat(3)
-        field = Field(initial_state(3, soil), soil,
-                    torch.full((3,), 42.0, dtype=DTYPE))
+        field = Field(initial_state(3, soil), soil, torch.full((3,), 42.0, dtype=DTYPE))
         f, _ = _fa(60)
         f60 = _cut_f(f, 60).repeat(3)
         a60 = Actions.idle(3, 60)
@@ -314,13 +330,14 @@ class TestMarl:
 class TestExpNew:
     def test_registry(self):
         from nasa_farm.experiments import experiments
+
         for n in ("cf", "discover", "scale"):
             assert n in experiments()
 
     def test_cf_experiment(self):
         from nasa_farm.experiments import run
         from nasa_farm.experiments.specification import Specification as S
-        rep = run("cf", S(horizon=1, cadence=10, noise=0.0,
-                          realizations=1))
+
+        rep = run("cf", S(horizon=1, cadence=10, noise=0.0, realizations=1))
         ch = rep.results["channels"]["ndvi"]
         assert "improvement_pct" in ch

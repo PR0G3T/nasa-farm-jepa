@@ -31,14 +31,21 @@ def cap_budget(action_d: dict, budget: float) -> dict:
     return {**action_d, "irrigation": irrigation * scale}
 
 
-def fit_allocation(model, field: Field, forcing: Forcing, base: Actions,
-             policies: list[Policy] | None = None,
-             budget: float = 15.0, price: float = 0.05,
-             cooperative: bool = True,
-             weights: dict[str, float] | None = None,
-             epochs: int = 40, rate: float = 3e-3,
-             u_scale: float = 1.0,
-             seed: int = 0) -> tuple[list[Policy], dict]:
+def fit_allocation(
+    model,
+    field: Field,
+    forcing: Forcing,
+    base: Actions,
+    policies: list[Policy] | None = None,
+    budget: float = 15.0,
+    price: float = 0.05,
+    cooperative: bool = True,
+    weights: dict[str, float] | None = None,
+    epochs: int = 40,
+    rate: float = 3e-3,
+    u_scale: float = 1.0,
+    seed: int = 0,
+) -> tuple[list[Policy], dict]:
     """APG training of B policies through the coupled differentiable rollout.
 
     Returns (policies, report): report carries the team reward, per-agent
@@ -46,7 +53,7 @@ def fit_allocation(model, field: Field, forcing: Forcing, base: Actions,
     gap in competitive mode."""
     b, days = field.batch, forcing.days
     if forcing.batch == 1 and b > 1:
-        forcing = forcing.repeat(b)          # shared weather, one row/agent
+        forcing = forcing.repeat(b)  # shared weather, one row/agent
     policies = policies or [Policy() for _ in range(b)]
     if len(policies) != b:
         raise ValueError(f"{len(policies)} policies for {b} agents")
@@ -65,14 +72,12 @@ def fit_allocation(model, field: Field, forcing: Forcing, base: Actions,
         for t in range(days):
             action = base.day(t)
             features = _day_feats(model, field.state, forcing.day(t), action)
-            u = torch.cat([policies[i](features[i:i + 1])
-                           for i in range(b)]) * u_scale
-            action = cap_budget({**action, "irrigation": u[:, 0],
-                             "n_fert": u[:, 1]}, budget)
+            u = torch.cat([policies[i](features[i : i + 1]) for i in range(b)]) * u_scale
+            action = cap_budget({**action, "irrigation": u[:, 0], "n_fert": u[:, 1]}, budget)
             used = used + action["irrigation"]
             field, fluxes = model.step(field, action, forcing.day(t), t)
             accumulate(t, field.state, fluxes)
-        m = accumulate.result().unsqueeze(1)            # (B, 1, H, M)
+        m = accumulate.result().unsqueeze(1)  # (B, 1, H, M)
         r = metric_reward(m, weights) - price * used
         loss = -(r.mean() if cooperative else r.sum() / b)
         if not torch.isfinite(loss):
@@ -82,19 +87,27 @@ def fit_allocation(model, field: Field, forcing: Forcing, base: Actions,
         opt.step()
         history.append(float(r.mean().detach()))
 
-    rep = {"team_reward": round(history[-1], 4) if history else float("nan"),
-           "agent_rewards": [round(v, 4) for v in r.detach().tolist()],
-           "water_used_mm": [round(v, 2) for v in used.detach().tolist()],
-           "reward_spread": round(float(r.detach().std()), 4),
-           "history": history}
+    rep = {
+        "team_reward": round(history[-1], 4) if history else float("nan"),
+        "agent_rewards": [round(v, 4) for v in r.detach().tolist()],
+        "water_used_mm": [round(v, 2) for v in used.detach().tolist()],
+        "reward_spread": round(float(r.detach().std()), 4),
+        "history": history,
+    }
     return policies, rep
 
 
-def evaluate_policies(model, field: Field, forcing: Forcing, base: Actions,
-                  policies: list, budget: float = 15.0, price: float = 0.05,
-                  weights: dict[str, float] | None = None,
-                  u_scale: float = 1.0,
-                  ) -> tuple[torch.Tensor, torch.Tensor]:
+def evaluate_policies(
+    model,
+    field: Field,
+    forcing: Forcing,
+    base: Actions,
+    policies: list,
+    budget: float = 15.0,
+    price: float = 0.05,
+    weights: dict[str, float] | None = None,
+    u_scale: float = 1.0,
+) -> tuple[torch.Tensor, torch.Tensor]:
     """Roll the coupled system under fixed policies → (per-agent reward,
     per-agent water used). Inference-only mirror of the fit_marl loop."""
     b, days = field.batch, forcing.days
@@ -107,10 +120,8 @@ def evaluate_policies(model, field: Field, forcing: Forcing, base: Actions,
         for t in range(days):
             action = base.day(t)
             features = _day_feats(model, field.state, forcing.day(t), action)
-            u = torch.cat([policies[i](features[i:i + 1])
-                           for i in range(b)]) * u_scale
-            action = cap_budget({**action, "irrigation": u[:, 0],
-                             "n_fert": u[:, 1]}, budget)
+            u = torch.cat([policies[i](features[i : i + 1]) for i in range(b)]) * u_scale
+            action = cap_budget({**action, "irrigation": u[:, 0], "n_fert": u[:, 1]}, budget)
             used = used + action["irrigation"]
             field, fluxes = model.step(field, action, forcing.day(t), t)
             accumulate(t, field.state, fluxes)
@@ -118,31 +129,40 @@ def evaluate_policies(model, field: Field, forcing: Forcing, base: Actions,
     return metric_reward(m, weights) - price * used, used
 
 
-def nash_gap(model, field: Field, forcing: Forcing, base: Actions,
-             policies: list, budget: float = 15.0, price: float = 0.05,
-             levels: tuple[float, ...] = (0.0, 5.0, 10.0, 20.0, 30.0),
-             weights: dict[str, float] | None = None,
-             u_scale: float = 1.0) -> dict:
+def nash_gap(
+    model,
+    field: Field,
+    forcing: Forcing,
+    base: Actions,
+    policies: list,
+    budget: float = 15.0,
+    price: float = 0.05,
+    levels: tuple[float, ...] = (0.0, 5.0, 10.0, 20.0, 30.0),
+    weights: dict[str, float] | None = None,
+    u_scale: float = 1.0,
+) -> dict:
     """Per-agent best-response regret under the shared budget.
 
     For each agent, every constant irrigation level is substituted for its
     policy output (others held fixed); the gap between the best response
     and the achieved reward quantifies distance from Nash equilibrium.
     """
-    r, _ = evaluate_policies(model, field, forcing, base, policies, budget,
-                         price, weights, u_scale)
+    r, _ = evaluate_policies(model, field, forcing, base, policies, budget, price, weights, u_scale)
     gaps = []
     for i in range(field.batch):
         best = float(r[i])
         for u in levels:
+
             def policy(f, _p=policies[i], _u=u):
                 output = _p(f).clone()
                 output[:, 0] = _u
                 return output
+
             alt = list(policies)
             alt[i] = policy
-            ri, _ = evaluate_policies(model, field, forcing, base, alt, budget,
-                                  price, weights, u_scale)
+            ri, _ = evaluate_policies(
+                model, field, forcing, base, alt, budget, price, weights, u_scale
+            )
             best = max(best, float(ri[i]))
         gaps.append(round(best - float(r[i]), 4))
     return {"nash_gap": gaps, "mean_gap": round(sum(gaps) / len(gaps), 4)}

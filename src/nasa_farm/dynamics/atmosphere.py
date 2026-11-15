@@ -22,8 +22,10 @@ def extraterrestrial_radiation(lat_deg: torch.Tensor, doy: torch.Tensor) -> torc
         (24.0 * 60.0 / math.pi)
         * SOLAR_CONSTANT_MJ_M2_MIN
         * dr
-        * (ws * torch.sin(latitude) * torch.sin(decl)
-           + torch.cos(latitude) * torch.cos(decl) * torch.sin(ws))
+        * (
+            ws * torch.sin(latitude) * torch.sin(decl)
+            + torch.cos(latitude) * torch.cos(decl) * torch.sin(ws)
+        )
     )
 
 
@@ -67,8 +69,13 @@ def et0_penman_monteith(
     rns = 0.77 * srad
     rso = (0.75 + 2e-5 * elev_m) * ra
     cloud = torch.clamp(1.35 * srad / torch.clamp(rso, min=1.0) - 0.35, 0.0, 1.0)
-    rnl = STEFAN_BOLTZMANN * 0.5 * ((tmin + 273.16) ** 4 + (tmax + 273.16) ** 4) \
-        * (0.34 - 0.14 * torch.sqrt(torch.clamp(ea, min=0.0))) * cloud
+    rnl = (
+        STEFAN_BOLTZMANN
+        * 0.5
+        * ((tmin + 273.16) ** 4 + (tmax + 273.16) ** 4)
+        * (0.34 - 0.14 * torch.sqrt(torch.clamp(ea, min=0.0)))
+        * cloud
+    )
     rn = rns - rnl
 
     number = 0.408 * delta * rn + gamma * (900.0 / (tmean + 273.0)) * u2 * (es - ea)
@@ -92,14 +99,17 @@ def day_length(lat_deg: torch.Tensor, doy: torch.Tensor) -> torch.Tensor:
     return torch.clamp(24.0 / math.pi * ws, 0.0, 24.0)
 
 
-def growing_degree_days(tmin: torch.Tensor, tmax: torch.Tensor, tbase: torch.Tensor) -> torch.Tensor:
+def growing_degree_days(
+    tmin: torch.Tensor, tmax: torch.Tensor, tbase: torch.Tensor
+) -> torch.Tensor:
     """Daily GDD contribution (°C·d)."""
     tmean = 0.5 * (tmin + tmax)
     return torch.clamp(tmean - tbase, min=0.0)
 
 
-def temperature_factor(tmin: torch.Tensor, tmax: torch.Tensor,
-                       tbase: torch.Tensor, topt: torch.Tensor) -> torch.Tensor:
+def temperature_factor(
+    tmin: torch.Tensor, tmax: torch.Tensor, tbase: torch.Tensor, topt: torch.Tensor
+) -> torch.Tensor:
     """Asymmetric trapezoid growth response ∈ [0,1].
 
     Rises linearly tbase→(topt−6), stays 1 until 34 °C, declines to 0 at 45 °C.
@@ -108,7 +118,6 @@ def temperature_factor(tmin: torch.Tensor, tmax: torch.Tensor,
     # Plateau reached at topt−6: C4 crops are near-optimal well below their
     # nominal optimum, matching documented growth response curves.
     plateau = topt - 6.0
-    rise = torch.clamp((tmean - tbase) / torch.clamp(plateau - tbase, min=1.0),
-                       0.0, 1.0)
+    rise = torch.clamp((tmean - tbase) / torch.clamp(plateau - tbase, min=1.0), 0.0, 1.0)
     fall = torch.clamp((45.0 - tmean) / (45.0 - 34.0), 0.0, 1.0)
     return rise * fall

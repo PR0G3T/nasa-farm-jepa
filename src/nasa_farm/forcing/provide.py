@@ -22,19 +22,23 @@ def register(name: str, function: Callable[..., Forcing]) -> None:
 def _power(latitude, longitude, years, horizon, members, seed, history=None, **keywords) -> Forcing:
     if history is None:
         from nasa_farm.acquire.power import Power
+
         history = Power().forcing_years(latitude, longitude, list(years))
     from nasa_farm.forcing.base import climatology_ensemble
+
     return climatology_ensemble(list(history), horizon)
 
 
 def _synthetic(latitude, longitude, years, horizon, members, seed, **keywords) -> Forcing:
     from nasa_farm.forcing.base import augment, synthetic_year, tile_to_horizon
+
     base = tile_to_horizon(synthetic_year(latitude, seed=seed), horizon)
     return augment(base, members - 1, seed=seed)
 
 
-def _forecast(fc: Forcing, latitude, longitude, years, horizon, members, seed,
-          history=None, correct=True) -> Forcing:
+def _forecast(
+    fc: Forcing, latitude, longitude, years, horizon, members, seed, history=None, correct=True
+) -> Forcing:
     """Operational-ensemble postprocessing shared by the live providers:
     EnsBC calibration against the doy-aligned historical pool, then analog
     bridging out to the full rotation horizon."""
@@ -45,41 +49,68 @@ def _forecast(fc: Forcing, latitude, longitude, years, horizon, members, seed,
     from nasa_farm.forcing.bias import apply_correction, fit_correction
     from nasa_farm.forcing.seam import bridge, roll_to_ordinal, span
     from nasa_farm.types import FORCING_VARS
+
     if history is None:
-        history = ([synthetic_year(latitude, seed=seed)] if not years else
-                _history(latitude, longitude, years))
+        history = (
+            [synthetic_year(latitude, seed=seed)]
+            if not years
+            else _history(latitude, longitude, years)
+        )
     start, fspan = int(fc.doy[0, 0]), min(fc.days, DAYS_PER_YEAR)
     if correct:
-        refs = Forcing(*(torch.cat([getattr(
-            span(roll_to_ordinal(y, start), 0, fspan), k)
-            for y in history], 0) for k in FORCING_VARS))
+        refs = Forcing(
+            *(
+                torch.cat(
+                    [getattr(span(roll_to_ordinal(y, start), 0, fspan), k) for y in history], 0
+                )
+                for k in FORCING_VARS
+            )
+        )
         head = apply_correction(span(fc, 0, fspan), fit_correction(span(fc, 0, fspan), refs))
-        fc = head if fc.days == fspan else Forcing(*(torch.cat(
-            [getattr(head, k), getattr(fc, k)[:, fspan:]], -1)
-            for k in FORCING_VARS))
+        fc = (
+            head
+            if fc.days == fspan
+            else Forcing(
+                *(
+                    torch.cat([getattr(head, k), getattr(fc, k)[:, fspan:]], -1)
+                    for k in FORCING_VARS
+                )
+            )
+        )
     return bridge(fc, history, horizon * DAYS_PER_YEAR, seed=seed)
 
 
 def _history(latitude, longitude, years) -> list[Forcing]:
     from nasa_farm.acquire.power import Power
+
     return Power().forcing_years(latitude, longitude, list(years))
 
 
-def _ens(latitude, longitude, years, horizon, members, seed, model="ecmwf_ifs025",
-         client=None, **keywords) -> Forcing:
+def _ens(
+    latitude,
+    longitude,
+    years,
+    horizon,
+    members,
+    seed,
+    model="ecmwf_ifs025",
+    client=None,
+    **keywords,
+) -> Forcing:
     """Key-free IFS ENS via Open-Meteo — ~15-day operational members."""
     from nasa_farm.acquire.openmeteo import OpenMeteo
-    fc = (client or OpenMeteo()).ensemble(latitude, longitude, model=model,
-                                          members=members or 51)
+
+    fc = (client or OpenMeteo()).ensemble(latitude, longitude, model=model, members=members or 51)
     return _forecast(fc, latitude, longitude, years, horizon, members, seed, **keywords)
 
 
-def _seas5(latitude, longitude, years, horizon, members, seed, model="ecmwf_seas5",
-           client=None, **keywords) -> Forcing:
+def _seas5(
+    latitude, longitude, years, horizon, members, seed, model="ecmwf_seas5", client=None, **keywords
+) -> Forcing:
     """Key-free ECMWF SEAS5/EC46 via Open-Meteo — ~7-month members."""
     from nasa_farm.acquire.openmeteo import OpenMeteo
-    fc = (client or OpenMeteo()).seas5(latitude, longitude, model=model,
-                                           members=members or 51)
+
+    fc = (client or OpenMeteo()).seas5(latitude, longitude, model=model, members=members or 51)
     return _forecast(fc, latitude, longitude, years, horizon, members, seed, **keywords)
 
 
@@ -87,12 +118,23 @@ def _gen(latitude, longitude, years, horizon, members, seed, model=None, **keywo
     if model is None:
         raise ValueError("source='gen' requires model=<WxGen>")
     from nasa_farm.forcing.generation import sample
+
     return sample(model, horizon * 365, members, seed=seed, **keywords)
 
 
-def _engine_daily(latitude, longitude, years, horizon, members, seed, *,
-              collection: str, bands: dict[str, str],
-              member_band: str | None = None, **_kw) -> Forcing:
+def _engine_daily(
+    latitude,
+    longitude,
+    years,
+    horizon,
+    members,
+    seed,
+    *,
+    collection: str,
+    bands: dict[str, str],
+    member_band: str | None = None,
+    **_kw,
+) -> Forcing:
     """EE forecast-ensemble collection → daily Forcing at a point.
 
     `bands` maps forcing names to collection band names; `member_band`
@@ -101,12 +143,14 @@ def _engine_daily(latitude, longitude, years, horizon, members, seed, *,
     centroid. Requires the `gee` extra and an authenticated EE session.
     """
     import importlib
+
     ee = importlib.import_module("ee")
     ee.Initialize()
     pt = ee.Geometry.Point([longitude, latitude])
     coll = ee.ImageCollection(collection).select(*bands.values())
-    start, end = ((f"{years[0]}-01-01", f"{years[-1] + 1}-01-01")
-                  if years else ("2000-01-01", "2100-01-01"))
+    start, end = (
+        (f"{years[0]}-01-01", f"{years[-1] + 1}-01-01") if years else ("2000-01-01", "2100-01-01")
+    )
     imgs = coll.filterDate(start, end).filterBounds(pt)
     rows = []
     for feature in imgs.limit(1024).getInfo()["features"]:
@@ -124,50 +168,85 @@ def _engine_daily(latitude, longitude, years, horizon, members, seed, *,
     memory = sorted(by_member.values(), key=lambda d: -len(d["tmin"]))[:members]
     t = min(len(m[k2]) for m in memory for k2 in bands)
     import torch
-    ch = {k: torch.stack([torch.as_tensor(m[k][:t]) for m in memory]).to(
-        torch.float64) for k in bands}
+
+    ch = {
+        k: torch.stack([torch.as_tensor(m[k][:t]) for m in memory]).to(torch.float64) for k in bands
+    }
     doy = (torch.arange(t, dtype=torch.float64) % 365 + 1).expand(len(memory), -1)
-    return Forcing(tmin=ch["tmin"], tmax=ch["tmax"], srad=ch["srad"],
-                   precip=ch["precip"], rh=ch["rh"], u2=ch["u2"], doy=doy)
+    return Forcing(
+        tmin=ch["tmin"],
+        tmax=ch["tmax"],
+        srad=ch["srad"],
+        precip=ch["precip"],
+        rh=ch["rh"],
+        u2=ch["u2"],
+        doy=doy,
+    )
 
 
 def _wn3(latitude, longitude, years, horizon, members, seed, **keywords) -> Forcing:
     """WeatherNext 3 ensemble via Earth Engine (hourly → caller-side daily
     aggregation is already handled by `bands` daily means)."""
     return _engine_daily(
-        latitude, longitude, years, horizon, members, seed,
-        collection=keywords.pop("collection",
-                          "GOOGLE/WEATHER_NEXT_3/ENSEMBLE/DAILY"),
-        bands={"tmin": "temperature_2m_min", "tmax": "temperature_2m_max",
-               "srad": "surface_solar_radiation_downwards_sum",
-               "precip": "total_precipitation_sum",
-               "rh": "relative_humidity_2m_mean",
-               "u2": "wind_speed_10m_mean"},
-        member_band="ensemble_member", **keywords)
+        latitude,
+        longitude,
+        years,
+        horizon,
+        members,
+        seed,
+        collection=keywords.pop("collection", "GOOGLE/WEATHER_NEXT_3/ENSEMBLE/DAILY"),
+        bands={
+            "tmin": "temperature_2m_min",
+            "tmax": "temperature_2m_max",
+            "srad": "surface_solar_radiation_downwards_sum",
+            "precip": "total_precipitation_sum",
+            "rh": "relative_humidity_2m_mean",
+            "u2": "wind_speed_10m_mean",
+        },
+        member_band="ensemble_member",
+        **keywords,
+    )
 
 
 def _aifs(latitude, longitude, years, horizon, members, seed, **keywords) -> Forcing:
     """ECMWF AIFS-ENS open-data daily ensemble via Earth Engine."""
     return _engine_daily(
-        latitude, longitude, years, horizon, members, seed,
+        latitude,
+        longitude,
+        years,
+        horizon,
+        members,
+        seed,
         collection=keywords.pop("collection", "ECMWF/AIFS_ENS/DAILY"),
-        bands={"tmin": "2m_temperature_min", "tmax": "2m_temperature_max",
-               "srad": "surface_net_solar_radiation_sum",
-               "precip": "total_precipitation",
-               "rh": "relative_humidity_2m",
-               "u2": "10m_wind_speed"},
-        member_band="number", **keywords)
+        bands={
+            "tmin": "2m_temperature_min",
+            "tmax": "2m_temperature_max",
+            "srad": "surface_net_solar_radiation_sum",
+            "precip": "total_precipitation",
+            "rh": "relative_humidity_2m",
+            "u2": "10m_wind_speed",
+        },
+        member_band="number",
+        **keywords,
+    )
 
 
 def _file(latitude, longitude, years, horizon, members, seed, path=None, **keywords) -> Forcing:
     """xarray dataset → Forcing. Variables named per FORCING_VARS on a
     (member, day) layout; extra dims are averaged out."""
     import xarray as xarray
+
     ds = xarray.open_dataset(path)
-    get = lambda k: (ds[k].values.reshape(-1, ds[k].sizes["day"])
-                     if "day" in ds[k].sizes else ds[k].values)
+
+    def get(k):
+        return (
+            ds[k].values.reshape(-1, ds[k].sizes["day"]) if "day" in ds[k].sizes else ds[k].values
+        )
+
     import torch
+
     from nasa_farm.types import FORCING_VARS
+
     return Forcing(*(torch.as_tensor(get(k)) for k in FORCING_VARS))
 
 
@@ -181,11 +260,17 @@ register("ens", _ens)
 register("seas5", _seas5)
 
 
-def ensemble(source: str = "power", latitude: float = 0.0, longitude: float = 0.0,
-             years: tuple[int, ...] = (), horizon: int = 1, members: int = 8,
-             seed: int = 0, **keywords) -> Forcing:
+def ensemble(
+    source: str = "power",
+    latitude: float = 0.0,
+    longitude: float = 0.0,
+    years: tuple[int, ...] = (),
+    horizon: int = 1,
+    members: int = 8,
+    seed: int = 0,
+    **keywords,
+) -> Forcing:
     """Dispatch to a registered forcing provider."""
     if source not in _PROVIDERS:
-        raise KeyError(
-            f"unknown forcing source {source!r}; have {sorted(_PROVIDERS)}")
+        raise KeyError(f"unknown forcing source {source!r}; have {sorted(_PROVIDERS)}")
     return _PROVIDERS[source](latitude, longitude, years, horizon, members, seed, **keywords)

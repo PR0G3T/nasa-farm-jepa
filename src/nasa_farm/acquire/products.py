@@ -11,24 +11,36 @@ materialize, keeping memory minimal.
 
 from __future__ import annotations
 
-lazy import ee
-
 import urllib.parse
 import urllib.request
 from dataclasses import dataclass, field
 from typing import Any
 
-import numpy as numpy
+import numpy as np
 import xarray as xarray
+lazy import ee
 
 from nasa_farm.acquire.base import Bounds, Temporal
 from nasa_farm.acquire.earthdata import (
-    ECOSTRESS_MET, ECOSTRESS_SEB, NISAR_SME, SMAP_L4, Earthdata,
+    ECOSTRESS_MET,
+    ECOSTRESS_SEB,
+    NISAR_SME,
+    SMAP_L4,
+    Earthdata,
     granule_day,
 )
 from nasa_farm.acquire.quality import FLAG_QC, SMAP_QC, Quality
 from nasa_farm.acquire.support import (
-    at as _at, coverage as _cov, prep as _prep, sample as _smp,
+    at as _at,
+)
+from nasa_farm.acquire.support import (
+    coverage as _cov,
+)
+from nasa_farm.acquire.support import (
+    prep as _prep,
+)
+from nasa_farm.acquire.support import (
+    sample as _smp,
 )
 
 WORLD = (-180.0, -90.0, 180.0, 90.0)
@@ -60,9 +72,9 @@ class Specification:
     def _conf(self, ds: xarray.Dataset):
         return self.quality.mask(ds) if self.quality else None
 
-    def prep(self, ds: xarray.Dataset,
-             bbox: tuple[float, float, float, float] | None = None
-             ) -> tuple | None:
+    def prep(
+        self, ds: xarray.Dataset, bbox: tuple[float, float, float, float] | None = None
+    ) -> tuple | None:
         """Materialized grid for this product — one read, many points.
         `bbox` crops the read to the local window (footprint margin must
         already be folded in by the caller); the QA band is sliced with
@@ -70,15 +82,15 @@ class Specification:
         if (v := self.variable(ds)) is None:
             return None
         band = self.quality.band(ds) if self.quality else None
-        values, glat, glon, raw = _prep(
-            ds, v, ds[band] if band else None, bbox)
-        conf = None if raw is None or self.quality is None \
-            else numpy.asarray(
-                self.quality.to_conf(raw), numpy.float64)
+        values, glat, glon, raw = _prep(ds, v, ds[band] if band else None, bbox)
+        conf = (
+            None
+            if raw is None or self.quality is None
+            else np.asarray(self.quality.to_conf(raw), np.float64)
+        )
         return values, glat, glon, conf
 
-    def at(self, grid: tuple, latitude: float, longitude: float
-           ) -> tuple[float, float]:
+    def at(self, grid: tuple, latitude: float, longitude: float) -> tuple[float, float]:
         """(footprint-weighted value, coverage) on a `prep` grid."""
         return _at(grid, latitude, longitude, self.radius_km)
 
@@ -99,19 +111,40 @@ class Specification:
         return granule_day(ds.attrs.get("granule_id", ""))
 
 
-SMAP_SM = Specification(SMAP_L4, observed="sm", variables=("soil_moisture",),
-               radius_km=18.0, quality=SMAP_QC, workers=12)
-NISAR_SM = Specification(NISAR_SME, observed="sme2", radius_km=0.2, quality=FLAG_QC,
-                variables=("soil_moisture", "soilMoisture", "soil_moisture_pmi",
-                      "PMI", "DSG", "TSR"),
-                span=("2025-06-01", "2030-01-01"))
-ECO_ET = Specification(ECOSTRESS_SEB, observed="et", variables=("ETdaily", "EVAPOTRANSPIRATION"),
-              radius_km=0.5, quality=FLAG_QC, span=("2018-07-01", "2030-01-01"))
-ECO_LST = Specification(ECOSTRESS_MET, observed="lst", variables=("LST", "LST_Day", "LST_Night"),
-               radius_km=0.5, quality=FLAG_QC, span=("2018-07-01", "2030-01-01"))
+SMAP_SM = Specification(
+    SMAP_L4,
+    observed="sm",
+    variables=("soil_moisture",),
+    radius_km=18.0,
+    quality=SMAP_QC,
+    workers=12,
+)
+NISAR_SM = Specification(
+    NISAR_SME,
+    observed="sme2",
+    radius_km=0.2,
+    quality=FLAG_QC,
+    variables=("soil_moisture", "soilMoisture", "soil_moisture_pmi", "PMI", "DSG", "TSR"),
+    span=("2025-06-01", "2030-01-01"),
+)
+ECO_ET = Specification(
+    ECOSTRESS_SEB,
+    observed="et",
+    variables=("ETdaily", "EVAPOTRANSPIRATION"),
+    radius_km=0.5,
+    quality=FLAG_QC,
+    span=("2018-07-01", "2030-01-01"),
+)
+ECO_LST = Specification(
+    ECOSTRESS_MET,
+    observed="lst",
+    variables=("LST", "LST_Day", "LST_Night"),
+    radius_km=0.5,
+    quality=FLAG_QC,
+    span=("2018-07-01", "2030-01-01"),
+)
 
-SPECS = {"smap": SMAP_SM, "nisar": NISAR_SM,
-         "ecostress-seb": ECO_ET, "ecostress-met": ECO_LST}
+SPECS = {"smap": SMAP_SM, "nisar": NISAR_SM, "ecostress-seb": ECO_ET, "ecostress-met": ECO_LST}
 
 
 @dataclass(frozen=True, slots=True)
@@ -123,23 +156,32 @@ class EarthEngine:
     name: str = "gee"
     requires_auth: bool = True
 
-    def fetch(self, area: Bounds | None, temporal: Temporal, *,
-              count: int = 10) -> list[dict[str, Any]]:
+    def fetch(
+        self, area: Bounds | None, temporal: Temporal, *, count: int = 10
+    ) -> list[dict[str, Any]]:
         ee.Initialize()
-        coll = ee.ImageCollection(self.collection).select(*self.bands) \
-            .filterDate(temporal.start, temporal.end).limit(count)
+        coll = (
+            ee.ImageCollection(self.collection)
+            .select(*self.bands)
+            .filterDate(temporal.start, temporal.end)
+            .limit(count)
+        )
         if area is not None:
             coll = coll.filterBounds(ee.Geometry.Bounds(*area.as_tuple()))
         return coll.getInfo()["features"]
 
 
-WORLDCEREAL = EarthEngine("ESA/WorldCereal/2021_MARKERS_v100",
-                        ("classification",), name="worldcereal-cropmask")
-ALPHA_EARTH = EarthEngine("GOOGLE/SATELLITE_EMBEDDING/V1/ANNUAL",
-                        tuple(f"A{i:02d}" for i in range(64)),
-                        name="alphaearth-embeddings")
-FTW = EarthEngine("projects/sat-io/open-datasets/FTW/field_boundaries",
-                ("b1",), name="ftw-boundaries")
+WORLDCEREAL = EarthEngine(
+    "ESA/WorldCereal/2021_MARKERS_v100", ("classification",), name="worldcereal-cropmask"
+)
+ALPHA_EARTH = EarthEngine(
+    "GOOGLE/SATELLITE_EMBEDDING/V1/ANNUAL",
+    tuple(f"A{i:02d}" for i in range(64)),
+    name="alphaearth-embeddings",
+)
+FTW = EarthEngine(
+    "projects/sat-io/open-datasets/FTW/field_boundaries", ("b1",), name="ftw-boundaries"
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -154,20 +196,39 @@ class OpenET:
 
     def _get(self, path: str, parameters: dict[str, Any]) -> Any:
         import json
+
         q = urllib.parse.urlencode(parameters)
-        request = urllib.request.Request(f"{self.base_url}/{path}?{q}",
-                                     headers={"Authorization": self.api_key or ""})
+        request = urllib.request.Request(
+            f"{self.base_url}/{path}?{q}", headers={"Authorization": self.api_key or ""}
+        )
         with urllib.request.urlopen(request, timeout=30) as r:
             return json.load(r)
 
-    def fetch(self, area: Bounds | None, temporal: Temporal, *,
-              model: str = "Ensemble", variable: str = "ET",
-              interval: str = "daily", units: str = "mm",
-              **keywords: Any) -> Any:
+    def fetch(
+        self,
+        area: Bounds | None,
+        temporal: Temporal,
+        *,
+        model: str = "Ensemble",
+        variable: str = "ET",
+        interval: str = "daily",
+        units: str = "mm",
+        **keywords: Any,
+    ) -> Any:
         if area is None:
             raise ValueError("OpenET point queries require a bbox centroid")
         longitude, latitude = (area.west + area.east) / 2, (area.south + area.north) / 2
-        return self._get("raster/timeseries/point", {
-            "lon": longitude, "lat": latitude, "model": model, "variable": variable,
-            "start_date": temporal.start, "end_date": temporal.end,
-            "interval": interval, "units": units, **keywords})
+        return self._get(
+            "raster/timeseries/point",
+            {
+                "lon": longitude,
+                "lat": latitude,
+                "model": model,
+                "variable": variable,
+                "start_date": temporal.start,
+                "end_date": temporal.end,
+                "interval": interval,
+                "units": units,
+                **keywords,
+            },
+        )

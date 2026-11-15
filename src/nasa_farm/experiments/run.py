@@ -31,9 +31,11 @@ _REGISTRY: dict[str, Callable[[Specification], dict]] = {}
 
 def register(name: str):
     """`@register("name")` on a `Spec → dict` experiment runner."""
+
     def deco(function: Callable[[Specification], dict]) -> Callable[[Specification], dict]:
         _REGISTRY[name] = function
         return function
+
     return deco
 
 
@@ -56,11 +58,12 @@ class Report:
         return p
 
     @classmethod
-    def load(cls, path: str | Path) -> "Report":
+    def load(cls, path: str | Path) -> Report:
         return cls(**json.loads(Path(path).read_text()))
 
     def flat(self) -> Iterator[tuple[str, object]]:
         """Dotted-key leaves of the results tree (scalars only)."""
+
         def walk(d: dict, pre: str) -> Iterator[tuple[str, object]]:
             for k, v in d.items():
                 key = f"{pre}.{k}" if pre else str(k)
@@ -68,13 +71,19 @@ class Report:
                     yield from walk(v, key)
                 elif not isinstance(v, list) and v is not None:
                     yield key, v
+
         yield from walk(self.results, "")
 
     def latex(self) -> str:
         """Booktabs rows of every scalar result — paste into a longtable."""
-        rows = ["\\begin{longtable}{lr}", "\\toprule",
-                "Metric & Value \\\\", "\\midrule", "\\endfirsthead",
-                "\\toprule Metric & Value \\\\ \\midrule \\endhead"]
+        rows = [
+            "\\begin{longtable}{lr}",
+            "\\toprule",
+            "Metric & Value \\\\",
+            "\\midrule",
+            "\\endfirsthead",
+            "\\toprule Metric & Value \\\\ \\midrule \\endhead",
+        ]
         for k, v in self.flat():
             s = f"{v:.4g}" if isinstance(v, float) else str(v)
             rows.append(f"\\texttt{{{k.replace('_', chr(92) + '_')}}} & {s} \\\\")
@@ -84,13 +93,19 @@ class Report:
 
 def run(name: str, specification: Specification) -> Report:
     if name not in _REGISTRY:
-        raise KeyError(
-            f"unknown experiment {name!r}; have {experiments()}")
+        raise KeyError(f"unknown experiment {name!r}; have {experiments()}")
     t0 = time.perf_counter()
     results = _REGISTRY[name](specification)
-    metadata = {"python": platform.python_version(),
-            "torch": torch.__version__,
-            "device": "cuda" if torch.cuda.is_available() else "cpu",
-            "argv": sys.argv[1:]}
-    return Report(name=name, specification=specification.as_dict(), results=results,
-                  seconds=round(time.perf_counter() - t0, 3), metadata=metadata)
+    metadata = {
+        "python": platform.python_version(),
+        "torch": torch.__version__,
+        "device": "cuda" if torch.cuda.is_available() else "cpu",
+        "argv": sys.argv[1:],
+    }
+    return Report(
+        name=name,
+        specification=specification.as_dict(),
+        results=results,
+        seconds=round(time.perf_counter() - t0, 3),
+        metadata=metadata,
+    )

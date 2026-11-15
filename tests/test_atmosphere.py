@@ -3,9 +3,14 @@ import torch
 
 from nasa_farm.constants import DTYPE
 from nasa_farm.dynamics.atmosphere import (
-    day_length, et0_hargreaves, et0_penman_monteith,
-    extraterrestrial_radiation, growing_degree_days, psychrometric_constant,
-    saturation_vapor_pressure, svp_slope, temperature_factor,
+    day_length,
+    et0_hargreaves,
+    et0_penman_monteith,
+    extraterrestrial_radiation,
+    growing_degree_days,
+    psychrometric_constant,
+    saturation_vapor_pressure,
+    temperature_factor,
 )
 
 
@@ -67,12 +72,25 @@ class TestPenmanMonteith:
     """FAO-56 PM — the reference ET0 method."""
 
     def pm(self, **keywords):
-        arguments = dict(tmin=t(16.0), tmax=t(30.0), rh_mean=t(70.0), u2=t(2.5),
-                    srad=t(28.0), ra=t(40.0), elev_m=t(200.0))
+        arguments = {
+            "tmin": t(16.0),
+            "tmax": t(30.0),
+            "rh_mean": t(70.0),
+            "u2": t(2.5),
+            "srad": t(28.0),
+            "ra": t(40.0),
+            "elev_m": t(200.0),
+        }
         arguments.update(keywords)
-        return et0_penman_monteith(arguments["tmin"], arguments["tmax"], arguments["rh_mean"],
-                                   arguments["u2"], arguments["srad"], arguments["ra"],
-                                   arguments["elev_m"])
+        return et0_penman_monteith(
+            arguments["tmin"],
+            arguments["tmax"],
+            arguments["rh_mean"],
+            arguments["u2"],
+            arguments["srad"],
+            arguments["ra"],
+            arguments["elev_m"],
+        )
 
     def test_svp_reference_values(self):
         """e° at 0/20/40 °C — textbook saturation vapour pressure."""
@@ -83,8 +101,7 @@ class TestPenmanMonteith:
     def test_psychrometric_constant_sea_level(self):
         """γ = 0.665e-3 × 101.3 kPa = 0.0674 at sea level (FAO-56 eq 8)."""
         assert float(psychrometric_constant(t(0.0))) == pytest.approx(0.0674, abs=2e-4)
-        assert float(psychrometric_constant(t(2000.0))) < \
-            float(psychrometric_constant(t(0.0)))
+        assert float(psychrometric_constant(t(2000.0))) < float(psychrometric_constant(t(0.0)))
 
     def test_iowa_summer_magnitude(self):
         """Hand-checked ≈5.6 mm/d for humid midsummer conditions."""

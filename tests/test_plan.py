@@ -6,8 +6,12 @@ import torch
 from nasa_farm.constants import DAYS_PER_YEAR, DTYPE
 from nasa_farm.forcing import climatology_ensemble, synthetic_year
 from nasa_farm.plan import (
-    enumerate_rotations, evaluate, expand_actions, objective_matrix,
-    pareto_front, recommend, scalarize,
+    enumerate_rotations,
+    evaluate,
+    expand_actions,
+    pareto_front,
+    recommend,
+    scalarize,
 )
 from nasa_farm.state.crops import INDEX
 
@@ -39,8 +43,7 @@ class TestExpandActions:
         a = expand_actions(plans, crops.table, irr_mm_day=5.0, irr_window=100)
         assert float(a.irrigation.max()) <= 5.0
         assert int((a.irrigation > 0).sum()) <= 100
-        assert float(a.irrigation.sum()) == pytest.approx(
-            5.0 * int((a.irrigation > 0).sum()))
+        assert float(a.irrigation.sum()) == pytest.approx(5.0 * int((a.irrigation > 0).sum()))
 
     def test_fert_single_shot(self, crops):
         plans = torch.tensor([[crops.index("maize")]])
@@ -50,16 +53,14 @@ class TestExpandActions:
 
 class TestPareto:
     def test_known_front(self):
-        points = torch.tensor([[1.0, 1.0], [2.0, 2.0], [1.5, 1.0], [0.5, 0.5]],
-                           dtype=DTYPE)
+        points = torch.tensor([[1.0, 1.0], [2.0, 2.0], [1.5, 1.0], [0.5, 0.5]], dtype=DTYPE)
         signs = torch.ones(2, dtype=DTYPE)  # maximize both
         mask = pareto_front(points, signs)
         assert mask.tolist() == [False, True, False, False]
 
     def test_knee_points_kept(self):
         """Trade-off extremes survive; the middle dominated point drops."""
-        points = torch.tensor([[2.0, 0.5], [1.5, 1.5], [0.5, 2.0], [1.0, 1.0]],
-                           dtype=DTYPE)
+        points = torch.tensor([[2.0, 0.5], [1.5, 1.5], [0.5, 2.0], [1.0, 1.0]], dtype=DTYPE)
         mask = pareto_front(points, torch.ones(2, dtype=DTYPE))
         assert mask.tolist() == [True, True, True, False]
 
@@ -123,13 +124,13 @@ class TestEvaluate:
         record = recommend(evaluate(physics_model, field, plans, ensemble), top_k=3)
         assert len(record["pareto_idx"]) >= 1
         assert len(record["ranking"]) == 3
-        assert (record["scores"][record["ranking"][0]] >=
-                record["scores"][record["ranking"][-1]])
+        assert record["scores"][record["ranking"][0]] >= record["scores"][record["ranking"][-1]]
 
 
 class TestWorkers:
     def test_auto_workers_positive(self):
         from nasa_farm.hardware.capabilities import processor_workers
+
         assert processor_workers() >= 1
 
     def test_sharded_evaluate_bit_identical(self, physics_model, field, crops):
@@ -137,12 +138,9 @@ class TestWorkers:
         independent, contiguous chunks preserve order, no shared mutation."""
         index = [crops.index(n) for n in ("maize", "soybean", "wheat")]
         plans = enumerate_rotations(index, 2)  # 9 plans
-        ensemble = climatology_ensemble(
-            [synthetic_year(42.0, seed=s) for s in range(3)], 2)
-        serial = evaluate(physics_model, field, plans, ensemble, workers=1,
-                          device="cpu")
-        sharded = evaluate(physics_model, field, plans, ensemble, workers=4,
-                           device="cpu")
+        ensemble = climatology_ensemble([synthetic_year(42.0, seed=s) for s in range(3)], 2)
+        serial = evaluate(physics_model, field, plans, ensemble, workers=1, device="cpu")
+        sharded = evaluate(physics_model, field, plans, ensemble, workers=4, device="cpu")
         assert torch.equal(serial.metrics, sharded.metrics)
         for k in serial.objectives:
             assert torch.equal(serial.objectives[k], sharded.objectives[k])
@@ -166,19 +164,20 @@ class TestAdaptiveHardware:
         """mem_budget→0 forces plan-by-plan streaming; must equal one pass."""
         index = [crops.index(n) for n in ("maize", "soybean", "wheat")]
         plans = enumerate_rotations(index, 2)
-        ensemble = climatology_ensemble(
-            [synthetic_year(42.0, seed=s) for s in range(2)], 2)
-        full = evaluate(physics_model, field, plans, ensemble,
-                        workers=1, device="cpu", mem_budget=1.0)
-        streamed = evaluate(physics_model, field, plans, ensemble,
-                            workers=1, device="cpu", mem_budget=1e-9)
+        ensemble = climatology_ensemble([synthetic_year(42.0, seed=s) for s in range(2)], 2)
+        full = evaluate(
+            physics_model, field, plans, ensemble, workers=1, device="cpu", mem_budget=1.0
+        )
+        streamed = evaluate(
+            physics_model, field, plans, ensemble, workers=1, device="cpu", mem_budget=1e-9
+        )
         assert torch.equal(full.metrics, streamed.metrics)
 
-    def test_oom_ladder_retries_then_succeeds(self, physics_model, field, crops,
-                                            monkeypatch):
+    def test_oom_ladder_retries_then_succeeds(self, physics_model, field, crops, monkeypatch):
         """A transient OOM halves the lane's pull and retries — never
         crashes, results bit-identical to an unperturbed run."""
         import nasa_farm.plan as plan_mod
+
         orig = plan_mod._rollout_metrics
         calls = {"n": 0}
 
@@ -191,16 +190,16 @@ class TestAdaptiveHardware:
         monkeypatch.setattr(plan_mod, "_rollout_metrics", flaky)
         index = [crops.index(n) for n in ("maize", "soybean", "wheat")]
         plans = enumerate_rotations(index, 2)
-        ensemble = climatology_ensemble(
-            [synthetic_year(42.0, seed=s) for s in range(2)], 2)
-        event = evaluate(physics_model, field, plans, ensemble,
-                      workers=1, device="cpu", mem_budget=1.0)
-        reference = evaluate(physics_model, field, plans, ensemble,
-                       workers=1, device="cpu", mem_budget=1.0)
+        ensemble = climatology_ensemble([synthetic_year(42.0, seed=s) for s in range(2)], 2)
+        event = evaluate(
+            physics_model, field, plans, ensemble, workers=1, device="cpu", mem_budget=1.0
+        )
+        reference = evaluate(
+            physics_model, field, plans, ensemble, workers=1, device="cpu", mem_budget=1.0
+        )
         assert calls["n"] >= 2 and torch.equal(event.metrics, reference.metrics)
 
-    def test_non_oom_errors_propagate(self, physics_model, field, crops,
-                                     monkeypatch):
+    def test_non_oom_errors_propagate(self, physics_model, field, crops, monkeypatch):
         """Bugs are never masked: non-OOM failures abort the sweep."""
         import nasa_farm.plan as plan_mod
 
@@ -213,10 +212,10 @@ class TestAdaptiveHardware:
         with pytest.raises(RuntimeError, match="a real bug"):
             evaluate(physics_model, field, plans, ensemble, device="cpu")
 
-    def test_probe_short_circuits_small_workloads(self, physics_model, field,
-                                                  crops):
+    def test_probe_short_circuits_small_workloads(self, physics_model, field, crops):
         """<500k field-days: probing costs more than the run — skipped."""
         from nasa_farm.hardware import probe
+
         plans = enumerate_rotations([crops.index("maize")], 1)
         ensemble = climatology_ensemble([synthetic_year(42.0, seed=1)], 1)
         r, s, days = plans.shape[0], ensemble.batch, ensemble.days
@@ -224,4 +223,5 @@ class TestAdaptiveHardware:
 
     def test_physical_cores_detected(self):
         from nasa_farm.hardware.topology import physical_cores
+
         assert physical_cores() >= 1

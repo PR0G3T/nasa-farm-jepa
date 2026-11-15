@@ -17,7 +17,7 @@ from __future__ import annotations
 from contextlib import contextmanager
 from pathlib import Path
 
-import numpy as numpy
+import numpy as np
 import torch
 
 from nasa_farm.acquire.power import FORCING_VARS, vars_to_forcing
@@ -46,7 +46,7 @@ def _param_map(L: Lake, fid: str) -> dict[str, dict[str, float]]:
     output: dict[str, dict[str, float]] = {}
     for p in FORCING_VARS:
         if (s := L.get(fid, "forcing", p)) is not None:
-            output[p] = {str(d): float(v) for d, v in zip(*s)}
+            output[p] = {str(d): float(v) for d, v in zip(*s, strict=True)}
     return output
 
 
@@ -54,26 +54,25 @@ def _forcings(L: Lake, fid: str, years: list[int]) -> list[Forcing]:
     data = _param_map(L, fid)
     return [
         vars_to_forcing(
-            {p: {k: v for k, v in s.items() if k.startswith(str(y))}
-             for p, s in data.items()}, y)
+            {p: {k: v for k, v in s.items() if k.startswith(str(y))} for p, s in data.items()}, y
+        )
         for y in years
     ]
 
 
-def forcings(root: Lake | Path | str, fid: str,
-             years: list[int]) -> list[Forcing]:
+def forcings(root: Lake | Path | str, fid: str, years: list[int]) -> list[Forcing]:
     with _lk(root) as L:
         return _forcings(L, fid, years)
 
 
-def _wet(L: Lake, fid: str) -> numpy.ndarray | None:
+def _wet(L: Lake, fid: str) -> np.ndarray | None:
     for v in ("sm", "smg"):
         if (s := L.get(fid, "obs", v)) is not None:
             return s[1]
     return None
 
 
-def wetness(root: Lake | Path | str, fid: str) -> numpy.ndarray | None:
+def wetness(root: Lake | Path | str, fid: str) -> np.ndarray | None:
     """Observed root-zone wetness; falls back to the POWER model proxy."""
     with _lk(root) as L:
         return _wet(L, fid)
@@ -88,7 +87,7 @@ def _targets(L: Lake, fid: str) -> dict:
     return output
 
 
-def _aligned(dates: numpy.ndarray, w: tuple | None) -> numpy.ndarray | None:
+def _aligned(dates: np.ndarray, w: tuple | None) -> np.ndarray | None:
     """Weights on the observation dates — `*_w` shards only cover granule
     days, so unweighted days default to full confidence."""
     if w is None:
@@ -96,19 +95,19 @@ def _aligned(dates: numpy.ndarray, w: tuple | None) -> numpy.ndarray | None:
     wd, wv = w
     if len(wd) == len(dates) and (wd == dates).all():
         return wv
-    confidence = dict(zip(wd.tolist(), wv.tolist()))
-    return numpy.asarray([confidence.get(int(d), 1.0) for d in dates])
+    confidence = dict(zip(wd.tolist(), wv.tolist(), strict=True))
+    return np.asarray([confidence.get(int(d), 1.0) for d in dates])
 
 
-def targets(root: Lake | Path | str, fid: str
-            ) -> dict[str, tuple[numpy.ndarray, numpy.ndarray, numpy.ndarray | None]]:
+def targets(
+    root: Lake | Path | str, fid: str
+) -> dict[str, tuple[np.ndarray, np.ndarray, np.ndarray | None]]:
     """Observed channel targets — (dates, values, weights) per channel."""
     with _lk(root) as L:
         return _targets(L, fid)
 
 
-def embedding(root: Lake | Path | str, fid: str, name: str = "aef"
-        ) -> numpy.ndarray | None:
+def embedding(root: Lake | Path | str, fid: str, name: str = "aef") -> np.ndarray | None:
     """Foundation-model embedding vector, or None."""
     with _lk(root) as L:
         return L.vector(fid, name)
@@ -124,17 +123,14 @@ def soil(d: dict | None) -> SoilProfile | None:
     if d is None:
         return None
     if "sat" in d:
-        return SoilProfile(**{k: torch.as_tensor(
-            numpy.asarray(v), dtype=DTYPE) for k, v in d.items()})
+        return SoilProfile(**{k: torch.as_tensor(np.asarray(v), dtype=DTYPE) for k, v in d.items()})
     return profile(d)
 
 
-def soil_sample(d_lo: dict | None, d_hi: dict | None, n: int, seed: int = 0
-                ) -> SoilProfile | None:
+def soil_sample(d_lo: dict | None, d_hi: dict | None, n: int, seed: int = 0) -> SoilProfile | None:
     """Stored Q05/Q95-bound dicts → n-member uncertainty ensemble."""
     low, high = soil(d_lo), soil(d_hi)
-    return None if low is None or high is None \
-        else SoilProfile.sample(low, high, n, seed)
+    return None if low is None or high is None else SoilProfile.sample(low, high, n, seed)
 
 
 def _bound(d: dict | None, suffix: str) -> dict | None:
@@ -142,26 +138,32 @@ def _bound(d: dict | None, suffix: str) -> dict | None:
     stored dict predates bound sampling or is a full profile dump."""
     if d is None or f"clay{suffix}" not in d:
         return None
-    return {**d, "clay": d[f"clay{suffix}"], "sand": d[f"sand{suffix}"],
-            "bd": d[f"bd{suffix}"]}
+    return {**d, "clay": d[f"clay{suffix}"], "sand": d[f"sand{suffix}"], "bd": d[f"bd{suffix}"]}
 
 
-def dataset(root: Lake | Path | str, fids: list[str], years: list[int]
-            ) -> dict[str, dict]:
+def dataset(root: Lake | Path | str, fids: list[str], years: list[int]) -> dict[str, dict]:
     """Full training batch for `fids` — one lake open for all of them."""
     with _lk(root) as L:
-        return {fid: {"forcings": _forcings(L, fid, years),
-                      "wet": _wet(L, fid),
-                      "obs": _targets(L, fid),
-                      "emb": L.vector(fid),
-                      "soil": (m := L.metadata(fid)).get("soil"),
-                      "soil_lo": _bound(m.get("soil"), "_lo"),
-                      "soil_hi": _bound(m.get("soil"), "_hi")}
-                for fid in fids}
+        return {
+            fid: {
+                "forcings": _forcings(L, fid, years),
+                "wet": _wet(L, fid),
+                "obs": _targets(L, fid),
+                "emb": L.vector(fid),
+                "soil": (m := L.metadata(fid)).get("soil"),
+                "soil_lo": _bound(m.get("soil"), "_lo"),
+                "soil_hi": _bound(m.get("soil"), "_hi"),
+            }
+            for fid in fids
+        }
 
 
 def to_tensors(observed: dict[str, tuple]) -> dict[str, tuple]:
-    return {v: (torch.from_numpy(numpy.array(d)),
-                torch.from_numpy(numpy.array(x)),
-                None if w is None else torch.from_numpy(numpy.array(w)))
-            for v, (d, x, w) in observed.items()}
+    return {
+        v: (
+            torch.from_numpy(np.array(d)),
+            torch.from_numpy(np.array(x)),
+            None if w is None else torch.from_numpy(np.array(w)),
+        )
+        for v, (d, x, w) in observed.items()
+    }

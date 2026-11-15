@@ -19,14 +19,13 @@ QMAP_VARS: tuple[str, ...] = ("tmin", "tmax", "srad", "precip", "rh", "u2")
 class Mapping:
     """Per-(variable, window) model and reference quantile levels."""
 
-    q_model: torch.Tensor   # (V, W, Q)
-    q_ref: torch.Tensor     # (V, W, Q)
+    q_model: torch.Tensor  # (V, W, Q)
+    q_ref: torch.Tensor  # (V, W, Q)
     windows: int
-    probs: torch.Tensor     # (Q,)
+    probs: torch.Tensor  # (Q,)
 
 
-def fit_mapping(model: Forcing, reference: Forcing, windows: int = 12,
-             n_q: int = 17) -> Mapping:
+def fit_mapping(model: Forcing, reference: Forcing, windows: int = 12, n_q: int = 17) -> Mapping:
     """Learn the transfer map: for each variable and day-of-year window,
     sort the pooled model and reference values into `n_q` quantiles."""
     probs = torch.linspace(0, 1, n_q, dtype=DTYPE)
@@ -68,17 +67,21 @@ def apply_mapping(f: Forcing, qm: Mapping) -> Forcing:
                 continue
             x = getattr(f, k)[0, sel]
             xp, fp = qm.q_model[vi, wi], qm.q_ref[vi, wi]
-            rows.append((sel, _interp(xp.view(1, -1), fp.view(1, -1),
-                                      x.view(1, -1))[0]))
+            rows.append((sel, _interp(xp.view(1, -1), fp.view(1, -1), x.view(1, -1))[0]))
         column = getattr(f, k)[0].clone()
         for sel, values in rows:
             column[sel] = values.to(column.dtype)
         output[k] = column.unsqueeze(0)
-    return Forcing(tmin=output["tmin"], tmax=torch.maximum(output["tmax"], output["tmin"]),
-                   srad=output["srad"].clamp(min=0.5),
-                   precip=output["precip"].clamp(min=0.0),
-                   rh=output["rh"].clamp(0.0, 100.0),
-                   u2=output["u2"].clamp(min=0.0), doy=f.doy, co2=f.co2)
+    return Forcing(
+        tmin=output["tmin"],
+        tmax=torch.maximum(output["tmax"], output["tmin"]),
+        srad=output["srad"].clamp(min=0.5),
+        precip=output["precip"].clamp(min=0.0),
+        rh=output["rh"].clamp(0.0, 100.0),
+        u2=output["u2"].clamp(min=0.0),
+        doy=f.doy,
+        co2=f.co2,
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -88,8 +91,8 @@ class Correction:
     analogue of `QMap` (calibrates the distribution, not each member
     independently)."""
 
-    bias: torch.Tensor    # (V, W) — subtracted from every member
-    gamma: torch.Tensor   # (V, W) — anomaly (spread) rescale
+    bias: torch.Tensor  # (V, W) — subtracted from every member
+    gamma: torch.Tensor  # (V, W) — anomaly (spread) rescale
     windows: int
 
 
@@ -102,9 +105,9 @@ def fit_correction(fcst: Forcing, reference: Forcing, windows: int = 12) -> Corr
     w = (fcst.doy[0] - 1).div(span).floor().long().clamp(0, windows - 1)
     bias, gamma = [], []
     for k in QMAP_VARS:
-        ensemble = getattr(fcst, k).to(DTYPE)              # (S, T)
-        rv = getattr(reference, k).to(DTYPE)                # (R, T)
-        eb = ensemble.mean(0)                              # ensemble mean (T,)
+        ensemble = getattr(fcst, k).to(DTYPE)  # (S, T)
+        rv = getattr(reference, k).to(DTYPE)  # (R, T)
+        eb = ensemble.mean(0)  # ensemble mean (T,)
         b_row, g_row = [], []
         for wi in range(windows):
             sel = w == wi
@@ -113,7 +116,7 @@ def fit_correction(fcst: Forcing, reference: Forcing, windows: int = 12) -> Corr
                 g_row.append(torch.ones((), dtype=DTYPE))
                 continue
             ref_sel = rv[:, sel].flatten()
-            b_row.append((eb[sel].mean() - ref_sel.mean()))
+            b_row.append(eb[sel].mean() - ref_sel.mean())
             anom_ref = ref_sel - ref_sel.mean()
             anom_ens = (ensemble[:, sel] - eb[sel]).flatten()
             g_row.append(anom_ref.std() / anom_ens.std().clamp(min=1e-9))
@@ -129,14 +132,18 @@ def apply_correction(f: Forcing, bc: Correction) -> Forcing:
     w = (f.doy[0] - 1).div(span).floor().long().clamp(0, bc.windows - 1)
     output = {}
     for vi, k in enumerate(QMAP_VARS):
-        x = getattr(f, k).to(DTYPE)                    # (S, T)
+        x = getattr(f, k).to(DTYPE)  # (S, T)
         xm = x.mean(0, keepdim=True)
         d = bc.bias[vi][w].unsqueeze(0)
         g = bc.gamma[vi][w].unsqueeze(0)
         output[k] = xm - d + g * (x - xm)
-    return Forcing(tmin=output["tmin"],
-                   tmax=torch.maximum(output["tmax"], output["tmin"]),
-                   srad=output["srad"].clamp(min=0.5),
-                   precip=output["precip"].clamp(min=0.0),
-                   rh=output["rh"].clamp(0.0, 100.0),
-                   u2=output["u2"].clamp(min=0.0), doy=f.doy, co2=f.co2)
+    return Forcing(
+        tmin=output["tmin"],
+        tmax=torch.maximum(output["tmax"], output["tmin"]),
+        srad=output["srad"].clamp(min=0.5),
+        precip=output["precip"].clamp(min=0.0),
+        rh=output["rh"].clamp(0.0, 100.0),
+        u2=output["u2"].clamp(min=0.0),
+        doy=f.doy,
+        co2=f.co2,
+    )

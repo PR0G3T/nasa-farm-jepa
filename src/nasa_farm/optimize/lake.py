@@ -16,13 +16,14 @@ import os
 from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
 
-import numpy as numpy
+import numpy as np
 import torch
 
 from nasa_farm import CropLibrary, Field, WorldModel, initial_state
 from nasa_farm.constants import DTYPE
 from nasa_farm.observe import sm_vol
-from nasa_farm.optimize.data import dataset, soil as soil_of
+from nasa_farm.optimize.data import dataset
+from nasa_farm.optimize.data import soil as soil_of
 from nasa_farm.optimize.trainer import fit_batch
 from nasa_farm.plan import expand_actions
 from nasa_farm.state.soil import SoilProfile
@@ -30,23 +31,28 @@ from nasa_farm.state.soil import SoilProfile
 MIN_OBS = 30
 
 
-def _loss(model: WorldModel, field: Field, forcing, target: torch.Tensor,
-          days: torch.Tensor, w: torch.Tensor) -> torch.Tensor:
+def _loss(
+    model: WorldModel,
+    field: Field,
+    forcing,
+    target: torch.Tensor,
+    days: torch.Tensor,
+    w: torch.Tensor,
+) -> torch.Tensor:
     predicted = []
+
     def observed(t, state, _fx):
-        predicted.append(torch.stack(
-            [sm_vol(state, i) for i in range(state.sw.shape[1])]).mean())
+        predicted.append(torch.stack([sm_vol(state, i) for i in range(state.sw.shape[1])]).mean())
+
     plan = torch.zeros(1, 1, dtype=torch.long)
-    model.rollout(field, forcing,
-                  expand_actions(plan, model.crop_table), observer=observed)
+    model.rollout(field, forcing, expand_actions(plan, model.crop_table), observer=observed)
     r = (torch.stack(predicted)[days] - target) ** 2 * w
     return r.sum() / w.sum().clamp(min=1.0)
 
 
 def _day_index(d: int, start: int) -> int:
     """yyyymmdd → day-of-simulation index, −1 outside the year."""
-    return (dt.date(d // 10000, d // 100 % 100, d % 100).toordinal()
-            - start)
+    return dt.date(d // 10000, d // 100 % 100, d % 100).toordinal() - start
 
 
 def _samples(root: Path | str, fids: list[str], years: list[int]) -> list[dict]:
@@ -60,20 +66,28 @@ def _samples(root: Path | str, fids: list[str], years: list[int]) -> list[dict]:
             continue
         soil = soil_of(d["soil"]) or SoilProfile.preset("loam")
         obs_d, obs_v, obs_w = observed
-        w = numpy.ones_like(obs_v) if obs_w is None else numpy.asarray(obs_w)
+        w = np.ones_like(obs_v) if obs_w is None else np.asarray(obs_w)
         for fi, forcing in enumerate(d["forcings"]):
             start = dt.date(years[fi], 1, 1).toordinal()
-            keep = [(i, _day_index(int(d_), start))
-                    for i, d_ in enumerate(obs_d)
-                    if 0 <= _day_index(int(d_), start) < 365]
+            keep = [
+                (i, _day_index(int(d_), start))
+                for i, d_ in enumerate(obs_d)
+                if 0 <= _day_index(int(d_), start) < 365
+            ]
             if len(keep) < MIN_OBS:
                 continue
-            rows, days = zip(*keep)
-            out.append({"fid": fid, "year": years[fi], "soil": soil,
-                        "forcing": forcing,
-                        "target": torch.tensor(obs_v[list(rows)], dtype=DTYPE),
-                        "w": torch.tensor(w[list(rows)], dtype=DTYPE),
-                        "days": torch.tensor(days, dtype=torch.long)})
+            rows, days = zip(*keep, strict=True)
+            out.append(
+                {
+                    "fid": fid,
+                    "year": years[fi],
+                    "soil": soil,
+                    "forcing": forcing,
+                    "target": torch.tensor(obs_v[list(rows)], dtype=DTYPE),
+                    "w": torch.tensor(w[list(rows)], dtype=DTYPE),
+                    "days": torch.tensor(days, dtype=torch.long),
+                }
+            )
     return out
 
 
@@ -87,8 +101,7 @@ _WORKER: dict = {}
 def _init() -> None:
     global _WORKER
     torch.set_num_threads(1)
-    _WORKER = {"model": WorldModel(CropLibrary.default(), residual=True),
-               "samples": _PRELOAD}
+    _WORKER = {"model": WorldModel(CropLibrary.default(), residual=True), "samples": _PRELOAD}
 
 
 def _grad(payload: tuple[int, dict]) -> tuple[int, float, dict]:
@@ -101,22 +114,34 @@ def _grad(payload: tuple[int, dict]) -> tuple[int, float, dict]:
                 p.copy_(state[name])
         model.residual.zero_grad(set_to_none=True)
     s = _WORKER["samples"][i]
-    field = Field(state=initial_state(1, s["soil"]), soil=s["soil"],
-                  latitude=torch.zeros(1, dtype=DTYPE))
+    field = Field(
+        state=initial_state(1, s["soil"]), soil=s["soil"], latitude=torch.zeros(1, dtype=DTYPE)
+    )
     loss = _loss(model, field, s["forcing"], s["target"], s["days"], s["w"])
     if not torch.isfinite(loss):
         return i, float("nan"), {}
     loss.backward()
-    return i, float(loss.detach()), {
-        n: p.grad.detach().clone() if p.grad is not None
-        else torch.zeros_like(p)
-        for n, p in model.residual.named_parameters() if p.requires_grad}
+    return (
+        i,
+        float(loss.detach()),
+        {
+            n: p.grad.detach().clone() if p.grad is not None else torch.zeros_like(p)
+            for n, p in model.residual.named_parameters()
+            if p.requires_grad
+        },
+    )
 
 
-def train(root: Path | str, fids: list[str], years: list[int],
-          epochs: int = 60, rate: float = 0.02, workers: int | None = None,
-          seed: int | None = 0,
-          output: Path | str | None = None) -> dict:
+def train(
+    root: Path | str,
+    fids: list[str],
+    years: list[int],
+    epochs: int = 60,
+    rate: float = 0.02,
+    workers: int | None = None,
+    seed: int | None = 0,
+    output: Path | str | None = None,
+) -> dict:
     """Joint full-batch training: every epoch evaluates every sample's
     gradient at the shared parameters — in a fork pool when workers > 1 —
     reduces the mean, and takes one Adam step. One residual serving the
@@ -127,8 +152,7 @@ def train(root: Path | str, fids: list[str], years: list[int],
         torch.manual_seed(seed)
     crops = CropLibrary.default()
     model = WorldModel(crops, residual=True)
-    parameters = {n: p for n, p in model.residual.named_parameters()
-                  if p.requires_grad}
+    parameters = {n: p for n, p in model.residual.named_parameters() if p.requires_grad}
     samples = _samples(root, fids, years)
     if not samples:
         if output:
@@ -139,33 +163,47 @@ def train(root: Path | str, fids: list[str], years: list[int],
     pool: ProcessPoolExecutor | None = None
     if n_workers > 1:
         ctx = multiprocessing.get_context("fork")
-        pool = ProcessPoolExecutor(max_workers=n_workers, mp_context=ctx,
-                                   initializer=_init)
-        run = lambda tasks: list(pool.map(_grad, tasks, chunksize=1))
+        pool = ProcessPoolExecutor(max_workers=n_workers, mp_context=ctx, initializer=_init)
+
+        def run(tasks):
+            return list(pool.map(_grad, tasks, chunksize=1))
     else:
         _init()
-        run = lambda tasks: [_grad(t) for t in tasks]
+
+        def run(tasks):
+            return [_grad(t) for t in tasks]
+
     try:
+
         def evaluate() -> tuple[float, dict]:
             state = {n: p.detach().clone() for n, p in parameters.items()}
             out = run([(i, state) for i in range(len(samples))])
             valid = [r for r in out if r[2]]
             if not valid:
                 return float("nan"), {}
-            return (sum(v for _, v, _ in valid) / len(valid),
-                    {n: torch.stack([g[n] for _, _, g in valid]).mean(0)
-                     for n in parameters})
+            return (
+                sum(v for _, v, _ in valid) / len(valid),
+                {n: torch.stack([g[n] for _, _, g in valid]).mean(0) for n in parameters},
+            )
+
         result = fit_batch(evaluate, parameters, epochs=epochs, rate=rate)
-        final = run([(i, {n: p.detach().clone() for n, p in
-                          parameters.items()}) for i in range(len(samples))])
+        final = run(
+            [
+                (i, {n: p.detach().clone() for n, p in parameters.items()})
+                for i in range(len(samples))
+            ]
+        )
     finally:
         _PRELOAD = []
         if pool is not None:
             pool.shutdown()
-    losses = {f"{s['fid']}/{s['year']}": v
-              for s, (i, v, _) in zip(samples, final)}
+    losses = {f"{s['fid']}/{s['year']}": v for s, (i, v, _) in zip(samples, final, strict=True)}
     if output:
         torch.save(model.residual.state_dict(), output)
-    return {"runs": len(losses), "loss": losses,
-            "best_loss": result.best_loss, "epochs": result.epochs_run,
-            "history": result.history}
+    return {
+        "runs": len(losses),
+        "loss": losses,
+        "best_loss": result.best_loss,
+        "epochs": result.epochs_run,
+        "history": result.history,
+    }

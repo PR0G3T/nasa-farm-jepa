@@ -5,11 +5,11 @@ search needs no login, downloads do.
 
 from __future__ import annotations
 
-lazy import earthaccess
-
 import re
 from dataclasses import dataclass
 from typing import Any
+
+lazy import earthaccess
 
 from nasa_farm.acquire.base import Bounds, Temporal
 
@@ -27,7 +27,7 @@ def granule(result: Any) -> str:
     for k in ("GranuleUR", "ProducerGranuleId"):
         try:
             return str(result["umm"][k])
-        except (KeyError, TypeError):
+        except KeyError, TypeError:
             continue
     return str(result)
 
@@ -41,6 +41,7 @@ def granule_day(gid: str) -> int:
     if m := _DATE.search(gid):
         return int(m.group())
     import datetime as dt
+
     m = _DOY.search(gid)
     d = dt.date(int(m[1]), 1, 1) + dt.timedelta(int(m[2]) - 1)
     return int(d.strftime("%Y%m%d"))
@@ -59,8 +60,7 @@ class Earthdata:
     requires_auth: bool = True  # search is open; download needs Earthdata Login
     group: str | None = None
 
-    def search(self, area: Bounds | None, temporal: Temporal,
-               limit: int = 10_000) -> list[Granule]:
+    def search(self, area: Bounds | None, temporal: Temporal, limit: int = 10_000) -> list[Granule]:
         """CMR query → lightweight granule descriptors (no download)."""
         keywords: dict[str, Any] = {
             "short_name": self.short_name,
@@ -69,12 +69,17 @@ class Earthdata:
         }
         if area is not None:
             keywords["bounding_box"] = area.as_tuple()
-        return [Granule(granule(r), r)
-                for r in earthaccess.search_data(**keywords)]
+        return [Granule(granule(r), r) for r in earthaccess.search_data(**keywords)]
 
-    def fetch(self, area: Bounds | None, temporal: Temporal, *,
-              count: int = 10, cloud_cover: tuple[int, int] | None = None,
-              download_dir: str | None = None) -> list[Any]:
+    def fetch(
+        self,
+        area: Bounds | None,
+        temporal: Temporal,
+        *,
+        count: int = 10,
+        cloud_cover: tuple[int, int] | None = None,
+        download_dir: str | None = None,
+    ) -> list[Any]:
         keywords: dict[str, Any] = {
             "short_name": self.short_name,
             "temporal": (temporal.start, temporal.end),
@@ -92,16 +97,15 @@ class Earthdata:
 
 
 # Challenge-relevant products, declared once.
-SMAP_L4 = Earthdata("SPL3SMP_E", name="smap-l4-soil-moisture",
-                          group="Soil_Moisture_Retrieval_Data_AM")
+SMAP_L4 = Earthdata(
+    "SPL3SMP_E", name="smap-l4-soil-moisture", group="Soil_Moisture_Retrieval_Data_AM"
+)
 GPM_IMERG_DAILY = Earthdata("GPM_3IMERGDF", name="gpm-imerg-daily")
 HLS_L30 = Earthdata("HLSL30", name="hls-landsat-30m")
 ECOSTRESS_ET = Earthdata("ECO_L3T_JET", name="ecostress-et")
 ECOSTRESS_SEB = Earthdata("ECO_L3G_SEB", name="ecostress-seb")
 ECOSTRESS_MET = Earthdata("ECO_L3G_MET", name="ecostress-met")
 NLDAS2_FORCING = Earthdata("NLDAS_FORA0125_H", name="nldas2-forcing")
-GRACE_MASCON = Earthdata("TELLUS_GRAC-GRFO_MASCON_CRI_GRID_RL06.3_V4",
-                               name="grace-fo-mascon")
+GRACE_MASCON = Earthdata("TELLUS_GRAC-GRFO_MASCON_CRI_GRID_RL06.3_V4", name="grace-fo-mascon")
 NISAR_GCOV = Earthdata("NISAR_L2_GCOV_BETA_V1", name="nisar-l2-gcov")
-NISAR_SME = Earthdata("NISAR_L3_SME2_BETA_V1",
-                            name="nisar-l3-soil-moisture")
+NISAR_SME = Earthdata("NISAR_L3_SME2_BETA_V1", name="nisar-l3-soil-moisture")

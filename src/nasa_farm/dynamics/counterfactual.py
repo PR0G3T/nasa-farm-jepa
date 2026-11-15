@@ -25,16 +25,23 @@ def abduct(observed: torch.Tensor, predicted: torch.Tensor) -> torch.Tensor:
     n = observed.shape[1]
     mask = torch.isfinite(observed)
     index = torch.arange(n, device=observed.device).view(1, n, 1).expand_as(mask)
-    seen = torch.where(mask, index, -1).cummax(1).values          # (B, N, C)
-    off = torch.gather(torch.nan_to_num(observed - predicted.to(observed.dtype)), 1,
-                       seen.clamp(min=0))
+    seen = torch.where(mask, index, -1).cummax(1).values  # (B, N, C)
+    off = torch.gather(
+        torch.nan_to_num(observed - predicted.to(observed.dtype)), 1, seen.clamp(min=0)
+    )
     return off * (seen >= 0)
 
 
-def counterfactual(model, field: Field, forcing: Forcing,
-                   act_fact: Actions, act_alt: Actions,
-                   observed: torch.Tensor, channels: tuple[str, ...],
-                   every: int = 5) -> tuple[torch.Tensor, dict]:
+def counterfactual(
+    model,
+    field: Field,
+    forcing: Forcing,
+    act_fact: Actions,
+    act_alt: Actions,
+    observed: torch.Tensor,
+    channels: tuple[str, ...],
+    every: int = 5,
+) -> tuple[torch.Tensor, dict]:
     """Counterfactual channel series under alternative actions.
 
     obs: (B, N, C) factual observations (NaN allowed) at the trace cadence.
@@ -46,5 +53,4 @@ def counterfactual(model, field: Field, forcing: Forcing,
     model.rollout(field, forcing, act_alt, observer=tr_a)
     pred_f, pred_a = tr_f.result(), tr_a.result()
     off = abduct(observed, pred_f)
-    return pred_a + off, {"offset": off, "pred_fact": pred_f,
-                          "pred_alt": pred_a}
+    return pred_a + off, {"offset": off, "pred_fact": pred_f, "pred_alt": pred_a}

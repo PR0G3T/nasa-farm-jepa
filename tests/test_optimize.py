@@ -1,45 +1,58 @@
 """HPO & NAS — search space, trainers, gradient identifiability, proxies."""
 
+import itertools
+
 import pytest
 import torch
 
-from nasa_farm.constants import DTYPE
 from nasa_farm.dynamics.model import WorldModel
-from nasa_farm.dynamics.residual import Residual
 from nasa_farm.forcing import synthetic_year, tile_to_horizon
-from nasa_farm.optimize.hyperparameter import (
-    blackbox, gradient, successive_halving,
-)
 from nasa_farm.optimize.architecture import (
-    ARCH_SPACE, build_residual, jacob_cov_score, search, synflow_score,
+    ARCH_SPACE,
+    build_residual,
+    jacob_cov_score,
+    search,
+    synflow_score,
     zero_cost_rank,
+)
+from nasa_farm.optimize.hyperparameter import (
+    blackbox,
+    gradient,
+    successive_halving,
 )
 from nasa_farm.optimize.space import Parameter, Space
 from nasa_farm.optimize.targets import (
-    ObservedSeries, ObservedTrajectory, series, season_metrics,
-    series_loss, synthetic_observation, trajectory_loss,
+    ObservedSeries,
+    ObservedTrajectory,
+    season_metrics,
+    series,
+    series_loss,
+    synthetic_observation,
+    trajectory_loss,
 )
 from nasa_farm.optimize.trainer import fit, fit_batch, leaf, trait_leaf
 from nasa_farm.state.crops import INDEX
-from nasa_farm.state.field import Field
-from nasa_farm.state.soil import SoilProfile
 from nasa_farm.types import Actions
 
 
 class TestSpace:
     def test_param_validation(self):
         with pytest.raises(ValueError):
-            Parameter("bad")                          # neither choices nor range
+            Parameter("bad")  # neither choices nor range
         with pytest.raises(ValueError):
-            Parameter("bad2", low=1.0, high=0.5)      # inverted
+            Parameter("bad2", low=1.0, high=0.5)  # inverted
         with pytest.raises(ValueError):
             Parameter("bad3", low=-1.0, high=10.0, log=True)  # log needs low>0
-        Parameter("ok", choices=(1, 2))               # no raise
+        Parameter("ok", choices=(1, 2))  # no raise
 
     def test_sample_bounds_and_reproducibility(self):
-        sp = Space([Parameter("x", low=0.0, high=1.0),
-                    Parameter("y", low=1e-3, high=1.0, log=True),
-                    Parameter("z", choices=("a", "b"))])
+        sp = Space(
+            [
+                Parameter("x", low=0.0, high=1.0),
+                Parameter("y", low=1e-3, high=1.0, log=True),
+                Parameter("z", choices=("a", "b")),
+            ]
+        )
         a = sp.sample(16, seed=7)
         b = sp.sample(16, seed=7)
         assert a == b
@@ -53,7 +66,7 @@ class TestSpace:
         sp = Space([Parameter("x", low=0.0, high=1.0)])
         xs = sorted(c["x"] for c in sp.sample(8, seed=0))
         assert xs[0] < 0.5 and xs[-1] > 0.5
-        gaps = [b - a for a, b in zip(xs, xs[1:])]
+        gaps = [b - a for a, b in itertools.pairwise(xs)]
         assert max(gaps) < 0.5
 
 
@@ -63,14 +76,12 @@ class TestTargets:
         a = Actions.idle(1, forcing.days)
         m = season_metrics(hybrid_model, field, forcing, a)
         m.sum().backward()
-        grads = [p.grad for p in hybrid_model.residual.parameters()
-                 if p.grad is not None]
+        grads = [p.grad for p in hybrid_model.residual.parameters() if p.grad is not None]
         assert grads and all(torch.isfinite(g).all() for g in grads)
 
     def test_trajectory_loss_masking(self, field, hybrid_model, crops):
         forcing = tile_to_horizon(synthetic_year(42.0, seed=3), 1)
-        predicted = season_metrics(hybrid_model, field, forcing,
-                              Actions.idle(1, forcing.days))[0]
+        predicted = season_metrics(hybrid_model, field, forcing, Actions.idle(1, forcing.days))[0]
         # exact match on observed cells, NaN elsewhere → zero loss
         observed = ObservedTrajectory(values=predicted.clone())
         assert float(trajectory_loss(predicted, observed)) == pytest.approx(0.0)
@@ -78,8 +89,8 @@ class TestTargets:
         moved = predicted.clone()
         moved[:, 0] += 10.0
         obs2 = ObservedTrajectory(values=moved)
-        l = trajectory_loss(predicted, obs2)
-        assert float(l) > 0.0
+        loss = trajectory_loss(predicted, obs2)
+        assert float(loss) > 0.0
 
     def test_synthetic_observation_channels(self, physics_model, field, crops):
         forcing = tile_to_horizon(synthetic_year(42.0, seed=1), 1)
@@ -87,8 +98,8 @@ class TestTargets:
         sow = a.sow.clone()
         sow[0, int(crops.get("maize")[INDEX["sow_doy"]]) - 1] = crops.index("maize")
         observed = synthetic_observation(
-            physics_model, field, forcing,
-            Actions(sow, a.irrigation, a.n_fert), ("yield_kg",))
+            physics_model, field, forcing, Actions(sow, a.irrigation, a.n_fert), ("yield_kg",)
+        )
         mask = observed.observed_mask()
         assert mask.sum() == observed.values.shape[0]  # one channel, H rows
 
@@ -96,30 +107,31 @@ class TestTargets:
 class TestObservedSeries:
     def test_obs_series_shapes_and_zero_loss(self, physics_model, field):
         forcing = tile_to_horizon(synthetic_year(42.0, seed=1), 1)
-        predicted = series(physics_model, field, forcing,
-                          Actions.idle(1, forcing.days),
-                          ("ndvi", "sm1"), every=30)
+        predicted = series(
+            physics_model, field, forcing, Actions.idle(1, forcing.days), ("ndvi", "sm1"), every=30
+        )
         assert predicted.shape == (1, 13, 2)
         observed = ObservedSeries(values=predicted[0].clone())
         assert float(series_loss(predicted, observed)) == pytest.approx(0.0)
 
     def test_series_loss_counts_only_observed(self, physics_model, field):
         forcing = tile_to_horizon(synthetic_year(42.0, seed=1), 1)
-        predicted = series(physics_model, field, forcing,
-                          Actions.idle(1, forcing.days), ("ndvi",), every=30)
+        predicted = series(
+            physics_model, field, forcing, Actions.idle(1, forcing.days), ("ndvi",), every=30
+        )
         moved = predicted[0].clone()
         moved[:, 0] += 1.0
-        moved[3:] = float("nan")      # unobserved cells excluded
-        l = series_loss(predicted, ObservedSeries(values=moved))
-        assert float(l) > 0.0
+        moved[3:] = float("nan")  # unobserved cells excluded
+        loss = series_loss(predicted, ObservedSeries(values=moved))
+        assert float(loss) > 0.0
 
     def test_series_grads_reach_residual(self, hybrid_model, field):
         forcing = tile_to_horizon(synthetic_year(42.0, seed=1), 1)
-        predicted = series(hybrid_model, field, forcing,
-                          Actions.idle(1, forcing.days), ("sm1",), every=15)
+        predicted = series(
+            hybrid_model, field, forcing, Actions.idle(1, forcing.days), ("sm1",), every=15
+        )
         predicted.sum().backward()
-        grads = [p.grad for p in hybrid_model.residual.parameters()
-                 if p.grad is not None]
+        grads = [p.grad for p in hybrid_model.residual.parameters() if p.grad is not None]
         assert grads and all(torch.isfinite(g).all() for g in grads)
 
 
@@ -141,9 +153,11 @@ class TestTrainer:
         pa, pb = leaf(torch.tensor([5.0])), leaf(torch.tensor([5.0]))
         ra = fit(lambda: (pa - 2.0) ** 2, {"p": pa}, epochs=200, rate=0.1)
         rb = fit_batch(
-            lambda: (float((pb - 2.0).detach() ** 2),
-                     {"p": 2 * (pb - 2.0).detach()}),
-            {"p": pb}, epochs=200, rate=0.1)
+            lambda: (float((pb - 2.0).detach() ** 2), {"p": 2 * (pb - 2.0).detach()}),
+            {"p": pb},
+            epochs=200,
+            rate=0.1,
+        )
         assert float(pb) == pytest.approx(float(pa), abs=1e-5)
         assert rb.best_loss == pytest.approx(ra.best_loss, abs=1e-5)
 
@@ -151,8 +165,8 @@ class TestTrainer:
         p = leaf(torch.tensor([0.0]))
         losses = iter([1.0, 0.5] + [2.0] * 8)
         result = fit_batch(
-            lambda: (next(losses), {"p": torch.ones(1)}),
-            {"p": p}, epochs=10, rate=0.1, patience=3)
+            lambda: (next(losses), {"p": torch.ones(1)}), {"p": p}, epochs=10, rate=0.1, patience=3
+        )
         assert float(p) == pytest.approx(float(result.parameters["p"]))
         assert result.best_loss == pytest.approx(0.5)
 
@@ -185,8 +199,7 @@ class TestGradientHPO:
             t = base.clone()
             t[i_c, i_p] = p
             physics_model.crop_table = t
-            return trajectory_loss(
-                season_metrics(physics_model, field, forcing, act), observed)
+            return trajectory_loss(season_metrics(physics_model, field, forcing, act), observed)
 
         result = gradient(loss, {"p": p}, epochs=150, rate=0.05)
         assert float(p) == pytest.approx(float(table[i_c, i_p]), rel=0.05)
@@ -200,27 +213,28 @@ class TestGradientHPO:
 class TestBlackbox:
     def test_asha_prunes(self):
         seen = []
-        def object(config, budget):
+
+        def objective(config, budget):
             seen.append(budget)
             return abs(config["x"] - 0.3)
+
         config = [{"x": v} for v in torch.linspace(0, 1, 9).tolist()]
-        trials = successive_halving(object, config, rungs=(1, 2), eta=3)
+        successive_halving(objective, config, rungs=(1, 2), eta=3)
         budgets = sorted(set(seen))
         assert budgets == [1, 2]
         assert sum(1 for s in seen if s == 2) <= 3  # ≤ 1/eta promoted
 
     def test_blackbox_finds_minimum(self):
         sp = Space([Parameter("x", low=0.0, high=1.0)])
-        result = blackbox(lambda c, b: (c["x"] - 0.31) ** 2, sp,
-                           n_trials=32, rungs=None, seed=0)
+        result = blackbox(lambda c, b: (c["x"] - 0.31) ** 2, sp, n_trials=32, rungs=None, seed=0)
         assert abs(result.best_config["x"] - 0.31) < 0.05
 
     def test_optuna_if_available(self):
-        optuna = pytest.importorskip("optuna")
+        pytest.importorskip("optuna")
         from nasa_farm.optimize.hyperparameter import optuna
+
         sp = Space([Parameter("x", low=0.0, high=1.0)])
-        result = optuna(lambda c, b: (c["x"] - 0.4) ** 2, sp,
-                         n_trials=20, seed=0)
+        result = optuna(lambda c, b: (c["x"] - 0.4) ** 2, sp, n_trials=20, seed=0)
         assert abs(result.best_config["x"] - 0.4) < 0.15
 
 
@@ -239,29 +253,32 @@ class TestNAS:
         assert all(torch.isfinite(torch.tensor(s)) for _, s in ranked)
 
     def test_synflow_positive_jacobian_ordered(self):
-        net = build_residual({"hidden": 64, "depth": 2, "activation": "silu",
-                              "layernorm": False, "skip": False},
-                             zero_init=False)
+        net = build_residual(
+            {"hidden": 64, "depth": 2, "activation": "silu", "layernorm": False, "skip": False},
+            zero_init=False,
+        )
         assert synflow_score(net) > 0
         assert jacob_cov_score(net) >= 0
 
     def test_nas_search_returns_valid_arch(self, physics_model, field, crops):
         forcing = tile_to_horizon(synthetic_year(42.0, seed=0), 1)
         a = Actions.idle(1, forcing.days)
-        observed = synthetic_observation(physics_model, field, forcing, a,
-                                    ("yield_kg",))
+        observed = synthetic_observation(physics_model, field, forcing, a, ("yield_kg",))
 
-        def object(net, budget):
+        def objective(net, budget):
             m = WorldModel(crops, residual=True)
             m.residual = net
             ps = {f"p{i}": p for i, p in enumerate(net.parameters())}
-            r = fit(lambda: trajectory_loss(
-                season_metrics(m, field, forcing, a), observed),
-                ps, epochs=budget, rate=0.02, patience=budget)
+            r = fit(
+                lambda: trajectory_loss(season_metrics(m, field, forcing, a), observed),
+                ps,
+                epochs=budget,
+                rate=0.02,
+                patience=budget,
+            )
             return r.best_loss
 
-        result = search(object, n_candidates=6, proxy_top_k=3,
-                         rungs=(5, 10), eta=2, seed=0)
+        result = search(objective, n_candidates=6, proxy_top_k=3, rungs=(5, 10), eta=2, seed=0)
         assert result.best_config["hidden"] in (16, 32, 64, 128, 256)
         assert result.best_config["depth"] in (1, 2, 3, 4)
         assert torch.isfinite(torch.tensor(result.best_value))
@@ -270,20 +287,27 @@ class TestNAS:
 
 def _lake(tmp_path, fid: str, year: int, obs_days: int = 40):
     """Minimal real lake: 365 forcing days + `obs_days` SMAP-like obs."""
-    import datetime as _dt
+    import datetime as dt
 
-    import numpy as _numpy
+    import numpy as np
 
     from nasa_farm.lake import Lake
-    dates = _numpy.array([
-        int((_dt.date(year, 1, 1) + _dt.timedelta(days=i)).strftime("%Y%m%d"))
-        for i in range(365)])
+
+    dates = np.array(
+        [int((dt.date(year, 1, 1) + dt.timedelta(days=i)).strftime("%Y%m%d")) for i in range(365)]
+    )
     with Lake(tmp_path) as L:
-        for var, val in (("tmin", 5.0), ("tmax", 15.0), ("srad", 20.0),
-                         ("precip", 2.0), ("rh", 70.0), ("u2", 3.0)):
-            L.put(fid, "forcing", var, dates, _numpy.full(365, val))
+        for var, val in (
+            ("tmin", 5.0),
+            ("tmax", 15.0),
+            ("srad", 20.0),
+            ("precip", 2.0),
+            ("rh", 70.0),
+            ("u2", 3.0),
+        ):
+            L.put(fid, "forcing", var, dates, np.full(365, val))
         obs = dates[::5][:obs_days]
-        L.put(fid, "obs", "sm", obs, _numpy.full(len(obs), 0.25))
+        L.put(fid, "obs", "sm", obs, np.full(len(obs), 0.25))
 
 
 class TestLakeTrain:
@@ -291,6 +315,7 @@ class TestLakeTrain:
         """One residual, one dataset — the pool and the serial path must
         land on the same loss: gradient reduction is order-deterministic."""
         from nasa_farm.optimize.lake import train
+
         _lake(tmp_path, "F1", 2021)
         serial = train(tmp_path, ["F1"], [2021], epochs=3, workers=1)
         pooled = train(tmp_path, ["F1"], [2021], epochs=3, workers=2)
@@ -300,11 +325,11 @@ class TestLakeTrain:
 
     def test_output_and_missing_obs(self, tmp_path):
         from nasa_farm.optimize.lake import train
+
         _lake(tmp_path, "F1", 2021)
-        _lake(tmp_path, "F2", 2021, obs_days=10)     # below MIN_OBS → skipped
+        _lake(tmp_path, "F2", 2021, obs_days=10)  # below MIN_OBS → skipped
         out = tmp_path / "residual.pt"
-        result = train(tmp_path, ["F1", "F2"], [2021], epochs=2, workers=1,
-                       output=out)
+        result = train(tmp_path, ["F1", "F2"], [2021], epochs=2, workers=1, output=out)
         assert result["runs"] == 1 and out.is_file()
         state = torch.load(out, weights_only=True)
         assert all(torch.isfinite(v).all() for v in state.values())

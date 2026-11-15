@@ -9,11 +9,12 @@ import torch
 from nasa_farm.constants import DTYPE
 from nasa_farm.types import Actions
 
-
 # ── state/ctx ─────────────────────────────────────────────────────────
+
 
 def test_ctx_norm_standardizes():
     from nasa_farm.state.context import Normalizer, build_context
+
     g = torch.Generator().manual_seed(0)
     embedding = torch.randn(50, 64, generator=g, dtype=DTYPE) * 3 + 1.0
     n = Normalizer(64).fit(embedding)
@@ -26,11 +27,12 @@ def test_ctx_norm_standardizes():
 
 def test_trait_hyper_identity_and_bounds(crops):
     from nasa_farm.state.context import Traits
+
     th = Traits(8, crops.n_crops, crops.table.shape[1])
     context = torch.randn(4, 8, dtype=DTYPE)
     mult = th(context)
     assert mult.shape == (4, crops.n_crops, crops.table.shape[1])
-    assert torch.equal(mult, torch.ones_like(mult))   # zero-init → 1.0
+    assert torch.equal(mult, torch.ones_like(mult))  # zero-init → 1.0
     th.net[-1].weight.data.normal_(0, 0.5)
     mult = th(context)
     assert mult.min() >= 0.5 - 1e-9 and mult.max() <= 2.0 + 1e-9
@@ -39,6 +41,7 @@ def test_trait_hyper_identity_and_bounds(crops):
 def test_condition_wires_ctx_and_latents(field, crops):
     from nasa_farm.dynamics.model import WorldModel
     from nasa_farm.state.context import Initialization, condition
+
     m = WorldModel(crops, latent_dimension=6, context_dimension=8)
     initialization = Initialization(8, 6, m.latent.hidden_dimension)
     context = torch.randn(1, 8, dtype=DTYPE)
@@ -49,9 +52,10 @@ def test_condition_wires_ctx_and_latents(field, crops):
 
 # ── dynamics/interv ───────────────────────────────────────────────────
 
+
 def test_edit_state_sets_masked_only(field):
-    from nasa_farm.dynamics.intervention import (
-        EDIT_VARS, edit_state, get_variables)
+    from nasa_farm.dynamics.intervention import EDIT_VARS, edit_state, get_variables
+
     s = field.state
     e = len(EDIT_VARS)
     mask = torch.zeros(e, dtype=torch.bool)
@@ -66,8 +70,8 @@ def test_edit_state_sets_masked_only(field):
 
 
 def test_edit_state_clamps_to_bounds(field):
-    from nasa_farm.dynamics.intervention import (
-        EDIT_VARS, edit_state, get_variables)
+    from nasa_farm.dynamics.intervention import EDIT_VARS, edit_state, get_variables
+
     mask = torch.zeros(len(EDIT_VARS), dtype=torch.bool)
     mask[EDIT_VARS.index("sw0")] = True
     values = torch.full((1, len(EDIT_VARS)), 1e9, dtype=DTYPE)
@@ -77,16 +81,20 @@ def test_edit_state_clamps_to_bounds(field):
 
 def test_response_net_zero_init(field):
     from nasa_farm.dynamics.intervention import EDIT_VARS, Response
+
     r = Response()
     e = len(EDIT_VARS)
-    output = r(torch.randn(4, 14, dtype=DTYPE),
-            torch.randn(4, e, dtype=DTYPE),
-            torch.zeros(e, dtype=torch.bool))
+    output = r(
+        torch.randn(4, 14, dtype=DTYPE),
+        torch.randn(4, e, dtype=DTYPE),
+        torch.zeros(e, dtype=torch.bool),
+    )
     assert torch.equal(output, torch.zeros(4, e, dtype=DTYPE))
 
 
 def test_whatif_holds_edit_and_runs(physics_model, field, warm_year):
     from nasa_farm.dynamics.intervention import EDIT_VARS, whatif
+
     mask = torch.zeros(len(EDIT_VARS), dtype=torch.bool)
     mask[EDIT_VARS.index("n_min")] = True
     values = torch.zeros(1, len(EDIT_VARS), dtype=DTYPE)
@@ -99,18 +107,28 @@ def test_whatif_holds_edit_and_runs(physics_model, field, warm_year):
 def test_fit_response_learns(physics_model, field, warm_year):
     from nasa_farm.dynamics.intervention import Response, fit_response
     from nasa_farm.types import FORCING_VARS, Forcing
+
     f120 = Forcing(*(getattr(warm_year, k)[:, :120] for k in FORCING_VARS))
     r = Response()
-    rep = fit_response(physics_model, r, field, f120,
-                       Actions.idle(1, 120), days=(40, 60),
-                       edits_per_day=2, epochs=3)
+    rep = fit_response(
+        physics_model,
+        r,
+        field,
+        f120,
+        Actions.idle(1, 120),
+        days=(40, 60),
+        edits_per_day=2,
+        epochs=3,
+    )
     assert rep["final"] >= 0.0 and rep["history"]
 
 
 # ── neural SDE layer ──────────────────────────────────────────────────
 
+
 def test_diffusion_identity_at_init(crops, field, warm_year):
     from nasa_farm.dynamics.model import WorldModel
+
     m = WorldModel(crops, residual=True, diffusion=True, seed=0)
     forcing = warm_year
     a = Actions.idle(1, forcing.days)
@@ -118,19 +136,20 @@ def test_diffusion_identity_at_init(crops, field, warm_year):
     # σ ≈ e^-6 at init → rollouts match the deterministic physics to ~1e-3
     m2 = WorldModel(crops, residual=False)
     f2, _ = m2.step(field, a.day(0), forcing.day(0))
-    for x, y in ((f1.state.sw, f2.state.sw),
-                 (f1.state.biomass, f2.state.biomass)):
+    for x, y in ((f1.state.sw, f2.state.sw), (f1.state.biomass, f2.state.biomass)):
         assert float((x - y).abs().max()) < 0.05
 
 
 def test_diffusion_reproducible(crops, field, warm_year):
     from nasa_farm.dynamics.model import WorldModel
     from nasa_farm.dynamics.residual import Residual
+
     r = Residual(diffusion=True, zero_init=False)
     m1 = WorldModel(crops, residual=False, seed=11)
     m1.residual = r
     m2 = WorldModel(crops, residual=False, seed=11)
     import copy
+
     m2.residual = copy.deepcopy(r)
     a = Actions.idle(1, warm_year.days)
     f1, _ = m1.step(field, a.day(0), warm_year.day(0))
@@ -140,8 +159,10 @@ def test_diffusion_reproducible(crops, field, warm_year):
 
 # ── forcing/gen energy score ──────────────────────────────────────────
 
+
 def test_energy_score_proper():
     from nasa_farm.metrics import energy_score
+
     g = torch.Generator().manual_seed(0)
     y = torch.randn(16, 6, generator=g, dtype=DTYPE)
     good = y + 0.01 * torch.randn(4, 16, 6, generator=g, dtype=DTYPE)
@@ -151,6 +172,7 @@ def test_energy_score_proper():
 
 def test_sample_gen_spread(warm_year):
     from nasa_farm.forcing import fit, sample
+
     m = fit([warm_year, warm_year], epochs=3, hidden=32, seed=0)
     a = sample(m, 30, 6, seed=2)
     assert a.precip.shape == (6, 30)
@@ -160,9 +182,11 @@ def test_sample_gen_spread(warm_year):
 
 # ── assim/latent + langevin ───────────────────────────────────────────
 
+
 def test_ensf_lr_updates_and_bounds(physics_model, field, warm_year):
     from nasa_farm.assimilation import ensf_lr_update
     from nasa_farm.observe import observables
+
     f = field.repeat(8)
     chans = ("ndvi", "sm1")
     observed_prediction = observables(f.state, chans)
@@ -173,13 +197,23 @@ def test_ensf_lr_updates_and_bounds(physics_model, field, warm_year):
 
 def test_fit_filter_and_update(physics_model, field, warm_year):
     from nasa_farm.assimilation import fit_filter, network_update
-    from nasa_farm.assimilation.kalman import STATE_VARS, _get_variable
-    net = fit_filter(physics_model, field, warm_year,
-                     Actions.idle(1, warm_year.days),
-                     ("ndvi",), every=60, members=8, epochs=2, seed=0)
+    from nasa_farm.assimilation.kalman import _get_variable
+
+    net = fit_filter(
+        physics_model,
+        field,
+        warm_year,
+        Actions.idle(1, warm_year.days),
+        ("ndvi",),
+        every=60,
+        members=8,
+        epochs=2,
+        seed=0,
+    )
     update = network_update(net)
     f = field.repeat(8)
     from nasa_farm.observe import observables
+
     predicted = observables(f.state, ("ndvi",))
     saved = update(f.state, predicted, predicted.mean(0), 0.01)
     assert torch.isfinite(_get_variable(saved, "sw0")).all()
@@ -189,13 +223,24 @@ def test_ula_posterior_shapes(physics_model, field, warm_year):
     from nasa_farm.assimilation import langevin_posterior
     from nasa_farm.optimize.targets import ObservedSeries, series
     from nasa_farm.types import FORCING_VARS, Forcing
+
     f60 = Forcing(*(getattr(warm_year, k)[:, :60] for k in FORCING_VARS))
     actions = Actions.idle(1, 60)
     with torch.inference_mode():
         predicted = series(physics_model, field, f60, actions, ("ndvi",), 15)
     observed = ObservedSeries(values=predicted[0])
-    outs = langevin_posterior(physics_model, field, f60, actions, observed, ("ndvi",),
-                         every=15, steps=6, burn=2, n_samples=3)
+    outs = langevin_posterior(
+        physics_model,
+        field,
+        f60,
+        actions,
+        observed,
+        ("ndvi",),
+        every=15,
+        steps=6,
+        burn=2,
+        n_samples=3,
+    )
     assert len(outs) == 3
     assert all(torch.isfinite(o.state.sw).all() for o in outs)
 
@@ -203,102 +248,129 @@ def test_ula_posterior_shapes(physics_model, field, warm_year):
 def test_plan_schedule_orders(physics_model, field, warm_year):
     from nasa_farm.assimilation import plan_schedule
     from nasa_farm.types import FORCING_VARS, Forcing
+
     f90 = Forcing(*(getattr(warm_year, k)[:, :90] for k in FORCING_VARS))
-    sch = plan_schedule(physics_model, field, f90, Actions.idle(1, 90),
-                        tuple(range(5, 90, 5)), ("ndvi", "sm1"),
-                        n_pick=4)
+    sch = plan_schedule(
+        physics_model,
+        field,
+        f90,
+        Actions.idle(1, 90),
+        tuple(range(5, 90, 5)),
+        ("ndvi", "sm1"),
+        n_pick=4,
+    )
     assert len(sch) == 4 and all(5 <= t <= 90 for t, _, _ in sch)
 
 
 # ── optimize/sbi ──────────────────────────────────────────────────────
 
+
 def test_joint_flow_posterior_and_likelihood():
-    from nasa_farm.optimize.inference import fit_joint, Posterior
+    from nasa_farm.optimize.inference import Posterior, fit_joint
+
     g = torch.Generator().manual_seed(0)
     theta = torch.randn(300, 2, generator=g, dtype=DTYPE)
-    x = torch.stack([theta[:, 0] + theta[:, 1],
-                     0.3 * torch.randn(300, generator=g, dtype=DTYPE)], 1)
+    x = torch.stack(
+        [theta[:, 0] + theta[:, 1], 0.3 * torch.randn(300, generator=g, dtype=DTYPE)], 1
+    )
     m = fit_joint(theta, x, epochs=30, hidden=64, seed=0)
     p = Posterior(m)
     s = p.sample(x[:1], 16, steps=3, seed=0)
     assert s.shape == (16, 2) and torch.isfinite(s).all()
-    l = p.likelihood(theta[:1], 16, steps=3, seed=0)
-    assert l.shape == (16, 2) and torch.isfinite(l).all()
+    likelihood = p.likelihood(theta[:1], 16, steps=3, seed=0)
+    assert likelihood.shape == (16, 2) and torch.isfinite(likelihood).all()
 
 
 # ── optimize/shoot ────────────────────────────────────────────────────
 
+
 def test_shoot_fit_runs(physics_model, field, warm_year):
-    from nasa_farm.optimize.shoot import shooting_bounds, fit_shooting
+    from nasa_farm.optimize.shoot import fit_shooting, shooting_bounds
     from nasa_farm.optimize.targets import ObservedSeries, series
     from nasa_farm.types import FORCING_VARS, Forcing
+
     assert shooting_bounds(100, 4) == [(0, 25), (25, 50), (50, 75), (75, 100)]
     f60 = Forcing(*(getattr(warm_year, k)[:, :60] for k in FORCING_VARS))
     actions = Actions.idle(1, 60)
     with torch.inference_mode():
         predicted = series(physics_model, field, f60, actions, ("ndvi",), 10)
-    rep = fit_shooting(physics_model, field, f60, actions,
-                    ObservedSeries(values=predicted[0]), ("ndvi",),
-                    every=10, segments=3, epochs=3)
+    rep = fit_shooting(
+        physics_model,
+        field,
+        f60,
+        actions,
+        ObservedSeries(values=predicted[0]),
+        ("ndvi",),
+        every=10,
+        segments=3,
+        epochs=3,
+    )
     assert rep["epochs_run"] > 0 and rep["boundary_offset"]
 
 
 # ── value + planning ──────────────────────────────────────────────────
 
+
 def test_fit_value_and_mppi_horizon(physics_model, field, warm_year):
-    from nasa_farm.value import Value, fit_value
     from nasa_farm.control import path_integral
     from nasa_farm.types import FORCING_VARS, Forcing
+    from nasa_farm.value import Value, fit_value
+
     f90 = Forcing(*(getattr(warm_year, k)[:, :90] for k in FORCING_VARS))
     actions = Actions.idle(1, 90)
     net = fit_value(physics_model, field, f90, actions, every=30, epochs=5)
     assert isinstance(net, Value)
-    result = path_integral(physics_model, field, f90, actions, iterations=1, samples=8,
-               horizon=45, value=net, seed=0)
+    result = path_integral(
+        physics_model, field, f90, actions, iterations=1, samples=8, horizon=45, value=net, seed=0
+    )
     assert result.reward == result.reward and result.actions.days == 90
 
 
 def test_policy_grad_runs(physics_model, field, warm_year):
     from nasa_farm.policy import Policy, policy_gradient
     from nasa_farm.types import FORCING_VARS, Forcing
+
     f30 = Forcing(*(getattr(warm_year, k)[:, :30] for k in FORCING_VARS))
-    p = policy_gradient(physics_model, field, f30, Actions.idle(1, 30),
-                    Policy(), epochs=2)
+    p = policy_gradient(physics_model, field, f30, Actions.idle(1, 30), Policy(), epochs=2)
     assert isinstance(p, Policy)
 
 
 # ── distill growth + providers + experiment ───────────────────────────
 
+
 def test_distill_autogrow():
     from nasa_farm.optimize.distill import grow
+
     g = torch.Generator().manual_seed(0)
     x = torch.randn(200, 14, generator=g, dtype=DTYPE)
     y = 2 * x[:, 1] * x[:, 7] + 0.1 * x[:, 3]
-    index, w, names = grow(x, y, k=4, rounds=1)
+    index, _w, names = grow(x, y, k=4, rounds=1)
     assert len(index) >= 1 and len(names) > 1 + 3 * 14
 
 
 def test_providers_registered():
     from nasa_farm.forcing.provide import _PROVIDERS
-    assert {"power", "synth", "gen", "file", "wn3", "aifs"} <= set(
-        _PROVIDERS)
+
+    assert {"power", "synth", "gen", "file", "wn3", "aifs"} <= set(_PROVIDERS)
 
 
 def test_nisar_sme_descriptor():
     from nasa_farm.acquire import NISAR_SME
+
     assert NISAR_SME.short_name.startswith("NISAR_L3_SME")
     assert NISAR_SME.requires_auth
 
 
 def test_experiment_registry_has_interv():
     from nasa_farm.experiments import experiments
+
     assert "interv" in experiments()
 
 
 def test_interv_experiment_smoke():
     from nasa_farm.experiments import Specification, run
-    rep = run("interv", Specification(epochs=3, members=8, seed=1,
-                             observed_channels=("ndvi",)))
+
+    rep = run("interv", Specification(epochs=3, members=8, seed=1, observed_channels=("ndvi",)))
     assert "perturbations" in rep.results and "plan_tau" in rep.results
     assert rep.results["plan_tau"]["prior"] <= 1.0
 
@@ -309,10 +381,18 @@ def test_fit_response_targets_are_real(physics_model, field, warm_year):
     fit could drive to ~0)."""
     from nasa_farm.dynamics.intervention import Response, fit_response
     from nasa_farm.types import FORCING_VARS, Forcing
+
     f120 = Forcing(*(getattr(warm_year, k)[:, :120] for k in FORCING_VARS))
     r = Response()
-    rep = fit_response(physics_model, r, field, f120,
-                       Actions.idle(1, 120), days=(40, 60),
-                       edits_per_day=2, epochs=3)
+    rep = fit_response(
+        physics_model,
+        r,
+        field,
+        f120,
+        Actions.idle(1, 120),
+        days=(40, 60),
+        edits_per_day=2,
+        epochs=3,
+    )
     assert rep["final"] > 1e-8
     assert all(h > 0.0 for h in rep["history"])

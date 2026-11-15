@@ -26,8 +26,7 @@ from nasa_farm.experiments.scene import calibrate, observe, scene
 from nasa_farm.experiments.specification import Specification
 from nasa_farm.heads import METRICS
 from nasa_farm.optimize.targets import season_metrics
-from nasa_farm.plan import (
-    enumerate_rotations, evaluate, objective_matrix, scalarize)
+from nasa_farm.plan import enumerate_rotations, evaluate, objective_matrix, scalarize
 from nasa_farm.state.field import Field
 from nasa_farm.types import ACTION_VARS, Actions
 
@@ -46,13 +45,12 @@ def _tau(a: torch.Tensor, b: torch.Tensor) -> float:
     return (conc - disc) / max(1, conc + disc)
 
 
-def _perturbed(actions: Actions, channel: str, day: int, span: int,
-               delta: float | int) -> Actions:
+def _perturbed(actions: Actions, channel: str, day: int, span: int, delta: float | int) -> Actions:
     keywords = {k: getattr(actions, k).clone() for k in ACTION_VARS}
     if channel == "sow":
         keywords["sow"] = keywords["sow"].roll(int(delta), dims=1)
     else:
-        keywords[channel][:, day:day + span] += delta
+        keywords[channel][:, day : day + span] += delta
     return Actions(**keywords)
 
 
@@ -81,12 +79,14 @@ def run(specification: Specification) -> dict:
     for name, ch, day, span, d in suite:
         a2 = _perturbed(scenario.actions, ch, day, span, d)
         deltas: dict[str, torch.Tensor] = {}
-        for label, model in (("prior", scenario.prior), ("cal", cal),
-                           ("oracle", scenario.truth)):
+        for label, model in (("prior", scenario.prior), ("cal", cal), ("oracle", scenario.truth)):
             per_row = [
-                (_metrics(model, scenario, scenario.realization(i), a2)
-                 - _metrics(model, scenario, scenario.realization(i), scenario.actions)).mean(0)
-                for i in held]
+                (
+                    _metrics(model, scenario, scenario.realization(i), a2)
+                    - _metrics(model, scenario, scenario.realization(i), scenario.actions)
+                ).mean(0)
+                for i in held
+            ]
             deltas[label] = torch.stack(per_row).mean(0)
         truth_d = deltas.pop("oracle")
         for label in ("prior", "cal"):
@@ -94,8 +94,10 @@ def run(specification: Specification) -> dict:
                 t, p = float(truth_d[index[c]]), float(deltas[label][index[c]])
                 error = p - t
                 pert.setdefault(c, {}).setdefault(name, {})[label] = {
-                    "truth_delta": round(t, 4), "model_delta": round(p, 4),
-                    "err": round(error, 4)}
+                    "truth_delta": round(t, 4),
+                    "model_delta": round(p, 4),
+                    "err": round(error, 4),
+                }
 
     # --- plan-ranking fidelity ---------------------------------------------
     i_c = scenario.crops.index(specification.crop)
@@ -104,21 +106,23 @@ def run(specification: Specification) -> dict:
     plans = enumerate_rotations(cands, hh)
     if hh * 365 < scenario.forcing_e.days:
         from nasa_farm.types import FORCING_VARS, Forcing
-        ensemble = Forcing(*(getattr(scenario.forcing_e, k)[:, :hh * 365]
-                        for k in FORCING_VARS))
+
+        ensemble = Forcing(*(getattr(scenario.forcing_e, k)[:, : hh * 365] for k in FORCING_VARS))
     else:
         ensemble = scenario.forcing_e
     taus = {}
     with torch.inference_mode():
         ev_t = evaluate(scenario.truth, scenario.field, plans, ensemble)
-        obj_t = scalarize(*objective_matrix(
-            {k: v for k, v in ev_t.objectives.items()}), torch.ones(
-            len(ev_t.objectives), dtype=DTYPE))
+        obj_t = scalarize(
+            *objective_matrix(dict(ev_t.objectives.items())),
+            torch.ones(len(ev_t.objectives), dtype=DTYPE),
+        )
         for label, model in (("prior", scenario.prior), ("cal", cal)):
             ev_m = evaluate(model, scenario.field, plans, ensemble)
-            obj_m = scalarize(*objective_matrix(
-                {k: v for k, v in ev_m.objectives.items()}),
-                torch.ones(len(ev_m.objectives), dtype=DTYPE))
+            obj_m = scalarize(
+                *objective_matrix(dict(ev_m.objectives.items())),
+                torch.ones(len(ev_m.objectives), dtype=DTYPE),
+            )
             taus[label] = round(_tau(obj_m, obj_t), 4)
 
     # --- mid-season edit consistency ---------------------------------------
@@ -132,10 +136,10 @@ def run(specification: Specification) -> dict:
         for t in range(day):
             f, _ = model.step(f, scenario.actions.day(t), f_t.day(t), t)
         current = f.state
-        st_e = edit_state(current, mask,
-                          torch.full((1, e), 400.0, dtype=DTYPE), f.soil)
-        fe = Field(state=st_e, soil=f.soil, latitude=f.latitude, elevation=f.elevation,
-                   context=f.context)
+        st_e = edit_state(current, mask, torch.full((1, e), 400.0, dtype=DTYPE), f.soil)
+        fe = Field(
+            state=st_e, soil=f.soil, latitude=f.latitude, elevation=f.elevation, context=f.context
+        )
         edited = fe
         peak = edited.state.biomass.clone()
         for t in range(day, f_t.days):
@@ -152,13 +156,19 @@ def run(specification: Specification) -> dict:
             row = {
                 "biomass_err": float(b_m - b_t),
                 "water_err": float(w_m - w_t),
-                "nmin_err": float(n_m - n_t)}
+                "nmin_err": float(n_m - n_t),
+            }
             bucket = response.setdefault(label, [])
             bucket.append(row)
-    response = {label: {
-        k: round(sum(r[k] for r in rows) / len(rows), 4)
-        for k in rows[0]} for label, rows in response.items()}
+    response = {
+        label: {k: round(sum(r[k] for r in rows) / len(rows), 4) for k in rows[0]}
+        for label, rows in response.items()
+    }
 
-    return {"calibration": rep, "perturbations": pert,
-            "plan_tau": taus, "edit_response": response,
-            "held_realizations": len(held)}
+    return {
+        "calibration": rep,
+        "perturbations": pert,
+        "plan_tau": taus,
+        "edit_response": response,
+        "held_realizations": len(held),
+    }

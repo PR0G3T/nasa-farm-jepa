@@ -34,8 +34,7 @@ def _get_variable(state: FieldState, name: str) -> torch.Tensor:
     return getattr(state, name)
 
 
-def _put_variables(state: FieldState, names: tuple[str, ...],
-              x: torch.Tensor) -> FieldState:
+def _put_variables(state: FieldState, names: tuple[str, ...], x: torch.Tensor) -> FieldState:
     keywords: dict[str, torch.Tensor] = {}
     sw = state.sw.clone()
     for i, n in enumerate(names):
@@ -44,8 +43,7 @@ def _put_variables(state: FieldState, names: tuple[str, ...],
         elif n == "swr" and state.n_layers > 1:
             root = sw[:, 1:].clone()
             w = root / root.sum(-1, keepdim=True).clamp(min=1e-9)
-            sw[:, 1:] = (root
-                         + (x[:, i] - root.sum(-1)).unsqueeze(-1) * w).clamp(min=0.0)
+            sw[:, 1:] = (root + (x[:, i] - root.sum(-1)).unsqueeze(-1) * w).clamp(min=0.0)
         elif n == "swr":
             pass
         else:
@@ -53,12 +51,16 @@ def _put_variables(state: FieldState, names: tuple[str, ...],
     return state.replace(sw=sw, **keywords)
 
 
-def kalman_update(state: FieldState, observed_prediction: torch.Tensor,
-                observed: torch.Tensor, r: torch.Tensor | float,
-                names: tuple[str, ...] = STATE_VARS,
-                channels: tuple[str, ...] | None = None,
-                perturb: bool = True,
-                generation: torch.Generator | None = None) -> FieldState:
+def kalman_update(
+    state: FieldState,
+    observed_prediction: torch.Tensor,
+    observed: torch.Tensor,
+    r: torch.Tensor | float,
+    names: tuple[str, ...] = STATE_VARS,
+    channels: tuple[str, ...] | None = None,
+    perturb: bool = True,
+    generation: torch.Generator | None = None,
+) -> FieldState:
     """Stochastic EnKF analysis.
 
     state: (B,) ensemble; obs_pred: (B, C) predicted observations;
@@ -71,19 +73,16 @@ def kalman_update(state: FieldState, observed_prediction: torch.Tensor,
     x = torch.stack([_get_variable(state, n) for n in names], dim=-1)  # (B,V)
     xm, ym = x.mean(0), observed_prediction.mean(0)
     xa, ya = x - xm, observed_prediction - ym
-    cxy = xa.t() @ ya / (b - 1)                     # (V,C)
+    cxy = xa.t() @ ya / (b - 1)  # (V,C)
     r_t = torch.as_tensor(r, dtype=x.dtype, device=x.device)
     full = r_t.ndim == 2
-    cyy = ya.t() @ ya / (b - 1) \
-        + (r_t if full else torch.diag(r_t.expand(observed.numel())))
-    k = torch.linalg.solve(cyy, cxy.t()).t()        # (V,C) — never invert
+    cyy = ya.t() @ ya / (b - 1) + (r_t if full else torch.diag(r_t.expand(observed.numel())))
+    k = torch.linalg.solve(cyy, cxy.t()).t()  # (V,C) — never invert
     if perturb:
-        eps = torch.randn(b, observed.numel(), generator=generation,
-                          dtype=x.dtype, device=x.device)
+        eps = torch.randn(b, observed.numel(), generator=generation, dtype=x.dtype, device=x.device)
         if full:
             eye = torch.eye(observed.numel(), dtype=x.dtype, device=x.device)
-            noise = eps @ torch.linalg.cholesky(
-                r_t + 1e-10 * eye).t()
+            noise = eps @ torch.linalg.cholesky(r_t + 1e-10 * eye).t()
         else:
             noise = eps * r_t.sqrt()
         innovation = (observed + noise) - observed_prediction
@@ -99,8 +98,8 @@ class Observation:
 
     t: int
     channels: tuple[str, ...]
-    values: torch.Tensor        # (C,)
-    std: torch.Tensor | float   # (C,) or scalar
+    values: torch.Tensor  # (C,)
+    std: torch.Tensor | float  # (C,) or scalar
 
     def __post_init__(self) -> None:
         for c in self.channels:
@@ -108,12 +107,20 @@ class Observation:
                 raise KeyError(f"unknown observable channel: {c}")
 
 
-def assimilate(model, field: Field, forcing: Forcing, actions: Actions,
-               schedule: list[Observation],
-               names: tuple[str, ...] = STATE_VARS,
-               update=None, r_stat=None, adaptive: bool = False,
-               perturb: bool = True, learned_q: bool = False,
-               seed: int = 0) -> Field:
+def assimilate(
+    model,
+    field: Field,
+    forcing: Forcing,
+    actions: Actions,
+    schedule: list[Observation],
+    names: tuple[str, ...] = STATE_VARS,
+    update=None,
+    r_stat=None,
+    adaptive: bool = False,
+    perturb: bool = True,
+    learned_q: bool = False,
+    seed: int = 0,
+) -> Field:
     """Online EnKF: rollout an ensemble field (B = members), pausing at each
     scheduled day to analyze predicted observables vs the measurement.
     `update` swaps the analysis step (default enkf_update; pass ensf_update
@@ -129,21 +136,29 @@ def assimilate(model, field: Field, forcing: Forcing, actions: Actions,
     itself runs under inference_mode — EnKF needs no gradients.
     """
     from nasa_farm.assimilation.error import inflate
+
     update = update or kalman_update
     generation = torch.Generator().manual_seed(seed)
     t0 = 0
     with torch.inference_mode():
         for observation in sorted(schedule, key=lambda x: x.t):
-            field = _slice_rollout(model, field, forcing, actions, t0, observation.t,
-                                   learned_q, generation)
+            field = _slice_rollout(
+                model, field, forcing, actions, t0, observation.t, learned_q, generation
+            )
             predicted = observables(field.state, observation.channels)
-            r = observation.std ** 2
+            r = observation.std**2
             if adaptive:
                 r = inflate(observation.values - predicted.mean(0), predicted.var(0), r)
             keywords = {"r": r, "names": names, "channels": observation.channels}
             try:
-                updated = update(field.state, predicted, observation.values, **keywords,
-                            perturb=perturb, generation=generation)
+                updated = update(
+                    field.state,
+                    predicted,
+                    observation.values,
+                    **keywords,
+                    perturb=perturb,
+                    generation=generation,
+                )
             except TypeError:
                 updated = update(field.state, predicted, observation.values, **keywords)
             if r_stat is not None:
@@ -152,13 +167,12 @@ def assimilate(model, field: Field, forcing: Forcing, actions: Actions,
                 r_stat.update(d_bg, residual)
             field = _replace_state(field, updated)
             t0 = observation.t
-        field = _slice_rollout(model, field, forcing, actions, t0,
-                               forcing.days, learned_q, generation)
-    return field
+        return _slice_rollout(
+            model, field, forcing, actions, t0, forcing.days, learned_q, generation
+        )
 
 
-def _q_std(model, state: FieldState, forcing_day: dict,
-           action_d: dict) -> torch.Tensor | None:
+def _q_std(model, state: FieldState, forcing_day: dict, action_d: dict) -> torch.Tensor | None:
     """(B, V) learned process-noise σ from the diffusion residual — the
     model's own estimate of where the physics errs, per member."""
     r = getattr(model, "residual", None)
@@ -171,23 +185,35 @@ def _q_std(model, state: FieldState, forcing_day: dict,
     return (0.5 * output[1]).exp() * r.scale.to(output[1].dtype)
 
 
-def _jitter(state: FieldState, signal: torch.Tensor,
-            generation: torch.Generator) -> FieldState:
+def _jitter(state: FieldState, signal: torch.Tensor, generation: torch.Generator) -> FieldState:
     """Add per-member process noise σ·ε to the analysis variables."""
     x = torch.stack([_get_variable(state, n) for n in STATE_VARS], -1)
-    x = (x + signal * torch.randn(x.shape, generator=generation, dtype=x.dtype,
-                               device=x.device)).clamp(min=0.0)
+    x = (
+        x + signal * torch.randn(x.shape, generator=generation, dtype=x.dtype, device=x.device)
+    ).clamp(min=0.0)
     return _put_variables(state, STATE_VARS, x)
 
 
 def _replace_state(field: Field, state: FieldState) -> Field:
-    return field.__class__(state=state, soil=field.soil, latitude=field.latitude,
-                           elevation=field.elevation, context=field.context)
+    return field.__class__(
+        state=state,
+        soil=field.soil,
+        latitude=field.latitude,
+        elevation=field.elevation,
+        context=field.context,
+    )
 
 
-def _slice_rollout(model, field: Field, forcing: Forcing, actions: Actions,
-                   t0: int, t1: int, learned_q: bool = False,
-                   generation: torch.Generator | None = None) -> Field:
+def _slice_rollout(
+    model,
+    field: Field,
+    forcing: Forcing,
+    actions: Actions,
+    t0: int,
+    t1: int,
+    learned_q: bool = False,
+    generation: torch.Generator | None = None,
+) -> Field:
     for t in range(t0, t1):
         field, _ = model.step(field, actions.day(t), forcing.day(t), t)
         if learned_q:

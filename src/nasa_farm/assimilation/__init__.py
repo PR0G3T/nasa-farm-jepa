@@ -12,24 +12,45 @@ acquisition calendars.
 4DEnVar through the differentiable rollout).
 """
 
-from nasa_farm.assimilation.kalman import (
-    Observation, STATE_VARS, assimilate, kalman_update,
+from nasa_farm.assimilation.design import (
+    design_schedule,
+    eigen,
+    fisher_design,
+    plan_schedule,
 )
 from nasa_farm.assimilation.error import Statistic, inflate
-from nasa_farm.assimilation.score import score_update
-from nasa_farm.assimilation.latent import (
-    Filter, fit_filter, network_update, ensf_lr_update,
+from nasa_farm.assimilation.kalman import (
+    STATE_VARS,
+    Observation,
+    assimilate,
+    kalman_update,
 )
 from nasa_farm.assimilation.langevin import langevin_posterior
-from nasa_farm.assimilation.design import (
-    design_schedule, eigen, fisher_design, plan_schedule,
+from nasa_farm.assimilation.latent import (
+    Filter,
+    ensf_lr_update,
+    fit_filter,
+    network_update,
 )
+from nasa_farm.assimilation.score import score_update
 from nasa_farm.assimilation.smooth import ensemble_smooth
 
 __all__ = [
-    "Filter", "Observation", "STATE_VARS", "Statistic", "assimilate",
-    "design_schedule", "eigen", "ensemble_smooth", "fisher_design",
-    "fit_filter", "inflate", "kalman_update", "langevin_posterior",
-    "network_update", "plan_schedule", "ensf_lr_update",
+    "STATE_VARS",
+    "Filter",
+    "Observation",
+    "Statistic",
+    "assimilate",
+    "design_schedule",
+    "eigen",
+    "ensemble_smooth",
+    "ensf_lr_update",
+    "fisher_design",
+    "fit_filter",
+    "inflate",
+    "kalman_update",
+    "langevin_posterior",
+    "network_update",
+    "plan_schedule",
     "score_update",
 ]

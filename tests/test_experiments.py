@@ -4,16 +4,23 @@ scientific invariants every runner must satisfy."""
 import json
 
 import pytest
-import torch
 
 from nasa_farm.commands import main
 from nasa_farm.experiments import Report, Specification, experiments, run
 
 
 def specification(**keywords) -> Specification:
-    base = dict(crop="maize", horizon=1, members=6, cadence=20,
-                noise=0.05, perturb={"rue": 0.8}, epochs=10, seed=0,
-                channels=("yield_kg",))
+    base = {
+        "crop": "maize",
+        "horizon": 1,
+        "members": 6,
+        "cadence": 20,
+        "noise": 0.05,
+        "perturb": {"rue": 0.8},
+        "epochs": 10,
+        "seed": 0,
+        "channels": ("yield_kg",),
+    }
     return Specification(**(base | keywords))
 
 
@@ -48,8 +55,10 @@ class TestTwin:
         assert ch["rmse_reduction_pct"] > 0
 
     def test_deterministic(self):
-        assert run("twin", specification(epochs=5)).results == \
+        assert (
             run("twin", specification(epochs=5)).results
+            == run("twin", specification(epochs=5)).results
+        )
 
 
 class TestBench:
@@ -62,8 +71,7 @@ class TestBench:
         assert ch["cal"]["rmse"] < ch["prior"]["rmse"]
 
     def test_multi_channel(self):
-        r = run("bench", specification(epochs=5, members=4,
-                              channels=("yield_kg", "water_used")))
+        r = run("bench", specification(epochs=5, members=4, channels=("yield_kg", "water_used")))
         assert set(r.results["channels"]) == {"yield_kg", "water_used"}
 
 
@@ -74,17 +82,19 @@ class TestAssim:
         assert {"open", "enkf", "ensf", "reduction_pct"} <= set(result)
         for name in ("open", "enkf", "ensf"):
             v = result[name]
-            assert {"obs_rmse", "obs_crps", "spread", "state_rmse",
-                    "channels"} <= set(v)
-            assert set(v["state_rmse"]) == \
-                {"sw0", "swr", "n_min", "lai", "biomass"}
+            assert {"obs_rmse", "obs_crps", "spread", "state_rmse", "channels"} <= set(v)
+            assert set(v["state_rmse"]) == {"sw0", "swr", "n_min", "lai", "biomass"}
         # filtering must beat open-loop on end-of-season yield
-        assert (result["enkf"]["channels"]["yield_kg"]["rmse"]
-                < result["open"]["channels"]["yield_kg"]["rmse"])
+        assert (
+            result["enkf"]["channels"]["yield_kg"]["rmse"]
+            < result["open"]["channels"]["yield_kg"]["rmse"]
+        )
 
     def test_deterministic(self):
-        assert run("assim", specification(members=6)).results == \
+        assert (
             run("assim", specification(members=6)).results
+            == run("assim", specification(members=6)).results
+        )
 
 
 class TestReport:
@@ -104,18 +114,17 @@ class TestReport:
 
 class TestCli:
     def test_cli_exp_json(self, capsys):
-        code = main(["exp", "twin", "--perturb", "rue:0.8", "--epochs", "5",
-                   "--members", "4"])
+        code = main(["exp", "twin", "--perturb", "rue:0.8", "--epochs", "5", "--members", "4"])
         assert code == 0
         output = json.loads(capsys.readouterr().out)
         assert output["experiment"] == "twin"
-        assert output["results"]["calibration"]["params"]["rue"]["truth"] \
-            == pytest.approx(3.9 * 0.8)
+        assert output["results"]["calibration"]["params"]["rue"]["truth"] == pytest.approx(
+            3.9 * 0.8
+        )
 
     def test_cli_exp_out(self, tmp_path, capsys):
         f = tmp_path / "rep.json"
-        code = main(["exp", "twin", "--epochs", "5", "--perturb", "rue:0.9",
-                   "--output", str(f)])
+        code = main(["exp", "twin", "--epochs", "5", "--perturb", "rue:0.9", "--output", str(f)])
         assert code == 0 and f.exists()
         assert Report.load(f).name == "twin"
 
@@ -125,6 +134,7 @@ class TestHeldOut:
 
     def test_scene_partitions_rows(self):
         from nasa_farm.experiments.scene import scene
+
         scenario = scene(specification(realizations=3))
         assert list(scenario.held_indices()) == [1, 2]
         assert scenario.held_out().batch == 2

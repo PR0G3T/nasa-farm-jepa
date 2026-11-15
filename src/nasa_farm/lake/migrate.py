@@ -16,27 +16,27 @@ import sqlite3
 from contextlib import closing
 from pathlib import Path
 
-import numpy as numpy
+import numpy as np
 
 from nasa_farm.acquire.power import CANON
 
 
 def _legacy_series(root: Path):
     import zarr
+
     for d in sorted(root.glob("*.zarr")):
         fid = d.stem
         try:
             g = zarr.open_group(d, mode="r")
-        except Exception:
-            continue                          # stray artifact, not a group
+        except Exception:  # noqa: S112
+            continue  # stray artifact, not a group
         if attrs := dict(g.attrs):
             yield fid, None, attrs
         for group in g.group_keys():
             for var in g[group].group_keys():
                 node = g[group][var]
                 if "dates" in node and "values" in node:
-                    yield fid, (group, var), (node["dates"][:],
-                                            node["values"][:])
+                    yield fid, (group, var), (node["dates"][:], node["values"][:])
 
 
 def _catalog(root: Path):
@@ -44,14 +44,10 @@ def _catalog(root: Path):
     cat = root / "catalog.db"
     fields, granules, source = [], [], {}
     if cat.exists():
-        with closing(sqlite3.connect(
-                f"file:{cat}?mode=ro", uri=True)) as c:
-            fields = c.execute(
-                "SELECT id, lat, lon, name FROM fields").fetchall()
-            granules = c.execute(
-                "SELECT id, product FROM granules").fetchall()
-            for fid, group, var, s in c.execute(
-                    "SELECT fid, grp, var, source FROM series"):
+        with closing(sqlite3.connect(f"file:{cat}?mode=ro", uri=True)) as c:
+            fields = c.execute("SELECT id, lat, lon, name FROM fields").fetchall()
+            granules = c.execute("SELECT id, product FROM granules").fetchall()
+            for fid, group, var, s in c.execute("SELECT fid, grp, var, source FROM series"):
                 source[fid, group, var] = s or ""
     return fields, granules, source
 
@@ -65,14 +61,13 @@ def migrate_into(lake) -> dict:
             if key is None:
                 lake.attrs(fid, **data)
             elif key[0] == "emb":
-                lake.put_vec(fid, key[1], numpy.asarray(data[1]).reshape(-1))
+                lake.put_vec(fid, key[1], np.asarray(data[1]).reshape(-1))
                 stats["emb"] += 1
             else:
                 group, var = key
                 if group == "forcing":
                     var = CANON.get(var, var)
-                lake.put(fid, group, var, data[0], data[1],
-                         source.get((fid, *key), ""))
+                lake.put(fid, group, var, data[0], data[1], source.get((fid, *key), ""))
                 stats["series"] += 1
         for fid, latitude, longitude, name in fields:
             lake.field(fid, latitude, longitude, name or "")
@@ -87,6 +82,7 @@ def migrate(root: Path | str, clean: bool = False) -> dict:
     """Import the legacy layout under `root`; `clean` removes it after."""
     root = Path(root)
     from nasa_farm.lake.database import Lake
+
     with Lake(root) as lake:
         stats = lake.migrated or migrate_into(lake)
     if clean:

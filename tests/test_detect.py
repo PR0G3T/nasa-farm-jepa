@@ -67,12 +67,12 @@ class TestActions:
         p = torch.zeros(120, dtype=DTYPE)
         a = infer_actions(ndvi, t, crop_idx=2, sm=sm, precip=p)
         assert float(a.irrigation[0, 50]) > 10.0
-        assert float(a.irrigation[0, 60]) < 1.0   # single event, not a trend
+        assert float(a.irrigation[0, 60]) < 1.0  # single event, not a trend
 
     def test_coherence_refines_sowing(self):
         t, ndvi = self._ndvi()
         coh = torch.full((120,), 0.8, dtype=DTYPE)
-        coh[45] = 0.2                           # disturbance dip near green-up
+        coh[45] = 0.2  # disturbance dip near green-up
         base = infer_actions(ndvi, t, crop_idx=2)
         reference = infer_actions(ndvi, t, crop_idx=2, coh=coh)
         d_base = int((base.sow[0] == 2).nonzero()[0])

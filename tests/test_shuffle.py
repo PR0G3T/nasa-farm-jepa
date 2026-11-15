@@ -9,12 +9,10 @@ from nasa_farm.forcing import coupling, ranks, shuffle_forcing, synthetic_year
 
 class TestRanks:
     def test_rank_range(self):
-        x = torch.rand(6, 40, dtype=DTYPE,
-                       generator=torch.Generator().manual_seed(0))
+        x = torch.rand(6, 40, dtype=DTYPE, generator=torch.Generator().manual_seed(0))
         r = ranks(x, 0)
         assert int(r.min()) == 0 and int(r.max()) == 5
-        assert (r.sort(0).values == torch.arange(6, dtype=DTYPE)
-                .unsqueeze(1)).all()
+        assert (r.sort(0).values == torch.arange(6, dtype=DTYPE).unsqueeze(1)).all()
 
     def test_rank_matches_order(self):
         x = torch.tensor([[3.0, 1.0], [1.0, 3.0], [2.0, 2.0]], dtype=DTYPE)
@@ -30,8 +28,7 @@ class TestEcc:
         template = torch.rand(8, 60, generator=g, dtype=DTYPE)
         output = coupling(fc, template)
         for t in range(60):
-            assert sorted(output[:, t].tolist()) == pytest.approx(
-                sorted(fc[:, t].tolist()))
+            assert sorted(output[:, t].tolist()) == pytest.approx(sorted(fc[:, t].tolist()))
 
     def test_template_dependence_transferred(self):
         """A template member always ranked lowest pulls that member's
@@ -39,7 +36,7 @@ class TestEcc:
         g = torch.Generator().manual_seed(1)
         fc = torch.rand(8, 50, generator=g, dtype=DTYPE)
         template = torch.rand(8, 50, generator=g, dtype=DTYPE)
-        template[0] = -1.0                             # member 0: rank 0 everywhere
+        template[0] = -1.0  # member 0: rank 0 everywhere
         output = coupling(fc, template)
         assert (output[0] == fc.min(0).values).all()
 
@@ -59,15 +56,17 @@ class TestEcc:
             a, b = x[:, 1:], x[:, :-1]
             a = a - a.mean(1, keepdim=True)
             b = b - b.mean(1, keepdim=True)
-            return float(((a * b).mean(1)
-                          / (a.std(1) * b.std(1) + 1e-12)).mean())
+            return float(((a * b).mean(1) / (a.std(1) * b.std(1) + 1e-12)).mean())
+
         assert lag1(output) > 0.6
         assert lag1(fc) < 0.2
 
     def test_unequal_sizes(self):
         g = torch.Generator().manual_seed(3)
-        output = coupling(torch.rand(6, 30, generator=g, dtype=DTYPE),
-                  torch.rand(10, 30, generator=g, dtype=DTYPE))
+        output = coupling(
+            torch.rand(6, 30, generator=g, dtype=DTYPE),
+            torch.rand(10, 30, generator=g, dtype=DTYPE),
+        )
         assert output.shape == (6, 30)
 
     def test_deterministic(self):
@@ -79,14 +78,13 @@ class TestEcc:
 
 class TestShuffleForcing:
     def test_marginals_and_contract(self):
-        fc = torch.cat([synthetic_year(42.0, seed=s).tmin
-                        for s in range(6)])
+        fc = torch.cat([synthetic_year(42.0, seed=s).tmin for s in range(6)])
         template = fc.clone()
         f = synthetic_year(42.0, seed=9).repeat(6)
         output = shuffle_forcing(
             f.__class__(fc, f.tmax, f.srad, f.precip, f.rh, f.u2, f.doy),
-            f.__class__(template, f.tmax, f.srad, f.precip, f.rh, f.u2, f.doy))
+            f.__class__(template, f.tmax, f.srad, f.precip, f.rh, f.u2, f.doy),
+        )
         for t in range(f.days):
-            assert sorted(output.tmin[:, t].tolist()) == pytest.approx(
-                sorted(fc[:, t].tolist()))
+            assert sorted(output.tmin[:, t].tolist()) == pytest.approx(sorted(fc[:, t].tolist()))
         assert torch.equal(output.doy, f.doy)

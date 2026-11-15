@@ -12,9 +12,14 @@ from pydantic import ValidationError
 from nasa_farm.commands import main
 from nasa_farm.service import PlanRequest, Point, plan
 
-REQUEST = {"points": [{"latitude": 48.2, "longitude": 1.61}],
-       "horizon": 2, "crops": ["maize", "fallow"], "years": 2,
-       "offline": True, "top_k": 2}
+REQUEST = {
+    "points": [{"latitude": 48.2, "longitude": 1.61}],
+    "horizon": 2,
+    "crops": ["maize", "fallow"],
+    "years": 2,
+    "offline": True,
+    "top_k": 2,
+}
 
 
 def test_request_validation_bounds():
@@ -31,6 +36,7 @@ def test_packaged_artifacts_fallback(monkeypatch, tmp_path):
     the trained residual from the copy packaged with the source tree."""
     from nasa_farm import CropLibrary
     from nasa_farm.service import _artifact, _library
+
     monkeypatch.delenv("NASA_FARM_LAKE", raising=False)
     assert _artifact("residual.pt").name == "residual.pt"
     assert _artifact("traits.json").name == "traits.json"
@@ -44,8 +50,8 @@ def test_plan_single_site():
     response = plan(PlanRequest(**REQUEST))
     result = response.results[0]
     assert result.status == "ok"
-    assert result.plans_evaluated == 4          # 2 crops ^ 2y
-    assert result.scenarios == 2               # years=2 → 2 scenarios
+    assert result.plans_evaluated == 4  # 2 crops ^ 2y
+    assert result.scenarios == 2  # years=2 → 2 scenarios
     assert len(result.ranking) == 2 and len(result.pareto) >= 1
     assert set(result.ranking) <= set(result.pareto)
     assert len(result.objectives) == 4
@@ -53,8 +59,7 @@ def test_plan_single_site():
     assert len(result.scores) == 4 and len(result.traces) == 4
     assert len(response.rotations) == 4
     assert "yield_mean" in response.columns
-    assert result.ranking[0] == max(
-        range(4), key=lambda i: result.scores[i])
+    assert result.ranking[0] == max(range(4), key=lambda i: result.scores[i])
 
 
 def test_plan_weights_select_objective_extremum():
@@ -64,19 +69,23 @@ def test_plan_weights_select_objective_extremum():
 
     response, s = site({"yield_mean": 10})
     col = response.columns.index("yield_mean")
-    assert s.ranking[0] == max(
-        range(s.plans_evaluated), key=lambda i: s.objectives[i][col])
+    assert s.ranking[0] == max(range(s.plans_evaluated), key=lambda i: s.objectives[i][col])
 
     response, s = site({"n_leached": 10})
     col = response.columns.index("n_leached")
-    assert s.ranking[0] == min(
-        range(s.plans_evaluated), key=lambda i: s.objectives[i][col])
+    assert s.ranking[0] == min(range(s.plans_evaluated), key=lambda i: s.objectives[i][col])
 
 
 def test_plan_batch_aligned_and_independent():
-    request = PlanRequest(**{**REQUEST, "points": [
-        {"id": "a", "latitude": 48.2, "longitude": 1.61},
-        {"id": "b", "latitude": 42.0, "longitude": -93.6}]})
+    request = PlanRequest(
+        **{
+            **REQUEST,
+            "points": [
+                {"id": "a", "latitude": 48.2, "longitude": 1.61},
+                {"id": "b", "latitude": 42.0, "longitude": -93.6},
+            ],
+        }
+    )
     result = plan(request)
     assert [r.point.id for r in result.results] == ["a", "b"]
     assert all(r.status == "ok" for r in result.results)
@@ -94,13 +103,30 @@ def test_plan_site_error_degrades_not_raises():
 
 def test_cli_export_writes_scenarios(tmp_path):
     source = tmp_path / "f.json"
-    source.write_text(json.dumps(
-        [{"id": "P1", "name": "P1", "latitude": 48.2, "longitude": 1.61}]))
+    source.write_text(json.dumps([{"id": "P1", "name": "P1", "latitude": 48.2, "longitude": 1.61}]))
     output = tmp_path / "plan.json"
-    code = main(["export", "--fields", str(source), "--output", str(output),
-               "--horizon", "1", "--crops", "maize,fallow", "--years", "1",
-               "--offline", "--top-k", "1",
-               "--scenario", "baseline", "--scenario", "warm:delta_t=2"])
+    code = main(
+        [
+            "export",
+            "--fields",
+            str(source),
+            "--output",
+            str(output),
+            "--horizon",
+            "1",
+            "--crops",
+            "maize,fallow",
+            "--years",
+            "1",
+            "--offline",
+            "--top-k",
+            "1",
+            "--scenario",
+            "baseline",
+            "--scenario",
+            "warm:delta_t=2",
+        ]
+    )
     assert code == 0
     data = json.loads(output.read_text())
     assert set(data["scenarios"]) == {"baseline", "warm"}
@@ -118,15 +144,39 @@ def test_cli_export_rejects_unknown_scenario_key(tmp_path):
     source = tmp_path / "f.json"
     source.write_text("[]")
     with pytest.raises(SystemExit):
-        main(["export", "--fields", str(source), "--output",
-              str(tmp_path / "o.json"), "--offline",
-              "--scenario", "bad:notakey=1"])
+        main(
+            [
+                "export",
+                "--fields",
+                str(source),
+                "--output",
+                str(tmp_path / "o.json"),
+                "--offline",
+                "--scenario",
+                "bad:notakey=1",
+            ]
+        )
 
 
 def test_cli_plan_unchanged_shape(capsys):
-    code = main(["plan", "--latitude", "48.2", "--longitude", "1.61", "--horizon", "2",
-               "--crops", "maize,fallow", "--years", "2", "--offline",
-               "--top-k", "2"])
+    code = main(
+        [
+            "plan",
+            "--latitude",
+            "48.2",
+            "--longitude",
+            "1.61",
+            "--horizon",
+            "2",
+            "--crops",
+            "maize,fallow",
+            "--years",
+            "2",
+            "--offline",
+            "--top-k",
+            "2",
+        ]
+    )
     assert code == 0
     output = json.loads(capsys.readouterr().out)
     assert set(output) == {"plans_evaluated", "scenarios", "pareto", "top"}
@@ -138,7 +188,9 @@ class TestAPI:
     def client(self):
         pytest.importorskip("fastapi")
         from fastapi.testclient import TestClient
+
         from nasa_farm.server import create_app
+
         return TestClient(create_app())
 
     def test_healthz(self, client):
@@ -158,8 +210,7 @@ class TestAPI:
         assert result["point"]["latitude"] == 48.2
         assert len(body["rotations"]) == 4
         assert len(result["objectives"]) == 4
-        assert result["ranking"][0] == max(
-            range(4), key=lambda i: result["scores"][i])
+        assert result["ranking"][0] == max(range(4), key=lambda i: result["scores"][i])
 
     def test_plan_cache_hit(self, client):
         r1 = client.post("/v1/plan", json=REQUEST)
@@ -169,8 +220,7 @@ class TestAPI:
         assert r1.json() == r2.json()
 
     def test_plan_bad_input_is_422(self, client):
-        result = client.post("/v1/plan", json={**REQUEST, "points": [
-            {"lat": 200.0, "lon": 0.0}]})
+        result = client.post("/v1/plan", json={**REQUEST, "points": [{"lat": 200.0, "lon": 0.0}]})
         assert result.status_code == 422
 
     def test_plan_unknown_crop_is_400(self, client):
@@ -182,8 +232,7 @@ class TestAPI:
 def test_tunnel_url_regex():
     pytest.importorskip("fastapi")
     from nasa_farm.server import TUNNEL_URL
-    line = ("INF |  Your quick Tunnel has been created! "
-            "https://abc-def-123.trycloudflare.com")
-    assert TUNNEL_URL.search(line).group(0) == \
-        "https://abc-def-123.trycloudflare.com"
+
+    line = "INF |  Your quick Tunnel has been created! https://abc-def-123.trycloudflare.com"
+    assert TUNNEL_URL.search(line).group(0) == "https://abc-def-123.trycloudflare.com"
     assert TUNNEL_URL.search("https://example.com") is None

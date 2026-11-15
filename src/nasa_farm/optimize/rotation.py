@@ -22,31 +22,28 @@ def whiten(h: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     return (h - mean) @ W, mean, W
 
 
-def jacobians(h: torch.Tensor, x: torch.Tensor, k: int = 16,
-              lam: float = 1e-3) -> torch.Tensor:
+def jacobians(h: torch.Tensor, x: torch.Tensor, k: int = 16, lam: float = 1e-3) -> torch.Tensor:
     """Local dx/dh Jacobians via kNN ridge fits → (n, p, d)."""
     n = h.shape[0]
     k = min(k + 1, n)
     index = torch.cdist(h, h).topk(k, largest=False).indices
-    nbr_h = h[index]                                     # (n, k, d)
-    A = torch.cat([torch.ones(n, k, 1, dtype=h.dtype, device=h.device),
-                   nbr_h], -1)
-    Y = x[index]                                         # (n, k, p)
-    ata = A.transpose(1, 2) @ A + lam * torch.eye(
-        A.shape[-1], dtype=h.dtype, device=h.device)
+    nbr_h = h[index]  # (n, k, d)
+    A = torch.cat([torch.ones(n, k, 1, dtype=h.dtype, device=h.device), nbr_h], -1)
+    Y = x[index]  # (n, k, p)
+    ata = A.transpose(1, 2) @ A + lam * torch.eye(A.shape[-1], dtype=h.dtype, device=h.device)
     beta = torch.linalg.solve(ata, A.transpose(1, 2) @ Y)
-    J = beta[:, 1:, :].transpose(1, 2)                 # (n, p, d)
+    J = beta[:, 1:, :].transpose(1, 2)  # (n, p, d)
     return J / J.norm(dim=-1, keepdim=True).clamp(min=1e-9)
 
 
-def _rotate_pair(J: torch.Tensor, R: torch.Tensor, i: int, j: int,
-                 grid: int) -> None:
+def _rotate_pair(J: torch.Tensor, R: torch.Tensor, i: int, j: int, grid: int) -> None:
     """Optimal in-plane rotation minimizing Σ|J'| — exact 1-D grid search."""
     th = torch.linspace(0, torch.pi, grid, dtype=J.dtype, device=J.device)
     c, s = th.cos(), th.sin()
-    Ji, Jj = J[:, :, i], J[:, :, j]                    # (n, p)
-    cost = ((Ji.unsqueeze(-1) * c - Jj.unsqueeze(-1) * s).abs().sum((0, 1))
-            + (Ji.unsqueeze(-1) * s + Jj.unsqueeze(-1) * c).abs().sum((0, 1)))
+    Ji, Jj = J[:, :, i], J[:, :, j]  # (n, p)
+    cost = (Ji.unsqueeze(-1) * c - Jj.unsqueeze(-1) * s).abs().sum((0, 1)) + (
+        Ji.unsqueeze(-1) * s + Jj.unsqueeze(-1) * c
+    ).abs().sum((0, 1))
     t = th[cost.argmin()]
     ct, state = t.cos(), t.sin()
     Ji2, Jj2 = Ji * ct - Jj * state, Ji * state + Jj * ct
@@ -55,9 +52,13 @@ def _rotate_pair(J: torch.Tensor, R: torch.Tensor, i: int, j: int,
     R[:, i], R[:, j] = Ri * ct - Rj * state, Ri * state + Rj * ct
 
 
-def rotation(h: torch.Tensor, x: torch.Tensor, k: int = 16,
-          sweeps: int = 12, grid: int = 128,
-          ) -> tuple[torch.Tensor, torch.Tensor, dict]:
+def rotation(
+    h: torch.Tensor,
+    x: torch.Tensor,
+    k: int = 16,
+    sweeps: int = 12,
+    grid: int = 128,
+) -> tuple[torch.Tensor, torch.Tensor, dict]:
     """Fit the sparsest-dependency rotation. Returns (R, z_tilde, report).
 
     h (n, d) frozen representation; x (n, p) observations it came from.

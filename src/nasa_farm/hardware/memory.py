@@ -8,12 +8,14 @@ recoverable, ladder-managed event. CPU lanes budget from host RAM.
 
 from __future__ import annotations
 
+import contextlib
+
 import torch
 
 from nasa_farm.hardware.capabilities import device_memory
 
-_RESERVE_CAP = 512 << 20      # never more than 512 MiB held back
-_RESERVE_FRAC = 0.02          # ~2 % of free VRAM
+_RESERVE_CAP = 512 << 20  # never more than 512 MiB held back
+_RESERVE_FRAC = 0.02  # ~2 % of free VRAM
 
 
 def available(device: torch.device, budget: float = 1.0) -> int:
@@ -22,16 +24,14 @@ def available(device: torch.device, budget: float = 1.0) -> int:
     return int(free * budget)
 
 
-def reserve_pool(device: torch.device,
-                 reserve: int | None = None) -> "torch.cuda.MemPool | None":
+def reserve_pool(device: torch.device, reserve: int | None = None) -> torch.cuda.MemPool | None:
     """Emergency headroom pool for a CUDA lane. The pool holds a freed
     block of `reserve` bytes: on allocator OOM it is consumed instead of
     failing. Returns None on non-CUDA devices or unsupported builds."""
     if device.type != "cuda" or not hasattr(torch.cuda, "MemPool"):
         return None
     free, _ = device_memory(device)
-    n = reserve if reserve is not None else int(
-        min(_RESERVE_CAP, free * _RESERVE_FRAC))
+    n = reserve if reserve is not None else int(min(_RESERVE_CAP, free * _RESERVE_FRAC))
     if n <= 0:
         return None
     try:
@@ -39,14 +39,13 @@ def reserve_pool(device: torch.device,
         with torch.cuda.use_mem_pool(pool, device):
             block = torch.empty(n, dtype=torch.uint8, device=device)
             del block
-        return pool
-    except (RuntimeError, AttributeError, TypeError):
+    except RuntimeError, AttributeError, TypeError:
         return None
+    else:
+        return pool
 
 
 def empty(device: torch.device) -> None:
     """Release cached-but-unused memory on `device` (post-ladder GC)."""
-    try:
+    with contextlib.suppress(RuntimeError, AttributeError, TypeError):
         torch.accelerator.empty_cache(device)
-    except (RuntimeError, AttributeError, TypeError):
-        pass

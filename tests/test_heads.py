@@ -17,9 +17,18 @@ def _state(batch: int, **keywords) -> object:
 
 def _fluxes(batch: int, **keywords) -> dict:
     z = torch.zeros(batch, dtype=DTYPE)
-    base = {"yield_event": z, "es": z, "t": torch.zeros(batch, 2, dtype=DTYPE),
-            "runoff": z, "deep": z, "leached": z, "n2o": z, "heat_dd": z,
-            "frost": z, "water_fac": torch.ones(batch, dtype=DTYPE)}
+    base = {
+        "yield_event": z,
+        "es": z,
+        "t": torch.zeros(batch, 2, dtype=DTYPE),
+        "runoff": z,
+        "deep": z,
+        "leached": z,
+        "n2o": z,
+        "heat_dd": z,
+        "frost": z,
+        "water_fac": torch.ones(batch, dtype=DTYPE),
+    }
     return {**base, **keywords}
 
 
@@ -29,8 +38,16 @@ class TestAccumulator:
         growing = torch.tensor([True])
         for t in range(365):
             s = _state(1, growing=growing)
-            accumulate(t, s, _fluxes(1, yield_event=torch.tensor([10.0]),
-                              es=torch.tensor([1.0]), water_fac=torch.tensor([1.0])))
+            accumulate(
+                t,
+                s,
+                _fluxes(
+                    1,
+                    yield_event=torch.tensor([10.0]),
+                    es=torch.tensor([1.0]),
+                    water_fac=torch.tensor([1.0]),
+                ),
+            )
         for t in range(365, 730):
             s = _state(1, growing=torch.tensor([False]))
             accumulate(t, s, _fluxes(1))
@@ -44,10 +61,12 @@ class TestAccumulator:
 
     def test_stress_days_only_when_growing(self):
         accumulate = SeasonAccumulator(1, 1)
-        accumulate(0, _state(1, growing=torch.tensor([True])),
-            _fluxes(1, water_fac=torch.tensor([0.2])))
-        accumulate(1, _state(1, growing=torch.tensor([False])),
-            _fluxes(1, water_fac=torch.tensor([0.2])))
+        accumulate(
+            0, _state(1, growing=torch.tensor([True])), _fluxes(1, water_fac=torch.tensor([0.2]))
+        )
+        accumulate(
+            1, _state(1, growing=torch.tensor([False])), _fluxes(1, water_fac=torch.tensor([0.2]))
+        )
         i = {n: k for k, n in enumerate(METRICS)}
         assert float(accumulate.result()[0, 0, i["stress_days"]]) == 1.0
 
@@ -59,19 +78,19 @@ class TestObjectives:
         i = {n: k for k, n in enumerate(METRICS)}
         m[..., i["yield_kg"]] = 100.0
         m[..., i["soc_end"]] = torch.linspace(0, 1, r * s).unsqueeze(1).expand(r * s, h)
-        object = objectives(m, r, s)
-        assert set(object) == set(OBJECTIVE_DIRECTION)
-        for v in object.values():
+        result = objectives(m, r, s)
+        assert set(result) == set(OBJECTIVE_DIRECTION)
+        for v in result.values():
             assert v.shape == (r,) and torch.isfinite(v).all()
-        assert float(object["yield_mean"][0]) == pytest.approx(200.0)
+        assert float(result["yield_mean"][0]) == pytest.approx(200.0)
 
     def test_risk_quantile_below_mean(self):
         r, s, h = 1, 100, 1
         m = torch.zeros(s, h, len(METRICS), dtype=DTYPE)
         i = {n: k for k, n in enumerate(METRICS)}
         m[:, 0, i["yield_kg"]] = torch.linspace(0, 1000, s, dtype=DTYPE)
-        object = objectives(m, r, s)
-        assert float(object["yield_risk"][0]) < float(object["yield_mean"][0])
+        result = objectives(m, r, s)
+        assert float(result["yield_risk"][0]) < float(result["yield_mean"][0])
 
     def test_soc_gain_signed(self):
         r, s, h = 1, 2, 3
@@ -79,8 +98,8 @@ class TestObjectives:
         i = {n: k for k, n in enumerate(METRICS)}
         m[:, 0, i["soc_end"]] = 100.0
         m[:, -1, i["soc_end"]] = 160.0
-        object = objectives(m, r, s)
-        assert float(object["soc_gain"][0]) == pytest.approx(60.0)
+        result = objectives(m, r, s)
+        assert float(result["soc_gain"][0]) == pytest.approx(60.0)
 
 
 class TestPeak:
@@ -91,13 +110,9 @@ class TestPeak:
         accumulate = SeasonAccumulator(1, 2)
         growing = torch.tensor([True])
         for t in range(730):
-            biomass = 100.0 + 50.0 * (t % 100) if t < 365 else \
-                300.0 + 10.0 * (t % 30)
-            accumulate(t, _state(1, growing=growing,
-                                 biomass=torch.tensor([biomass])),
-                       _fluxes(1))
+            biomass = 100.0 + 50.0 * (t % 100) if t < 365 else 300.0 + 10.0 * (t % 30)
+            accumulate(t, _state(1, growing=growing, biomass=torch.tensor([biomass])), _fluxes(1))
         m = accumulate.result()
         assert float(m[0, 0, i["biomass_max"]]) == pytest.approx(100 + 50 * 99)
         assert float(m[0, 1, i["biomass_max"]]) == pytest.approx(300 + 10 * 29)
-        assert float(m[0, 0, i["biomass_end"]]) != \
-            float(m[0, 0, i["biomass_max"]])
+        assert float(m[0, 0, i["biomass_end"]]) != float(m[0, 0, i["biomass_max"]])

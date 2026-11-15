@@ -1,10 +1,13 @@
 """Scenario ensemble builders."""
 
-import pytest
 import torch
 
 from nasa_farm.forcing import (
-    augment, climatology_ensemble, ensemble_of, synthetic_year, tile_to_horizon,
+    augment,
+    climatology_ensemble,
+    ensemble_of,
+    synthetic_year,
+    tile_to_horizon,
 )
 from nasa_farm.types import Forcing
 
@@ -118,7 +121,7 @@ class TestAugment:
     def test_temporal_correlation(self):
         """AR(1) perturbations are day-to-day correlated, not white noise."""
         a = augment(synthetic_year(42.0, seed=1), 64, rho=0.7, seed=0)
-        e = a.tmin[1:] - a.tmin[0]              # (64, T) member anomalies
+        e = a.tmin[1:] - a.tmin[0]  # (64, T) member anomalies
         e = e - e.mean(0, keepdim=True)
         r1 = (e[:, 1:] * e[:, :-1]).mean() / e.var()
         assert 0.4 < float(r1) < 0.9
