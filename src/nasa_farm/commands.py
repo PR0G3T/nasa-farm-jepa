@@ -327,35 +327,72 @@ def cmd_export(arguments) -> int:
                        "offline": arguments.offline},
            "columns": [], "directions": [], "rotations": [],
            "fields": metadata, "scenarios": {}}
-    shards: dict[str, dict] = {}
+    def _exported(name: str) -> set[str]:
+        """Field ids whose shard already has this scenario — re-running
+        an export never recomputes finished sites."""
+        done = set()
+        for f in shards_root.glob("*.json"):
+            try:
+                result = json.loads(f.read_text())["scenarios"].get(name)
+            except (ValueError, KeyError):
+                continue
+            if result and result.get("status") == "ok":
+                done.add(f.stem)
+        return done
+
+    def _write(target: Path, shard: dict) -> None:
+        """Merge-write one shard: prior scenarios survive, current wins."""
+        if target.is_file():
+            try:
+                prior = json.loads(target.read_text())
+                prior.get("scenarios", {}).update(shard["scenarios"])
+                shard["scenarios"] = prior["scenarios"]
+                shard["history"] = shard["history"] or prior.get("history")
+            except (ValueError, KeyError):
+                pass
+        target.write_text(json.dumps(shard) + "\n")
+
     for name, over in scenarios.items():
-        response = plan(_request(arguments, points, **over),
+        done = _exported(name)
+        todo = [p for p in points if p.id not in done]
+        if done:
+            sys.stderr.write(
+                f"{name}: {len(done)} fields already exported\n")
+        if not todo:
+            index["scenarios"][name] = {"params": over}
+            continue
+        response = plan(_request(arguments, todo, **over),
                    workers=arguments.workers, device=arguments.device,
                    compile=arguments.compile)
-        index["columns"] = response.columns
-        index["directions"] = response.directions
-        index["rotations"] = response.rotations
+        index["columns"], index["directions"], index["rotations"] = (
+            response.columns, response.directions, response.rotations)
         for i, r in enumerate(response.results):
             if r.point.id:
-                shard = shards.setdefault(
-                    r.point.id, {"history": r.history, "scenarios": {}})
-                shard["scenarios"][name] = r.model_dump(
-                    exclude={"point", "history"})
+                _write(shards_root / f"{r.point.id}.json",
+                       {"history": r.history, "scenarios": {
+                           name: r.model_dump(exclude={"point", "history"})}})
             sys.stderr.write(
                 f"{name} [{i + 1}/{len(response.results)}] "
                 f"{r.point.id or r.point.latitude} {r.status}"
                 f"{f' — {r.detail}' if r.detail else ''}\n")
         index["scenarios"][name] = {"params": over}
+    # Merge with whatever is already on disk — an interrupted or
+    # per-scenario export keeps the scenarios it never reached, so
+    # re-running is always idempotent, never destructive.
+    if output.is_file():
+        try:
+            prior = json.loads(output.read_text())
+            index["scenarios"] = {**prior.get("scenarios", {}),
+                                  **index["scenarios"]}
+            for key in ("columns", "directions", "rotations"):
+                index[key] = index[key] or prior.get(key, [])
+        except ValueError:
+            pass
     output.write_text(json.dumps(index) + "\n")
-    written = set()
-    for fid, shard in shards.items():
-        target = shards_root / f"{fid}.json"
-        target.write_text(json.dumps(shard) + "\n")
-        written.add(target.name)
-    for stale in shards_root.glob("*.json"):
-        if stale.name not in written:
-            stale.unlink()
-    sys.stderr.write(f"wrote {output} + {len(written)} shards\n")
+    existing = {f.stem for f in shards_root.glob("*.json")}
+    for stale in existing - {p.id for p in points}:
+        (shards_root / f"{stale}.json").unlink()
+    sys.stderr.write(f"wrote {output} + {len(points)} shards\n")
     return 0
 
 
