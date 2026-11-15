@@ -266,5 +266,7 @@ def feature(boundary: Boundary, rotation: list[int] | None = None) -> dict:
         "kind": boundary.kind, "ha": boundary.ha}
     if rotation is not None:
         properties["sequence"] = [label(code) for code in rotation]
+        properties["kinds"] = [CDL.get(code, (None, None))[1]
+                               for code in rotation]
     return {"type": "Feature", "properties": properties,
             "geometry": {"type": "Polygon", "coordinates": [boundary.ring]}}

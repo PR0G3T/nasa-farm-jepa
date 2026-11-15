@@ -213,7 +213,8 @@ def _forcings(request: PlanRequest, p: Point) -> tuple[list, torch.Tensor | None
         try:
             series = forcings(root, p.id, years)
             if series and (wet := wetness(root, p.id)) is not None:
-                return series, torch.from_numpy(wet[:len(years) * 365])
+                return series, torch.from_numpy(
+                    wet[:len(years) * 365].copy())
         except (KeyError, FileNotFoundError, ValueError):
             pass
     if _in_nldas(p):

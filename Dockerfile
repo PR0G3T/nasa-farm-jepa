@@ -11,6 +11,7 @@ ENV UV_COMPILE_BYTECODE=1 \
     CRC32C_PURE_PYTHON=1 \
     HDF5_INCLUDEDIR=/usr/include/hdf5/serial \
     HDF5_LIBDIR=/usr/lib/x86_64-linux-gnu/hdf5/serial \
+    PKG_CONFIG_PATH="/usr/lib/x86_64-linux-gnu/pkgconfig:/usr/lib/aarch64-linux-gnu/pkgconfig:/usr/share/pkgconfig" \
     CFLAGS="-I/usr/include/hdf5/serial" \
     LDFLAGS="-L/usr/lib/x86_64-linux-gnu/hdf5/serial" \
     LD_LIBRARY_PATH="/usr/lib/x86_64-linux-gnu/hdf5/serial:${LD_LIBRARY_PATH}"
@@ -22,6 +23,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     pkg-config \
     libhdf5-dev \
+    libaec-dev \
+    zlib1g-dev \
+    libyaml-dev \
     ninja-build \
     git \
     && ln -sf /usr/include/hdf5/serial/* /usr/include/ \
@@ -35,11 +39,11 @@ COPY pyproject.toml uv.lock .python-version ./
 
 RUN uv python install 3.15t
 
-RUN uv sync --frozen --no-dev --no-install-project --extra serve
+RUN uv sync --frozen --no-dev --no-install-project --extra serve --verbose --config-settings-package numcodecs:compile-args="-j1"
 
 COPY src ./src
 
-RUN uv sync --frozen --no-dev --extra serve
+RUN uv sync --frozen --no-dev --extra serve --verbose --config-settings-package numcodecs:compile-args="-j1"
 
 FROM debian:bookworm-slim AS runtime
 
