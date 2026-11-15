@@ -444,14 +444,14 @@ def cmd_traits(arguments) -> int:
             f"{achieved:.0f}/{target:.0f} kg/ha\n")
 
     output = Path(arguments.output)
-    existing = (json.loads(output.read_text()).get("traits", {})
-                if output.is_file() else {})
+    stored = json.loads(output.read_text()) if output.is_file() else {}
     payload = {"meta": {"latitude": arguments.latitude,
                         "longitude": arguments.longitude,
                         "years": years, "params": sorted(bounds),
                         "fertilizer": arguments.fertilizer,
                         "offline": arguments.offline},
-               "traits": {**existing, **fitted}, "report": report}
+               "traits": {**stored.get("traits", {}), **fitted},
+               "report": {**stored.get("report", {}), **report}}
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(json.dumps(payload, indent=2) + "\n")
     sys.stderr.write(f"wrote {output}\n")
