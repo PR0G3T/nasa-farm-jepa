@@ -167,4 +167,5 @@ def train(root: Path | str, fids: list[str], years: list[int],
     if output:
         torch.save(model.residual.state_dict(), output)
     return {"runs": len(losses), "loss": losses,
-            "best_loss": result.best_loss, "epochs": result.epochs_run}
+            "best_loss": result.best_loss, "epochs": result.epochs_run,
+            "history": result.history}
