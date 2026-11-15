@@ -166,6 +166,7 @@ class TestAPI:
 
 
 def test_tunnel_url_regex():
+    pytest.importorskip("fastapi")
     from nasa_farm.server import TUNNEL_URL
     line = ("INF |  Your quick Tunnel has been created! "
             "https://abc-def-123.trycloudflare.com")
