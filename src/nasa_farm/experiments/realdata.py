@@ -235,6 +235,7 @@ def stream(specification: Specification) -> dict:
     torch.manual_seed(specification.seed)
     rows = {}
     eval_year = None
+    eval_mode = "holdout"
     for fid in fids:
         entry = index[fid]
         years = _years(root, fid, specification)
@@ -243,7 +244,10 @@ def stream(specification: Specification) -> dict:
         data = dataset(root, [fid], years)[fid]
         if not data["forcings"] or not data["obs"]:
             continue
-        eval_year = years[-1]
+        # Last year is the eval split when more than one exists; a single
+        # year trains and reports in-sample — labelled, not hidden.
+        eval_year = years[-1] if len(years) > 1 else None
+        eval_mode = "holdout" if eval_year is not None else "in-sample"
         field = _field(data["soil"], entry["lat"])
         actions = expand_actions(_plan(entry, crops), crops.table)
         model = WorldModel(
@@ -275,9 +279,11 @@ def stream(specification: Specification) -> dict:
                 epochs=specification.epochs,
                 rate=specification.latent_rate,
             )
-        if fitted is None or eval_year >= len(years) + years[0]:
+        if fitted is None:
             continue
-        targets, mask = _stream(data["obs"], lake_vars, eval_year, every)
+        targets, mask = _stream(
+            data["obs"], lake_vars, eval_year or years[-1], every
+        )
         if mask.sum() < 2:
             continue
         model_channels = channels
@@ -296,7 +302,8 @@ def stream(specification: Specification) -> dict:
         "every": every,
         "channels": list(channels),
         "lake_vars": list(lake_vars),
-        "eval_year": eval_year,
+        "eval_year": eval_year or (years[-1] if rows else None),
+        "eval_mode": eval_mode,
         "fields_fit": len(rows),
     }
 
