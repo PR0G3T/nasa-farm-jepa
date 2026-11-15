@@ -137,6 +137,7 @@ class TestSpecs:
         assert SPECS["hls-l30"].engine == "cog"
         assert SPECS["gldas-tws"].shared and SPECS["gldas-smp"].shared
         assert SPECS["gpm"].scale == 24.0
+        assert SPECS["hls-l30"].scale == 1.0  # file carries its own 1e-4 tag
         assert SPECS["ecostress-lst"].offset == -273.15
 
 

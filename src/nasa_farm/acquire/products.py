@@ -186,7 +186,6 @@ def _hls(source: Earthdata) -> Specification:
         radius_km=0.15,
         quality=FMASK_QC,
         engine="cog",
-        scale=1.0e-4,
         months=(4, 5, 6, 7, 8, 9, 10),
     )
 

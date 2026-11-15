@@ -225,14 +225,14 @@ def _granules(
     from nasa_farm.acquire.cog import month_of
 
     mark = (
-        (lambda g: g.id)
+        (lambda gid: gid)
         if not specification.shared
-        else (lambda g: f"{g.id}#{specification.observed}")
+        else (lambda gid: f"{gid}#{specification.observed}")
     )
     todo = [
         g
         for g in specification.source.search(area, span, specification.limit)
-        if not lake.has_granule(mark(g))
+        if not lake.has_granule(mark(g.id))
         and (not specification.months or month_of(g) in specification.months)
     ]
     log(f"{specification.observed}: {len(todo)} granules to fetch")
