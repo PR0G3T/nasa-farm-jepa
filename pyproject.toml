@@ -57,9 +57,11 @@ explicit = true
 find-links = ["wheels"]
 
 [tool.uv.sources]
-# PyPI torch = universal CUDA+CPU wheel (GPU auto-detected at runtime).
-# For a slim CPU-only env: uncomment the line below to pin the cpu index.
 torch = { index = "pytorch-cpu" }
+h5py = { path = "wheels/h5py-3.16.0-cp315-cp315t-manylinux_2_38_x86_64.whl" }
+numcodecs = { path = "wheels/numcodecs-0.17.1-cp315-cp315t-manylinux_2_36_x86_64.whl" }
+pyyaml = { path = "wheels/pyyaml-6.0.3-cp315-cp315t-manylinux_2_36_x86_64.whl" }
+google-crc32c = { path = "wheels/google_crc32c-1.9.0-py3-none-any.whl" }
 
 [dependency-groups]
 dev = [
