@@ -189,3 +189,33 @@ bounds, lifecycle events, legume economics, Pareto exactness, API parsing,
 differentiability, thread/streamed bit-parity, compiled-vs-eager parity,
 OOM-ladder recovery, device probing, HPO identifiability, space sampling,
 ASHA pruning, NAS proxies + search, and full offline pipeline + CLI tests.
+
+## 1 km training grid (`nasa_farm.grid`)
+
+One sample file per training product (`claude/download-access.md`, 53
+products) downloaded and put on a common grid: **EPSG:5070 (CONUS Albers,
+equal-area), 1 km cells snapped to multiples of 1000 m**, so grids of
+different AOIs tile exactly.
+
+```bash
+uv sync --extra grid
+uv run python -m nasa_farm.grid.run --list                 # products + credential status
+uv run python -m nasa_farm.grid.run --aoi ames --date 2024-07-15
+uv run python -m nasa_farm.grid.run --only smap-l4,cdl,3dep --jobs 8
+```
+
+Output in `data/grid1km/<aoi>_<date>/`: one CF NetCDF per product,
+`stack.nc` (all products, vars `<product>__<var>`), `report.md` (ok /
+skipped / failed, source granule, method, coverage). Raw files are cached
+in `data/raw/<product>/`.
+
+| Variable kind | Source finer than 1 km | Source coarser than 1 km |
+|---|---|---|
+| continuous | area-weighted average of QA-valid pixels (+ `valid_frac`) | bilinear |
+| categorical (CDL, NLCD, SCL…) | class area fractions (`*_frac`, last = other) + mode | nearest |
+| footprints / gauges (GEDI, USGS) | per-cell mean + count | — |
+| polygons (CSB, STATSGO2) | area-weighted on a 100 m sub-grid | — |
+
+Credentials (only those you have are used; the rest are reported as
+skipped): Earthdata `~/.netrc` · `OPENET_API_KEY` · `~/.cdsapirc` · AWS
+(requester-pays NLCD / Landsat L3) · `LFPS_EMAIL` (LANDFIRE).

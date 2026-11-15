@@ -19,6 +19,17 @@ hpo = ["optuna>=5.0.0"]
 gee = ["earthengine-api>=1.5.26"]
 serve = ["fastapi>=0.162.0", "granian>=2.8.5"]
 gpu = ["nvidia-ml-py>=12.0.0"]
+# 1 km training grid (`python -m nasa_farm.grid.run`): reprojection, STAC
+# signing, REST calls. shapely: STATSGO2 polygons; cdsapi: ERA5-Land grids.
+grid = [
+    "rasterio>=1.5.2",
+    "pyproj>=3.8.0",
+    "planetary-computer>=1.0",
+    "requests>=2.32",
+    "pandas>=2.2",
+    "shapely>=2.1",
+    "cdsapi>=0.7",
+]
 
 [project.scripts]
 nasa-farm = "nasa_farm.commands:main"
