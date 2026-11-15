@@ -1,0 +1,66 @@
+{
+  "meta": {
+    "latitude": 42.03,
+    "longitude": -93.63,
+    "years": [
+      2023,
+      2024,
+      2025
+    ],
+    "params": [
+      "gdd_lai_max",
+      "gdd_sen",
+      "rue"
+    ],
+    "fertilizer": 0.0,
+    "offline": false
+  },
+  "traits": {
+    "maize": {
+      "rue": 4.407086,
+      "gdd_lai_max": 726.399469,
+      "gdd_sen": 1073.499543
+    },
+    "soybean": {
+      "rue": 4.973432,
+      "gdd_lai_max": 527.743489,
+      "gdd_sen": 1640.315448
+    },
+    "wheat": {
+      "rue": 7.689319,
+      "gdd_lai_max": 81.587049,
+      "gdd_sen": 1900.0
+    },
+    "alfalfa": {
+      "rue": 1.69355,
+      "gdd_lai_max": 845.327225,
+      "gdd_sen": 3499.9999
+    }
+  },
+  "report": {
+    "maize": {
+      "target": 13200.0,
+      "achieved": 12901.7,
+      "fert": 170.0,
+      "loss": 0.02401
+    },
+    "soybean": {
+      "target": 4170.0,
+      "achieved": 4165.2,
+      "fert": 0.0,
+      "loss": 0.00216
+    },
+    "wheat": {
+      "target": 3000.0,
+      "achieved": 1303.4,
+      "fert": 90.0,
+      "loss": 0.337965
+    },
+    "alfalfa": {
+      "target": 7800.0,
+      "achieved": 6890.2,
+      "fert": 0.0,
+      "loss": 0.153547
+    }
+  }
+}

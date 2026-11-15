@@ -26,6 +26,20 @@ def test_request_validation_bounds():
         PlanRequest(points=[Point(latitude=0.0, longitude=0.0)], horizon=0)
 
 
+def test_packaged_artifacts_fallback(monkeypatch, tmp_path):
+    """No lake configured → service still serves calibrated traits and
+    the trained residual from the copy packaged with the source tree."""
+    from nasa_farm import CropLibrary
+    from nasa_farm.service import _artifact, _library
+    monkeypatch.delenv("NASA_FARM_LAKE", raising=False)
+    assert _artifact("residual.pt").name == "residual.pt"
+    assert _artifact("traits.json").name == "traits.json"
+    crops, default = _library().get("maize"), CropLibrary.default().get("maize")
+    assert not bool((crops == default).all())
+    monkeypatch.setenv("NASA_FARM_LAKE", str(tmp_path))  # empty lake dir
+    assert _artifact("residual.pt").parent.name == "models"
+
+
 def test_plan_single_site():
     response = plan(PlanRequest(**REQUEST))
     result = response.results[0]

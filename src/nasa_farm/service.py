@@ -187,6 +187,16 @@ def _lake() -> Path | None:
     return (root := os.environ.get("NASA_FARM_LAKE")) and Path(root)
 
 
+def _artifact(name: str) -> Path | None:
+    """Model artifact: the configured lake wins, else the copy packaged
+    with the source tree (built images ship without a lake)."""
+    for path in ((root / name if (root := _lake()) else None),
+                 Path(__file__).resolve().parent / "models" / name):
+        if path is not None and path.is_file():
+            return path
+    return None
+
+
 def _soil(p: Point) -> SoilProfile | None:
     """Stored lake soil (same product the residual trained on) — the
     offline-capable path; live SoilGrids is the fallback."""
@@ -256,11 +266,9 @@ def _site(point: Point, request: PlanRequest, crops: CropLibrary,
         field = Field(state=initial_state(1, soil), soil=soil,
                       latitude=torch.tensor([point.latitude], dtype=DTYPE))
         model = WorldModel(crops, residual=request.residual)
-        if request.residual and (root := _lake()):
-            pt = root / "residual.pt"
-            if pt.is_file():
-                model.residual.load_state_dict(
-                    torch.load(pt, weights_only=True))
+        if request.residual and (pt := _artifact("residual.pt")):
+            model.residual.load_state_dict(
+                torch.load(pt, weights_only=True))
         event = evaluate(model, field, plans, ens,
                       irr_mm_day=request.irrig, n_fert_kg=request.fertilizer,
                       workers=workers, device=device, compile=compile)
@@ -282,10 +290,10 @@ def _site(point: Point, request: PlanRequest, crops: CropLibrary,
 
 
 def _library() -> CropLibrary:
-    """Crop trait table — with `lake/traits.json` calibration overrides
-    applied when a lake is configured (`nasa-farm traits` writes it)."""
+    """Crop trait table — with calibration overrides applied (lake first,
+    packaged artifact otherwise; `nasa-farm traits` writes the lake copy)."""
     crops = CropLibrary.default()
-    if (root := _lake()) and (pt := root / "traits.json").is_file():
+    if pt := _artifact("traits.json"):
         crops = crops.calibrated(json.loads(pt.read_text()).get("traits", {}))
     return crops
 
