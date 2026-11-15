@@ -1,12 +1,14 @@
 """USDA Crop Sequence Boundaries — field vectors over HTTP ranges.
 
-The national CSB vector (16.2 M fields) is mirrored as a single 4.3 GB
-GeoParquet on Source Cooperative. DuckDB httpfs+spatial range-reads it
-and pushes `bbox` struct predicates down to row-group statistics, so a
-county extract lands in seconds — the full download never happens.
-Geometry is EPSG:5070 (NAD83 CONUS Albers): `ST_Transform` reprojects in
-SQL and the Albers centroid doubles as the point where `sequence` samples
-the yearly CDL rasters for the real rotation history.
+The national CSB vector (16.2 M fields) is mirrored as one 4.3 GB
+GeoParquet on Source Cooperative. An anonymous S3-range pyarrow scan
+pushes `bbox` struct predicates down to row-group statistics, so a
+county extract lands in well under a minute while streaming — the full
+download never happens. Geometry is EPSG:5070 (NAD83 CONUS Albers): the
+exterior ring is decoded straight out of WKB (no GIS dependency),
+reprojected to WGS84 with pyproj, and the Albers centroid doubles as
+the point where `sequence` samples the yearly CDL rasters for the real
+rotation history.
 
 Fields are the cultivated CSB classes (CDL 1–61): grass, forest,
 developed and water polygons are dropped — the model cannot rotate them.
@@ -14,7 +16,7 @@ developed and water polygons are dropped — the model cannot rotate them.
 
 from __future__ import annotations
 
-import json
+import struct
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
@@ -23,8 +25,7 @@ from nasa_farm.acquire.base import Bounds
 if TYPE_CHECKING:
     from collections.abc import Iterable
 
-PARQUET = ("https://data.source.coop/fiboa/us-usda-cropland/"
-           "us_usda_cropland.parquet")
+BUCKET = "fiboa/us-usda-cropland/us_usda_cropland.parquet"
 
 CDL_STORE = {"bucket": "chill",
              "prefix": "usda-cropland-data-layer/v0.1.0.icechunk",
@@ -38,6 +39,8 @@ CULTIVATED = 61
 
 ALBERS = 5070
 """Native CRS of both the CSB parquet and the CDL rasters."""
+
+COLUMNS = ["id", "crop:code", "geometry"]
 
 CDL: dict[int, tuple[str, str | None]] = {
     1: ("Corn", "maize"), 2: ("Cotton", None), 3: ("Rice", None),
@@ -83,6 +86,47 @@ class Boundary:
     y: float
 
 
+def _wkb(blob: bytes) -> list[list[tuple[float, float]]]:
+    """Exterior rings of a Polygon/MultiPolygon WKB — one ring per part.
+
+    Reads only what `fields` needs (no holes, no Z/M): byte order flag,
+    type tag, then ring headers of uint32 count + 16 B coordinate pairs.
+    """
+    def polygon(offset: int, endian: str) -> tuple[list, int]:
+        count, = struct.unpack_from(endian + "I", blob, offset)
+        offset += 4
+        rings = []
+        for _ in range(count):
+            n, = struct.unpack_from(endian + "I", blob, offset)
+            offset += 4
+            xy = struct.unpack_from(endian + f"{2 * n}d", blob, offset)
+            rings.append(list(zip(xy[::2], xy[1::2])))
+            offset += 16 * n
+        return rings, offset
+
+    endian = "<" if blob[0] else ">"
+    kind, = struct.unpack_from(endian + "I", blob, 1)
+    if kind == 3:  # Polygon
+        rings, _ = polygon(5, endian)
+        return rings[:1]
+    if kind == 6:  # MultiPolygon
+        count, = struct.unpack_from(endian + "I", blob, 5)
+        offset, outer = 9, []
+        for _ in range(count):
+            e = "<" if blob[offset] else ">"
+            tag, = struct.unpack_from(e + "I", blob, offset + 1)
+            if tag != 3:
+                raise ValueError(f"unsupported WKB member {tag}")
+            rings, offset = polygon(offset + 5, e)
+            outer.append(rings[0])
+        return outer
+    raise ValueError(f"unsupported WKB {kind}")
+
+
+def _shoelace(ring: list[tuple[float, float]]) -> float:
+    return sum(a[0] * b[1] - b[0] * a[1] for a, b in zip(ring, ring[1:]))
+
+
 def _centroid(ring: list[tuple[float, float]]) -> tuple[float, float]:
     """Polygon centroid of a closed ring; first vertex on degenerate input."""
     area = x = y = 0.0
@@ -94,24 +138,9 @@ def _centroid(ring: list[tuple[float, float]]) -> tuple[float, float]:
     return (x / (3 * area), y / (3 * area)) if area else ring[0]
 
 
-def _ring(geometry: dict) -> list[tuple[float, float]]:
-    """Largest outer ring of a (Multi)Polygon GeoJSON geometry, closed."""
-    match geometry["type"]:
-        case "Polygon":
-            rings = [geometry["coordinates"][0]]
-        case "MultiPolygon":
-            rings = [part[0] for part in geometry["coordinates"]]
-        case other:
-            raise ValueError(f"unsupported geometry {other!r}")
-    def area(ring: list) -> float:
-        return sum(a[0] * b[1] - b[0] * a[1] for a, b in zip(ring, ring[1:]))
-    outer = [tuple(point) for point in max(rings, key=lambda r: abs(area(r)))]
-    return outer if outer[0] == outer[-1] else [*outer, outer[0]]
-
-
 def _albers(bounds: Bounds) -> Bounds:
-    """WGS84 search window → EPSG:5070 with margin — 4-corner transform is
-    exact for the small windows fields are queried on."""
+    """WGS84 search window → EPSG:5070 — 4-corner transform is exact for
+    the small windows fields are queried on."""
     from pyproj import Transformer
     points = Transformer.from_crs(4326, ALBERS, always_xy=True).itransform(
         [(bounds.west, bounds.south), (bounds.east, bounds.south),
@@ -120,21 +149,50 @@ def _albers(bounds: Bounds) -> Bounds:
     return Bounds(min(xs), min(ys), max(xs), max(ys))
 
 
-def _sql(bounds: Bounds | None, county: str | None, limit: int) -> str:
-    clauses = [f'TRY_CAST("crop:code" AS INTEGER) BETWEEN 1 AND {CULTIVATED}']
+def _scan(bounds: Bounds | None, county: str | None) -> list[tuple]:
+    """(id, code, county, wkb) tuples — bbox predicates prune row groups
+    server-side via footer statistics; only matching chunks are fetched."""
+    import pyarrow.compute as pc
+    import pyarrow.dataset as ds
+    import pyarrow.fs as fs
+    import pyarrow.types as types
+
+    store = fs.S3FileSystem(anonymous=True, region="us-east-1",
+                            endpoint_override="data.source.coop")
+    dataset = ds.dataset(BUCKET, filesystem=store, format="parquet")
+    code = pc.field("crop:code")
+    if not types.is_integer(dataset.schema.field("crop:code").type):
+        code = code.cast("int32")
+    clauses = (code >= 1) & (code <= CULTIVATED)
     if county:
-        clauses.append(f"administrative_area_level_2 = '{county}'")
+        clauses &= pc.field("administrative_area_level_2") == county
     if bounds:
         b = _albers(bounds)
-        clauses.append(f"bbox.xmax > {b.west} AND bbox.xmin < {b.east} "
-                       f"AND bbox.ymax > {b.south} AND bbox.ymin < {b.north}")
-    return f"""
-SELECT id, TRY_CAST("crop:code" AS INTEGER), ST_Area(geometry) / 1e4,
-       ST_X(ST_Centroid(geometry)), ST_Y(ST_Centroid(geometry)),
-       ST_AsGeoJSON(ST_Transform(geometry, 'EPSG:5070', 'EPSG:4326'))
-FROM read_parquet('{PARQUET}')
-WHERE {' AND '.join(clauses)}
-ORDER BY 3 DESC LIMIT {int(limit)}"""
+        clauses &= ((pc.field("bbox", "xmax") > b.west)
+                    & (pc.field("bbox", "xmin") < b.east)
+                    & (pc.field("bbox", "ymax") > b.south)
+                    & (pc.field("bbox", "ymin") < b.north))
+    table = dataset.to_table(columns=COLUMNS, filter=clauses)
+    return list(zip(table["id"].to_pylist(),
+                    [int(v) for v in table["crop:code"].to_pylist()],
+                    table["geometry"].to_pylist()))
+
+
+def _ring(blob: bytes) -> list[tuple[float, float]]:
+    """Largest exterior ring of a WKB blob, closed (Albers metres)."""
+    ring = max(_wkb(blob), key=lambda r: abs(_shoelace(r)))
+    return ring if ring[0] == ring[-1] else [*ring, ring[0]]
+
+
+def _boundary(fid: str, code: int, name: str,
+              ring: list[tuple[float, float]], transform) -> Boundary:
+    """One Albers ring → reprojected WGS84 boundary."""
+    x, y = _centroid(ring)
+    crop, kind = CDL.get(code, ("Other", None))
+    wgs = [tuple(p) for p in transform.itransform(ring)]
+    return Boundary(id=fid, name=name, crop=crop, kind=kind,
+                    ha=round(abs(_shoelace(ring)) / 2e4, 2),
+                    center=_centroid(wgs), ring=wgs, x=x, y=y)
 
 
 def _stratify(rows: list[tuple], limit: int, per_kind: int) -> list[tuple]:
@@ -156,27 +214,23 @@ def fields(bounds: Bounds | None = None, *, county: str | None = None,
            limit: int = 40, per_kind: int | None = None) -> list[Boundary]:
     """CSB fields intersecting `bounds` (WGS84) / in `county`,
     largest first. `per_kind` caps each model crop for crop-diverse
-    demos. Needs the `csb` extra (duckdb + spatial, pyproj)."""
-    import duckdb
+    demos. Needs the `csb` extra (pyarrow, icechunk, pyproj)."""
+    from pyproj import Transformer
 
-    connection = duckdb.connect()
-    connection.execute(
-        "INSTALL httpfs; LOAD httpfs; INSTALL spatial; LOAD spatial; "
-        "SET geometry_always_xy = true")
-    fetch = limit if per_kind is None else 10_000
-    rows = connection.execute(_sql(bounds, county, fetch)).fetchall()
+    rows = _scan(bounds, county)
+    candidates = []
+    for fid, code, blob in rows:
+        ring = _ring(blob)
+        candidates.append((fid, code, abs(_shoelace(ring)) / 2e4, ring))
+    candidates.sort(key=lambda r: r[2], reverse=True)
     if per_kind is not None:
-        rows = _stratify(rows, limit, per_kind)
+        candidates = _stratify(candidates, limit, per_kind)
+    else:
+        candidates = candidates[:limit]
     stem = county or "Field"
-    output = []
-    for rank, (fid, code, ha, x, y, geo) in enumerate(rows):
-        ring = _ring(json.loads(geo))
-        crop, kind = CDL.get(code, ("Other", None))
-        output.append(Boundary(
-            id=str(fid), name=f"{stem} {rank + 1}", crop=crop, kind=kind,
-            ha=round(float(ha), 2), center=_centroid(ring), ring=ring,
-            x=float(x), y=float(y)))
-    return output
+    transform = Transformer.from_crs(ALBERS, 4326, always_xy=True)
+    return [_boundary(str(fid), code, f"{stem} {rank + 1}", ring, transform)
+            for rank, (fid, code, _ha, ring) in enumerate(candidates)]
 
 
 def sequence(boundaries: Iterable[Boundary], years: range

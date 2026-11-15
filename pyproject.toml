@@ -33,8 +33,8 @@ grid = [
 # CSB field vectors (`nasa-farm fields`): GeoParquet range-reads + CRS
 # transform; icechunk samples the CDL Zarr store for rotation history.
 csb = [
-    "duckdb>=1.4",
     "icechunk>=1.0",
+    "pyarrow>=26.0.1",
     "pyproj>=3.8.0",
 ]
 

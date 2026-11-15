@@ -15,6 +15,9 @@ from nasa_farm.state.crops import INDEX
 PAR_FRACTION = 0.47
 """Photosynthetically active fraction of shortwave radiation."""
 
+GM2_TO_KG_HA = 10.0
+"""RUE yields g DM/m²; state biomass is kg/ha (1 g/m² = 10 kg/ha)."""
+
 FROST_SALVAGE = 0.3
 """Fraction of harvest index recovered when a lethal frost ends the cycle."""
 
@@ -118,7 +121,8 @@ def canopy_step(
     n_growth = 0.6 + 0.4 * nitrogen_fac
     co2f = 1.0 if co2 is None else co2_factor(co2, traits)
     limiter = torch.minimum(tf, torch.minimum(water_fac, n_growth))
-    delta_b = traits[:, INDEX["rue"]] * (PAR_FRACTION * srad) * fpar * limiter * co2f * active
+    delta_b = (traits[:, INDEX["rue"]] * (PAR_FRACTION * srad) * fpar
+               * limiter * co2f * active * GM2_TO_KG_HA)
 
     biomass_new = biomass + delta_b
     frost = growing & (tmin < traits[:, INDEX["t_kill"]])
