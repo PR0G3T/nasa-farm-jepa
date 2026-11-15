@@ -77,6 +77,41 @@ def create_app() -> FastAPI:
             "objectives": OBJECTIVE_DIRECTION,
         }
 
+    @app.get("/v1/layers")
+    async def layers() -> dict:
+        from nasa_farm import store
+
+        def read() -> dict:
+            connection = store.connect()
+            try:
+                return store.catalog(connection)
+            finally:
+                connection.close()
+
+        try:
+            return await asyncio.to_thread(read)
+        except Exception as exception:
+            raise HTTPException(status_code=503, detail=str(exception)) from exception
+
+    @app.get("/v1/field/{fid}")
+    async def field(fid: str) -> dict:
+        from nasa_farm import store
+
+        def read() -> dict | None:
+            connection = store.connect()
+            try:
+                return store.field_detail(connection, fid)
+            finally:
+                connection.close()
+
+        try:
+            detail = await asyncio.to_thread(read)
+        except Exception as exception:
+            raise HTTPException(status_code=503, detail=str(exception)) from exception
+        if detail is None:
+            raise HTTPException(status_code=404, detail="unknown field")
+        return detail
+
     @app.post("/v1/plan")
     async def v1_plan(body: PlanRequest, request: Request) -> PlanResponse:
         key = body.model_dump_json()
@@ -86,7 +121,9 @@ def create_app() -> FastAPI:
             return hit
         try:
             async with jobs:
-                result = await asyncio.to_thread(plan, body)
+                result = await asyncio.to_thread(
+                    plan, body, device=_env("DEVICE", "cpu"),
+                    workers=int(_env("WORKERS", "1")))
         except ValueError as exception:
             raise HTTPException(status_code=400, detail=str(exception)) from exception
         cache.put(key, result)

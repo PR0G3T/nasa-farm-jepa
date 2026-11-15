@@ -162,6 +162,20 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     train.add_argument("--seed", type=int, default=0)
 
+    ingest = subparsers.add_parser(
+        "ingest", help="Planetary Computer scenes + model inputs → Postgres"
+    )
+    ingest.add_argument(
+        "--fields", required=True, help="fields GeoJSON path, or '-' for stdin"
+    )
+    ingest.add_argument(
+        "--days", type=int, default=153, help="observation window before today"
+    )
+    ingest.add_argument("--tiles", default=None, help="app tiles dir — bake missing dates")
+    ingest.add_argument(
+        "--years", type=int, default=5, help="forcing history depth per field"
+    )
+
     serve = subparsers.add_parser("serve", help="HTTP API (granian + fastapi)")
     serve.add_argument("--host", default="127.0.0.1")
     serve.add_argument("--port", type=int, default=8000)
@@ -777,6 +791,42 @@ def cmd_train(arguments) -> int:
     return 0 if result["runs"] else 1
 
 
+def cmd_ingest(arguments) -> int:
+    from pathlib import Path
+
+    from nasa_farm.ingest import ingest
+    from nasa_farm.store import connect
+
+    source = (
+        sys.stdin.read() if arguments.fields == "-" else Path(arguments.fields).read_text()
+    )
+    features = json.loads(source).get("features", [])
+
+    def each(geometry):
+        rings = (
+            geometry["coordinates"]
+            if geometry["type"] == "Polygon"
+            else [r for p in geometry["coordinates"] for r in p]
+        )
+        return [point for ring in rings for point in ring]
+
+    points = [p for f in features for p in each(f["geometry"])]
+    lons, lats = [p[0] for p in points], [p[1] for p in points]
+    pad = 0.08
+    bbox = [min(lons) - pad, min(lats) - pad, max(lons) + pad, max(lats) + pad]
+    summary = ingest(
+        features,
+        arguments.days,
+        arguments.tiles,
+        bbox,
+        connect,
+        lambda m: sys.stderr.write(f"{m}\n"),
+        arguments.years,
+    )
+    sys.stderr.write(f"done {summary}\n")
+    return 0
+
+
 def cmd_serve(arguments) -> int:
     try:
         from granian import Granian
@@ -1035,6 +1085,8 @@ def main(argv: list[str] | None = None) -> int:
             return cmd_crawl(arguments)
         case "train":
             return cmd_train(arguments)
+        case "ingest":
+            return cmd_ingest(arguments)
         case "serve":
             return cmd_serve(arguments)
         case "calibrate":

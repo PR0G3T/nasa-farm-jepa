@@ -15,6 +15,10 @@ services:
       - NASA_FARM_JOBS=1
       - NASA_FARM_CACHE=128
       - NASA_FARM_CACHE_TTL=86400
+      - NASA_FARM_DSN=postgresql://postgres:postgres@db:5432/nasafarm
+    depends_on:
+      db:
+        condition: service_healthy
     volumes:
       - ./lake:/app/lake
     command:
@@ -36,3 +40,20 @@ services:
       timeout: 5s
       retries: 3
       start_period: 10s
+
+  db:
+    image: postgis/postgis:17-3.5
+    environment:
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: nasafarm
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d nasafarm"]
+      interval: 5s
+      retries: 12
+
+volumes:
+  pgdata:

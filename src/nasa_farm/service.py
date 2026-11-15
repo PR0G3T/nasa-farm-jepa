@@ -210,8 +210,22 @@ def _artifact(name: str) -> Path | None:
 
 
 def _soil(p: Point) -> SoilProfile | None:
-    """Stored lake soil (same product the residual trained on) — the
-    offline-capable path; live SoilGrids is the fallback."""
+    """Stored soil: Postgres first, then the file lake (the product the
+    residual trained on) — live SoilGrids is the fallback."""
+    if p.id:
+        from nasa_farm import store
+        from nasa_farm.acquire.soilgrid import profile
+
+        try:
+            connection = store.connect()
+            try:
+                sample = store.soil_sample(connection, p.id)
+            finally:
+                connection.close()
+            if sample is not None:
+                return profile(sample)
+        except Exception:
+            pass
     root, fid = _lake(), p.id
     if not (root and fid):
         return None
@@ -231,6 +245,24 @@ def _forcings(request: PlanRequest, p: Point) -> tuple[list, torch.Tensor | None
         return [synthetic_year(p.latitude, seed=y) for y in range(request.years)], None
     last = dt.date.today().year - 1
     years = list(range(last - request.years + 1, last + 1))
+    if p.id:
+        from nasa_farm import store
+
+        try:
+            connection = store.connect()
+            try:
+                raw = [store.forcing_data(connection, p.id, "nasa-power", y)
+                       for y in years]
+            finally:
+                connection.close()
+            if all(d.get("T2M_MIN") for d in raw):
+                series = [series_to_forcing(d, y)
+                          for d, y in zip(raw, years, strict=True)]
+                sm = torch.cat([series_to_wet(d, y)
+                                for d, y in zip(raw, years, strict=True)])
+                return series, sm
+        except Exception:
+            pass
     if (root := _lake()) and p.id:
         from nasa_farm.optimize.data import forcings, wetness
 
