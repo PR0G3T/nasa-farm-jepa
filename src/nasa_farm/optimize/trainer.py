@@ -10,6 +10,7 @@ any derivative-free evaluation of the same budget.
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field as _f
 from typing import Callable
 
@@ -44,6 +45,30 @@ def fit(loss_fn: Callable[[], torch.Tensor],
         epochs: int = 200, rate: float = 1e-2, clip: float = 1.0,
         patience: int = 30, verbose: bool = False) -> FitResult:
     """Adam + grad clip + early stopping. Deterministic given the closure."""
+    def evaluate() -> tuple[float, dict | None]:
+        loss = loss_fn()
+        if not torch.isfinite(loss):
+            return float("nan"), None
+        loss.backward()
+        return float(loss.detach()), None
+    return _train(evaluate, parameters, epochs, rate, clip, patience, verbose)
+
+
+def fit_batch(evaluate: Callable[[], tuple[float, dict[str, torch.Tensor] | None]],
+              parameters: dict[str, torch.Tensor],
+              epochs: int = 200, rate: float = 1e-2, clip: float = 1.0,
+              patience: int = 30, verbose: bool = False) -> FitResult:
+    """`fit` whose epoch evaluation may run anywhere — a process pool, a
+    remote, whatever — as long as it returns (loss, grads) with grads
+    aligned on `parameters` keys. Returning None for grads means the
+    evaluation already backpropagated onto the leaves (in-process path)."""
+    return _train(evaluate, parameters, epochs, rate, clip, patience, verbose)
+
+
+def _train(evaluate: Callable[[], tuple[float, dict | None]],
+           parameters: dict[str, torch.Tensor],
+           epochs: int, rate: float, clip: float,
+           patience: int, verbose: bool) -> FitResult:
     leaves = list(parameters.values())
     opt = torch.optim.Adam(leaves, lr=rate)
     best, history = float("inf"), []
@@ -51,13 +76,14 @@ def fit(loss_fn: Callable[[], torch.Tensor],
     stall = 0
     for evaporation in range(1, epochs + 1):
         opt.zero_grad(set_to_none=True)
-        loss = loss_fn()
-        if not torch.isfinite(loss):
+        v, grads = evaluate()
+        if not math.isfinite(v):
             break
-        loss.backward()
+        if grads:
+            for k, p in parameters.items():
+                p.grad = grads[k]
         torch.nn.utils.clip_grad_norm_(leaves, clip)
         opt.step()
-        v = float(loss.detach())
         history.append(v)
         if verbose and evaporation % 25 == 0:
             print(f"  epoch {evaporation}: loss {v:.5f}")

@@ -19,7 +19,7 @@ from nasa_farm.optimize.targets import (
     ObservedSeries, ObservedTrajectory, series, season_metrics,
     series_loss, synthetic_observation, trajectory_loss,
 )
-from nasa_farm.optimize.trainer import fit, leaf, trait_leaf
+from nasa_farm.optimize.trainer import fit, fit_batch, leaf, trait_leaf
 from nasa_farm.state.crops import INDEX
 from nasa_farm.state.field import Field
 from nasa_farm.state.soil import SoilProfile
@@ -134,6 +134,31 @@ class TestTrainer:
         p = leaf(torch.tensor([0.0]))
         result = fit(lambda: p * 0 + 1.0, {"p": p}, epochs=500, patience=5)
         assert result.epochs_run <= 6
+
+    def test_batch_matches_fit_on_quadratic(self):
+        """The external-gradients path (pool-ready) converges identically
+        to the in-process backward path — same optimizer, same result."""
+        pa, pb = leaf(torch.tensor([5.0])), leaf(torch.tensor([5.0]))
+        ra = fit(lambda: (pa - 2.0) ** 2, {"p": pa}, epochs=200, rate=0.1)
+        rb = fit_batch(
+            lambda: ((pb - 2.0) ** 2, {"p": 2 * (pb - 2.0).detach()}),
+            {"p": pb}, epochs=200, rate=0.1)
+        assert float(pb) == pytest.approx(float(pa), abs=1e-5)
+        assert rb.best_loss == pytest.approx(ra.best_loss, abs=1e-5)
+
+    def test_batch_restores_best_parameters(self):
+        p = leaf(torch.tensor([0.0]))
+        losses = iter([1.0, 0.5] + [2.0] * 8)
+        result = fit_batch(
+            lambda: (next(losses), {"p": torch.ones(1)}),
+            {"p": p}, epochs=10, rate=0.1, patience=3)
+        assert float(p) == pytest.approx(float(result.parameters["p"]))
+        assert result.best_loss == pytest.approx(0.5)
+
+    def test_batch_breaks_on_nonfinite(self):
+        p = leaf(torch.tensor([1.0]))
+        result = fit_batch(lambda: (float("nan"), {}), {"p": p}, epochs=10)
+        assert result.epochs_run == 0
 
 
 class TestGradientHPO:

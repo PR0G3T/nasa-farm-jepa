@@ -112,6 +112,15 @@ def _build_parser() -> argparse.ArgumentParser:
                     help="power,soil,smap,ecostress-seb,ecostress-met")
     crawl.add_argument("--workers", type=int, default=8)
 
+    train = subparsers.add_parser(
+        "train", help="residual training on lake observations → residual.pt")
+    train.add_argument("--output", default="lake", help="lake root dir")
+    train.add_argument("--years", type=int, default=5)
+    train.add_argument("--epochs", type=int, default=60)
+    train.add_argument("--rate", type=float, default=0.02)
+    train.add_argument("--workers", type=int, default=None,
+                    help="parallel field processes (default: cpu count)")
+
     serve = subparsers.add_parser("serve", help="HTTP API (granian + fastapi)")
     serve.add_argument("--host", default="127.0.0.1")
     serve.add_argument("--port", type=int, default=8000)
@@ -553,6 +562,25 @@ def cmd_crawl(arguments) -> int:
     return 0
 
 
+def cmd_train(arguments) -> int:
+    from pathlib import Path
+
+    from nasa_farm.lake import Lake
+    from nasa_farm.optimize.lake import train
+    root = Path(arguments.output)
+    with Lake(root) as L:
+        fids = L.fids()
+    last = dt.date.today().year - 1
+    result = train(root, fids,
+                   list(range(last - arguments.years + 1, last + 1)),
+                   epochs=arguments.epochs, rate=arguments.rate,
+                   workers=arguments.workers, output=root / "residual.pt")
+    sys.stderr.write(f"train: {result['runs']} runs "
+                     f"(best_loss={result['best_loss']}, "
+                     f"{result['epochs']} epochs)\n")
+    return 0 if result["runs"] else 1
+
+
 def cmd_serve(arguments) -> int:
     try:
         from granian import Granian
@@ -759,6 +787,8 @@ def main(argv: list[str] | None = None) -> int:
             return cmd_traits(arguments)
         case "crawl":
             return cmd_crawl(arguments)
+        case "train":
+            return cmd_train(arguments)
         case "serve":
             return cmd_serve(arguments)
         case "calibrate":
