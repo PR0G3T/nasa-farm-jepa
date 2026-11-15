@@ -39,11 +39,11 @@ COPY pyproject.toml uv.lock .python-version ./
 
 RUN uv python install 3.15t
 
-RUN uv sync --frozen --no-dev --no-install-project --extra serve --verbose --config-settings-package numcodecs:compile-args="-j1"
+RUN uv sync --frozen --no-dev --no-install-project --extra serve 1>&2
 
 COPY src ./src
 
-RUN uv sync --frozen --no-dev --extra serve --verbose --config-settings-package numcodecs:compile-args="-j1"
+RUN uv sync --frozen --no-dev --extra serve 1>&2
 
 FROM debian:bookworm-slim AS runtime
 
