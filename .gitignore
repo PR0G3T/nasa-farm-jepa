@@ -9,3 +9,5 @@ dist/
 /lake/
 # 1 km build: raw downloads + regridded outputs (regenerable)
 /data/
+
+.*

@@ -25,7 +25,13 @@ if TYPE_CHECKING:
 
 PARQUET = ("https://data.source.coop/fiboa/us-usda-cropland/"
            "us_usda_cropland.parquet")
-CDL_URL = "/vsicurl/https://data.source.coop/tyler/usda-nass-cdl/{y}/{y}_30m_cdls.tif"
+
+CDL_STORE = {"bucket": "chill",
+             "prefix": "usda-cropland-data-layer/v0.1.0.icechunk",
+             "endpoint_url": "https://data.source.coop",
+             "region": "us-east-1"}
+"""CDL 2008–2025 as one Icechunk Zarr on Source Cooperative — sharded
+(1, 512, 512), so a point time series costs one range request per year."""
 
 CULTIVATED = 61
 """CDL classes ≤ 61 are cropland; grass (176) and everything above is not."""
@@ -131,17 +137,36 @@ WHERE {' AND '.join(clauses)}
 ORDER BY 3 DESC LIMIT {int(limit)}"""
 
 
+def _stratify(rows: list[tuple], limit: int, per_kind: int) -> list[tuple]:
+    """Area-ranked rows → `limit` with at most `per_kind` of each model
+    crop; leftover slots backfill by area so the total holds."""
+    kinds: dict[str, list[tuple]] = {}
+    for row in rows:
+        if (kind := CDL.get(row[1], (None, None))[1]) is not None:
+            kinds.setdefault(kind, []).append(row)
+    quota = [row for group in kinds.values() for row in group[:per_kind]]
+    chosen = sorted(quota, key=lambda r: r[2], reverse=True)[:limit]
+    if len(chosen) < limit:
+        seen = {r[0] for r in chosen}
+        chosen += [r for r in rows if r[0] not in seen][:limit - len(chosen)]
+    return sorted(chosen, key=lambda r: r[2], reverse=True)
+
+
 def fields(bounds: Bounds | None = None, *, county: str | None = None,
-           limit: int = 40) -> list[Boundary]:
+           limit: int = 40, per_kind: int | None = None) -> list[Boundary]:
     """CSB fields intersecting `bounds` (WGS84) / in `county`,
-    largest first. Needs the `csb` extra (duckdb + spatial, pyproj)."""
+    largest first. `per_kind` caps each model crop for crop-diverse
+    demos. Needs the `csb` extra (duckdb + spatial, pyproj)."""
     import duckdb
 
     connection = duckdb.connect()
     connection.execute(
         "INSTALL httpfs; LOAD httpfs; INSTALL spatial; LOAD spatial; "
         "SET geometry_always_xy = true")
-    rows = connection.execute(_sql(bounds, county, limit)).fetchall()
+    fetch = limit if per_kind is None else 10_000
+    rows = connection.execute(_sql(bounds, county, fetch)).fetchall()
+    if per_kind is not None:
+        rows = _stratify(rows, limit, per_kind)
     stem = county or "Field"
     output = []
     for rank, (fid, code, ha, x, y, geo) in enumerate(rows):
@@ -154,20 +179,26 @@ def fields(bounds: Bounds | None = None, *, county: str | None = None,
     return output
 
 
-def sequence(boundaries: Iterable[Boundary], years: range,
-             url: str = CDL_URL) -> dict[str, list[int]]:
-    """CDL class at each field centroid, one raster open per year — the
-    real rotation the field ran, e.g. corn→soy→corn."""
-    import rasterio
+def sequence(boundaries: Iterable[Boundary], years: range
+             ) -> dict[str, list[int]]:
+    """CDL class at each field centroid per year — the real rotation the
+    field ran, e.g. corn→soy→corn. Reads only the touched Zarr shards."""
+    import icechunk
+    import xarray as xarray
 
+    storage = icechunk.s3_storage(**CDL_STORE, anonymous=True,
+                                  force_path_style=True)
+    session = icechunk.Repository.open(storage).readonly_session("main")
+    dataset = xarray.open_zarr(session.store, group="30m", chunks=None)
+    have = [y for y in years if y in set(dataset.year.values.tolist())]
     items = list(boundaries)
-    series: dict[str, list[int]] = {b.id: [] for b in items}
-    for year in years:
-        with rasterio.open(url.format(y=year)) as raster:
-            for boundary, (value,) in zip(
-                    items, raster.sample([(b.x, b.y) for b in items])):
-                series[boundary.id].append(int(value))
-    return series
+    crop = dataset["crop_type"].sel(
+        year=have,
+        x=xarray.DataArray([b.x for b in items], dims="point"),
+        y=xarray.DataArray([b.y for b in items], dims="point"),
+        method="nearest")
+    values = crop.transpose("point", "year").values
+    return {b.id: [int(v) for v in row] for b, row in zip(items, values)}
 
 
 def label(code: int) -> str:

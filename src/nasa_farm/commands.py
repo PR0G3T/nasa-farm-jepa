@@ -97,6 +97,8 @@ def _build_parser() -> argparse.ArgumentParser:
     fields.add_argument("--bbox", default=None,
                     help="w,s,e,n WGS84 window")
     fields.add_argument("--limit", type=int, default=40)
+    fields.add_argument("--per-kind", type=int, default=None,
+                    help="cap fields per model crop (crop-diverse picks)")
     fields.add_argument("--sequence", nargs="?", const="2017:2024",
                     default=None, help="CDL rotation history, y0:y1")
     fields.add_argument("--out", required=True, help="output GeoJSON path")
@@ -478,7 +480,7 @@ def cmd_fields(arguments) -> int:
     bounds = (Bounds(*[float(v) for v in arguments.bbox.split(",")])
               if arguments.bbox else None)
     items = csb.fields(bounds, county=arguments.county,
-                       limit=arguments.limit)
+                       limit=arguments.limit, per_kind=arguments.per_kind)
     rotations = {}
     if arguments.sequence:
         y0, y1 = (int(v) for v in arguments.sequence.split(":"))
