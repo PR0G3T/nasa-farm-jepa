@@ -90,6 +90,17 @@ def _build_parser() -> argparse.ArgumentParser:
                      help="name[:k=v,...] — repeatable; k ∈ "
                           + ",".join(sorted(SCENARIO_KEYS)))
 
+    fields = subparsers.add_parser("fields",
+        help="CSB field boundaries → GeoJSON (csb extra)")
+    fields.add_argument("--county", default=None,
+                    help="US county name (e.g. Story)")
+    fields.add_argument("--bbox", default=None,
+                    help="w,s,e,n WGS84 window")
+    fields.add_argument("--limit", type=int, default=40)
+    fields.add_argument("--sequence", nargs="?", const="2017:2024",
+                    default=None, help="CDL rotation history, y0:y1")
+    fields.add_argument("--out", required=True, help="output GeoJSON path")
+
     crawl = subparsers.add_parser("crawl", help="batch acquisition → data lake")
     crawl.add_argument("--fields", required=True,
                     help="fields JSON path, or '-' for stdin")
@@ -458,6 +469,30 @@ def cmd_traits(arguments) -> int:
     return 0
 
 
+def cmd_fields(arguments) -> int:
+    from pathlib import Path
+
+    from nasa_farm.acquire import csb
+    from nasa_farm.acquire.base import Bounds
+
+    bounds = (Bounds(*[float(v) for v in arguments.bbox.split(",")])
+              if arguments.bbox else None)
+    items = csb.fields(bounds, county=arguments.county,
+                       limit=arguments.limit)
+    rotations = {}
+    if arguments.sequence:
+        y0, y1 = (int(v) for v in arguments.sequence.split(":"))
+        rotations = csb.sequence(items, range(y0, y1 + 1))
+    collection = {"type": "FeatureCollection",
+                  "features": [csb.feature(b, rotations.get(b.id))
+                               for b in items]}
+    output = Path(arguments.out)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(json.dumps(collection) + "\n")
+    sys.stderr.write(f"wrote {output} ({len(items)} fields)\n")
+    return 0
+
+
 def cmd_crawl(arguments) -> int:
     from pathlib import Path
 
@@ -679,6 +714,8 @@ def main(argv: list[str] | None = None) -> int:
             return cmd_plan(arguments)
         case "export":
             return cmd_export(arguments)
+        case "fields":
+            return cmd_fields(arguments)
         case "traits":
             return cmd_traits(arguments)
         case "crawl":

@@ -30,6 +30,13 @@ grid = [
     "shapely>=2.1",
     "cdsapi>=0.7",
 ]
+# CSB field vectors (`nasa-farm fields`): GeoParquet range-reads + CRS
+# transform; rasterio samples the yearly CDL rasters for rotation history.
+csb = [
+    "duckdb>=1.4",
+    "pyproj>=3.8.0",
+    "rasterio>=1.5.2",
+]
 
 [project.scripts]
 nasa-farm = "nasa_farm.commands:main"

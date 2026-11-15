@@ -7,16 +7,18 @@ ENV UV_COMPILE_BYTECODE=1 \
 
 WORKDIR /app
 
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
 COPY pyproject.toml uv.lock .python-version ./
 
-RUN --mount=type=cache,target=/root/.cache/uv \
-    uv python install 3.15t && \
-    uv sync --frozen --no-dev --no-install-project --no-editable --extra serve
+RUN uv python install 3.15t && \
+    uv sync --frozen --no-dev --no-install-project --extra serve
 
 COPY src ./src
 
-RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --frozen --no-dev --no-editable --extra serve
+RUN uv sync --frozen --no-dev --extra serve
 
 FROM debian:bookworm-slim AS runtime
 
@@ -29,6 +31,7 @@ WORKDIR /app
 
 COPY --from=builder /opt/python /opt/python
 COPY --from=builder /app/.venv /app/.venv
+COPY --from=builder /app/src /app/src
 
 ENV PATH="/app/.venv/bin:$PATH" \
     PYTHONUNBUFFERED=1 \
