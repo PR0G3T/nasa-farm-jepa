@@ -1,221 +1,103 @@
-# nasa-farm
+# FARM — prediction engine
 
-**Physics-informed latent world model for crop-rotation decision support.**
-NASA Space Apps 2026 — *Field Shift: Adapting Farms with NASA Data*.
-Runs on **CPython 3.15 free-threaded** (no GIL) — see *Performance*.
+*NASA Space Apps Challenge 2026 — [Field Shift: Adapting Farms with NASA Data](https://www.spaceappschallenge.org/2026/challenges/adapting-farms-with-nasa-data/)*
 
-A field is a dynamical system. Given its state today, a sequence of management
-actions (what to sow, when, how much water/N) and weather realizations, this
-engine rolls the future forward and scores each candidate rotation on yield,
-water, soil health and risk — every output tagged to the dataset it came from.
+> *"Farmers around the world navigate shifting temperatures, changing rainfall
+> patterns, water shortages, extreme weather, and declining soil health."*
 
-## Why this is a world model (and what kind)
+This repository is the engine behind **FARM**: it acquires NASA Earth
+observations and local soil/crop data, simulates how each candidate crop
+rotation would unfold on a parcel, and ranks them on yield, water use, crop
+stress and soil health — so a farmer or agronomist can compare strategies that
+protect the field and conserve water under changing conditions. The companion
+app that presents all of this is
+[nasa-farm-app](https://github.com/PR0G3T/nasa-farm-app). Methodology and
+results are detailed in the [research paper](https://github.com/PR0G3T/nasa-farm-jepa/blob/main/A%20Differentiable%20Physics%E2%80%93Residual%20World%20Model%20for%20Crop-Rotation%20Decision%20Support%20on%20NASA%20Earth%20Observations.pdf).
 
-Not a video model. Following the JEPA line of world models (V-JEPA 2, LeJEPA),
-the state lives in a **latent-but-interpretable space** and planning happens by
-rolling latent transitions — no pixels are ever rendered. The state vector
-is the physics:
+## The idea
 
-```
-s_t = ( sw1, sw2,       # soil water, 2 layers (mm)
-        n_min, n_org,   # mineral / organic N (kg/ha)
-        soc, litter,    # carbon pools (kg/ha)
-        gdd, lai,       # phenology, leaf area
-        biomass, crop, growing )
+A field is a dynamical system. Given its state today — soil water, nitrogen
+and carbon pools, crop stage — plus a sequence of management actions (what to
+sow, when, irrigation, fertilizer) and plausible weather for the coming
+seasons, the engine rolls the future forward, season by season, for every
+candidate rotation. Each rotation comes out scored on yield (mean and
+downside risk), water consumed, nitrogen lost, days of crop stress, and
+soil-carbon change — then ranked.
 
-T(s_t, a_t, f_t) → s_{t+1}     a_t = (sow, irrigation, n_fert)
-                               f_t = (tmin, tmax, srad, precip, rh, u2, doy)
-```
+The model is deliberately two parts:
 
-`T` = **differentiable physics core** (FAO-56 Penman–Monteith ET0, Ritchie
-two-layer water balance, first-order N/C kinetics, RUE canopy) **+ a
-zero-initialized neural residual** (`ResidualNet`). The residual is exactly
-identity at init — the hybrid model *is* the physics until trained, and data
-assimilation has a gradient path into it (proven by tests).
+- a **physics core**: water balance, energy-driven evapotranspiration,
+  nitrogen/carbon cycling, phenology and biomass accumulation — the agronomic
+  mechanisms a domain expert can audit;
+- a **learned residual** (`models/residual.pt`): a small network trained on
+  real satellite and yield observations that corrects where the physics
+  deviates from what is actually measured. At initialization it is exactly
+  zero — the hybrid model *is* the physics until data says otherwise.
 
-## Invariants (test-enforced, not asserted)
+Crop traits are calibrated per region (`models/traits.json`) against public
+yield references.
 
-| Invariant | Where |
+## What it serves
+
+`nasa-farm serve` exposes the HTTP API the app consumes:
+
+| Route | Returns |
 |---|---|
-| `Δ(sw1+sw2) ≡ infil − runoff − Es − T1 − T2 − deep` (machine precision, 200 random cases) | `dynamics/water.py` |
-| `air1 ≤ sw1 ≤ sat1`, `wp2 ≤ sw2 ≤ sat2` every day | `dynamics/water.py` |
-| No flux from an empty reservoir | `dynamics/water.py` |
-| N pools non-negative; fixation only legumes, down-regulated when N sufficient | `dynamics/biogeochemistry.py` |
-| LAI = 0 before emergence, 0 at maturity; perennials never senesce | `dynamics/crop.py` |
-| Fresh residual ⇒ hybrid rollout bitwise-identical to physics rollout | `dynamics/residual.py` |
-| Pareto front exact (enumerated, O(R²) dominance) | `plan.py` |
-| POWER/SG payloads → correct tensors, Feb 29 dropped, fills → NaN→default | `acquire/` |
+| `POST /v1/plan` | every candidate rotation evaluated and ranked for a parcel — optionally under climate perturbations (+ΔT, ×precipitation) |
+| `GET /v1/field/{id}` | parcel facts: soil profile, rotation history, recent weather and observations |
+| `GET /v1/layers` | the observation catalog (dates, per-parcel stats, sector reference) |
+| `GET /healthz`, `/v1/meta` | liveness and engine metadata |
 
-## Layout (SRP: one concept per module)
+## Where the data lives
 
-```
-src/nasa_farm/
-├── constants.py            physical constants — the only magic numbers
-├── types.py                Forcing / Actions (B,T) containers
-├── state/
-│   ├── soil.py             Saxton–Rawls pedotransfer → hydraulic storages
-│   ├── crops.py            crop trait table (C,P) — crops are data, not code
-│   └── field.py            FieldState, Field, initial_state
-├── dynamics/
-│   ├── atmosphere.py       Ra, FAO-56 PM ET0 (+ Hargreaves fallback), GDD, fT
-│   ├── water.py            conservative 2-layer water balance
-│   ├── biogeochemistry.py  N & C pools
-│   ├── crop.py             phenology, LAI, RUE biomass, harvest
-│   ├── residual.py         zero-init learnable correction (data assimilation)
-│   └── model.py            WorldModel: step / rollout
-├── forcing.py              scenario ensembles (history bootstrap, ΔT, ΔP)
-├── heads.py                SeasonAccumulator — O(B·H) metrics, no trajectory
-├── plan.py                 enumerate, evaluate, Pareto, scalarize, recommend
-├── acquire/
-│   ├── base.py             DataSource protocol, BBox/Temporal
-│   ├── power.py            NASA POWER agro API (no key)
-│   ├── earthdata.py        CMR via earthaccess (SMAP, IMERG, HLS, ECOSTRESS, GRACE)
-│   └── soilgrids.py        ISRIC SoilGrids → SoilProfile
-├── optimize/
-│   ├── space.py            Search space + Sobol sampler (torch.quasirandom)
-│   ├── targets.py          ObservedTrajectory + differentiable χ² loss
-│   ├── trainer.py          fit() — Adam/clip/early-stop on rollout gradients
-│   ├── hpo.py              gradient_hpo (variational) + blackbox (Sobol+ASHA,
-│   │                       Optuna TPE/NSGA-II via `hpo` extra)
-│   └── nas.py              zero-cost proxies (SynFlow/Jacobian-cov) + ASHA NAS
-└── cli.py                  `nasa-farm plan|calibrate|nas`
-```
+Acquisition modules pull NASA POWER weather, Harmonized Landsat/Sentinel-2
+imagery, ECOSTRESS, SMAP, GPM IMERG, GLDAS, GRACE-FO water storage and NISAR,
+alongside SoilGrids profiles and USDA cropland boundaries/classification.
+`nasa-farm ingest` stores recent observations, forcing history and field
+context in PostgreSQL/PostGIS (`store.py`, compose `db` service) so repeated
+requests reuse shared data instead of re-fetching; anything missing falls
+back to the live sources. The full product list with links is in the
+[app README](https://github.com/PR0G3T/nasa-farm-app#data).
 
-## Usage
+## Research side
+
+`experiments/` and `assimilation/` carry the JEPA-lineage work — latent state
+embeddings, hierarchical variants, and data-assimilation benchmarks (open
+loop vs EnKF vs hybrid) — with committed results under `results/`. The
+optimization toolkit (`optimize/`) does trait calibration, hyperparameter
+search and architecture search for the residual net. This is the layer the
+paper documents.
+
+## Run it
 
 ```bash
-uv sync --all-extras
-
-# Offline (synthetic climatology, deterministic):
-uv run nasa-farm plan --lat 42.0 --lon -93.6 --horizon 3 --offline
-
-# Live (POWER history 5y × all rotations, SoilGrids soil):
-uv run nasa-farm plan --lat 42.03 --lon -93.63 --horizon 3 --years 5 \
-    --crops maize,soybean,wheat,clover,fallow \
-    --delta-t 1.5 --precip-scale 0.85 --irrig 4 --fert 120
-
-# Repeatable runs: TOML defaults + selective CLI overrides
-uv run nasa-farm plan --lat 42.0 --lon -93.6 --config plan.toml --fert 200
-# plan.toml → [plan] horizon = 3, crops = "...", years = 5, offline = true …
+docker compose up          # api + PostGIS, the production shape
+# or locally:
+uv sync --extra serve
+nasa-farm serve --port 8000
+nasa-farm ingest --bbox ames            # populate Postgres for a region
+nasa-farm plan --lat 42.03 --lon -93.63 --horizon 3   # rank rotations directly
 ```
 
-Output: exact **Pareto front** of rotations + priority-weighted ranking, each
-rotation scored on yield mean/10 %-risk quantile, water used, N leached,
-stress days, ΔSOC, end-of-horizon mineral N.
+Other commands: `export` (batch plans → static JSON for the app), `fields`
+(boundaries), `crawl` (batch acquisition), `train` (residual fitting),
+`traits` / `calibrate` / `nas` (calibration & search), `control`
+(irrigation/N scheduling), `exp` (research experiments).
 
-Programmatic:
+## Guarantees worth knowing
 
-```python
-from nasa_farm import CropLibrary, Field, WorldModel, initial_state
-from nasa_farm.plan import enumerate_rotations, evaluate, recommend
+- **Conservation, not convention**: water and nutrient budgets close to
+  machine precision — enforced by property tests, not assumed.
+- **Pareto-exact**: no rotation is reported optimal if another beats it on
+  every objective.
+- **Hardware-adaptive**: the evaluator probes CPU vs GPU per workload and
+  degrades gracefully under memory pressure; identical results either way.
+- **Honest limits**: traits are literature-typical unless calibrated — the
+  residual exists precisely to close that gap with observations.
 
-model = WorldModel(CropLibrary.default())
-ev = evaluate(model, field, plans, forcing_ensemble)   # batched: plans×scenarios
-rec = recommend(ev, weights={"yield_mean": 2.0, "soc_gain": 1.0})
-```
+## Links
 
-## Data provenance
-
-| Product | Role | Access |
-|---|---|---|
-| NASA POWER agro (`T2M_MIN/MAX, PRECTOTCORR, ALLSKY_SFC_SW_DWN, RH2M, WS10M`) | daily forcing → PM-ET0, GDD | API, no key |
-| SoilGrids v2 (`clay, sand, soc`, 0–30 cm) | pedotransfer → soil storages | REST, no key |
-| SMAP `SPL3SMP_E`, GPM `GPM_3IMERGDF`, HLS `HLSL30`, ECOSTRESS `ECO_L3T_JET`, GRACE-FO mascons | observation streams for assimilation into `s_t` / residual training | `earthaccess`, Earthdata login |
-
-## Performance — adaptive hardware engine
-
-`evaluate()` auto-exploits everything the machine offers, with graceful
-degradation instead of crashes:
-
-- **Device probe** (`device="auto"`): a one-time ~1 s benchmark times the
-  real rollout on CPU vs GPU (cached per workload bucket) and keeps the
-  winner. Measured on an RTX 4060: CPU+threads wins below ~5k trajectory
-  rows (launch-bound kernels); CUDA wins beyond (≈1.9× at 13k rows).
-  Small runs skip the probe entirely. Universal PyPI torch wheel serves
-  both paths — no separate build to install.
-- **Threads** (`workers=0`): physical cores on no-GIL CPython (SMT siblings
-  excluded — measured, not `os.cpu_count()`), 1 on GIL builds and on GPU.
-  Shard results are bit-identical to serial (test-enforced).
-- **Memory budget**: plan blocks are sized against *currently free*
-  RAM/VRAM (`mem_budget` of it), so giant sweeps stream instead of OOMing.
-- **OOM ladder** (tested): block ÷ 2 → threads ÷ 2 → CUDA → CPU → raise.
-  Non-OOM errors always propagate — a bug is never masked by lower settings.
-- **`compile="auto"`**: `torch.compile` engages past ~30 M field-days
-  (dynamic shapes, ~2×). Note: inductor pulls triton, which currently
-  re-enables the GIL — compiled path therefore runs serially, where its
-  kernel fusion wins anyway.
-
-~1.2 M field-days/s single-core float64 · ~1.7× with auto threads on 8
-physical cores · ~1.9× further with CUDA on large sweeps. Rollouts stay
-O(1) extra memory — seasonal metrics accumulate online.
-
-## HPO & NAS (`optimize/`)
-
-Because the dynamics core is differentiable, continuous parameters optimize
-**through the rollout** — variational data assimilation, strictly stronger
-than black-box evaluation per unit of compute:
-
-- `gradient_hpo` + `trait_leaf(model)`: traits/soil/residual calibrated by
-  direct `d(loss)/d(param)` over the full trajectory. Proven on an
-  identifiability test: perturbing `rue` ×0.8 → fit recovers ≈99.9 %.
-- `blackbox_hpo`: Sobol coverage + ASHA for non-differentiable knobs;
-  Optuna TPE / NSGA-II kicks in automatically with `uv sync --extra hpo`.
-- `nas_search` (`nasa-farm nas`): two-stage search over residual
-  architectures — zero-cost proxies (SynFlow signal propagation, Jacobian
-  covariance, grad-norm) rank candidates before any fitting, then
-  successive halving spends fit budget only on contenders.
-- `ObservedTrajectory` is the loss contract real SMAP/HLS/yield series will
-  satisfy: same channels as `heads.METRICS`, NaN = unobserved, per-channel
-  χ² scaling. `synthetic_observation` fills it from a rollout meanwhile —
-  the whole pipeline is testable *today*, uncalibrated claims included.
-
-```bash
-uv run nasa-farm calibrate --lat 42 --lon -93.6 --param rue --scale 0.8
-uv run nasa-farm nas --candidates 24 --top-k 8 --rungs 10,30,90
-```
-
-## Calibration notes (honest limits)
-
-- Crop traits are literature-typical, not regionally calibrated; the residual
-  net exists precisely to close this gap once trained on observations.
-- Rainfed yields trend conservative (multiplicative stress limiters).
-- 365-day years; Feb 29 is dropped in forcing preparation.
-- LAI follows phenology (GDD); drought cuts biomass, not canopy expansion.
-
-## Tests
-
-`uv run pytest` — 148 tests: conservation laws (Hypothesis property tests),
-bounds, lifecycle events, legume economics, Pareto exactness, API parsing,
-differentiability, thread/streamed bit-parity, compiled-vs-eager parity,
-OOM-ladder recovery, device probing, HPO identifiability, space sampling,
-ASHA pruning, NAS proxies + search, and full offline pipeline + CLI tests.
-
-## 1 km training grid (`nasa_farm.grid`)
-
-One sample file per training product (`claude/download-access.md`, 53
-products) downloaded and put on a common grid: **EPSG:5070 (CONUS Albers,
-equal-area), 1 km cells snapped to multiples of 1000 m**, so grids of
-different AOIs tile exactly.
-
-```bash
-uv sync --extra grid
-uv run python -m nasa_farm.grid.run --list                 # products + credential status
-uv run python -m nasa_farm.grid.run --aoi ames --date 2024-07-15
-uv run python -m nasa_farm.grid.run --only smap-l4,cdl,3dep --jobs 8
-```
-
-Output in `data/grid1km/<aoi>_<date>/`: one CF NetCDF per product,
-`stack.nc` (all products, vars `<product>__<var>`), `report.md` (ok /
-skipped / failed, source granule, method, coverage). Raw files are cached
-in `data/raw/<product>/`.
-
-| Variable kind | Source finer than 1 km | Source coarser than 1 km |
-|---|---|---|
-| continuous | area-weighted average of QA-valid pixels (+ `valid_frac`) | bilinear |
-| categorical (CDL, NLCD, SCL…) | class area fractions (`*_frac`, last = other) + mode | nearest |
-| footprints / gauges (GEDI, USGS) | per-cell mean + count | — |
-| polygons (CSB, STATSGO2) | area-weighted on a 100 m sub-grid | — |
-
-Credentials (only those you have are used; the rest are reported as
-skipped): Earthdata `~/.netrc` · `OPENET_API_KEY` · `~/.cdsapirc` · AWS
-(requester-pays NLCD / Landsat L3) · `LFPS_EMAIL` (LANDFIRE).
+- App: [nasa-farm-app](https://github.com/PR0G3T/nasa-farm-app)
+- Research paper (methodology and results):
+  [A Differentiable Physics–Residual World Model for Crop-Rotation Decision Support on NASA Earth Observations](https://github.com/PR0G3T/nasa-farm-jepa/blob/main/A%20Differentiable%20Physics%E2%80%93Residual%20World%20Model%20for%20Crop-Rotation%20Decision%20Support%20on%20NASA%20Earth%20Observations.pdf)
+- Deployed API: [https://41kbfozcezrjypq1ig3vgwro.d3vex.fr](https://41kbfozcezrjypq1ig3vgwro.d3vex.fr)
