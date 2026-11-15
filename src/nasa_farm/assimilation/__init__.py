@@ -16,7 +16,10 @@ from nasa_farm.assimilation.design import (
     design_schedule,
     eigen,
     fisher_design,
+    metric_jacobian,
     plan_schedule,
+    select_channels,
+    series_jacobian,
 )
 from nasa_farm.assimilation.error import Statistic, inflate
 from nasa_farm.assimilation.kalman import (
@@ -50,7 +53,10 @@ __all__ = [
     "inflate",
     "kalman_update",
     "langevin_posterior",
+    "metric_jacobian",
     "network_update",
     "plan_schedule",
     "score_update",
+    "select_channels",
+    "series_jacobian",
 ]

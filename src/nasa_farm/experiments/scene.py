@@ -25,6 +25,7 @@ from nasa_farm.forcing import (
     synthetic_year,
     tile_to_horizon,
 )
+from nasa_farm.heads import METRICS
 from nasa_farm.optimize.targets import (
     ObservedTrajectory,
     season_metrics,
@@ -144,23 +145,32 @@ def observe(specification: Specification, scenario: Scene) -> ObservedTrajectory
     )
 
 
+def heldout_channel(model, scenario: Scene, ch: str) -> torch.Tensor:
+    """(R·H,) seasonal metric across held-out realizations only — the
+    calibration row (row 0) is excluded from verification."""
+    i = METRICS.index(ch)
+    f_held = scenario.held_out()
+    r = f_held.batch
+    m = season_metrics(model, scenario.field.repeat(r), f_held, scenario.actions.repeat(r))
+    return m[..., i].reshape(-1)
+
+
 _BOUND = 2.0
 """Fitted traits stay within [base/BOUND, base·BOUND] — a factor-2
 plausibility band around literature values keeps calibration physical
 (no harvest index > 1, no negative GDD)."""
 
 
-def calibrate(
-    specification: Specification, scenario: Scene, observed: ObservedTrajectory
+def trait_fit(
+    specification: Specification,
+    scenario: Scene,
+    loss_fn,
 ) -> tuple[WorldModel, dict]:
-    """Variational calibration: gradient-fit the perturbed trait cells of
-    spec.crop through the rollout on the calibration realization. Returns
-    the fitted model plus a per-parameter start/truth/fitted/recovery
-    report.
-
-    Parameters are optimized in an unconstrained logit space and mapped
-    through a sigmoid into the factor-BOUND plausibility band, so the
-    estimator can never leave physically meaningful ranges."""
+    """Shared bounded trait fit: `loss_fn(candidate)` is any differentiable
+    scalar — the observation set is the only thing that changes between
+    calibration arms. Parameters are optimized in an unconstrained logit
+    space and mapped through a sigmoid into the factor-BOUND plausibility
+    band, so the estimator can never leave physically meaningful ranges."""
     candidate = WorldModel(scenario.crops, residual=False)
     i_c = scenario.crops.index(specification.crop)
     names = tuple(specification.perturb)
@@ -171,15 +181,12 @@ def calibrate(
     low, high = base[i_c, cols] / _BOUND, base[i_c, cols] * _BOUND
     # sigmoid(−ln2) = 1/3 → fitted == prior exactly at init
     w = leaf(torch.full((len(names),), -math.log(2.0), dtype=DTYPE))
-    forcing_t0 = scenario.realization(0)
 
     def loss() -> torch.Tensor:
         table = base.clone()
         table[i_c, cols] = low + (high - low) * torch.sigmoid(w)
         candidate.crop_table = table
-        return trajectory_loss(
-            season_metrics(candidate, scenario.field, forcing_t0, scenario.actions), observed
-        )
+        return loss_fn(candidate)
 
     result = fit(loss, {"w": w}, epochs=specification.epochs, rate=specification.rate)
     with torch.no_grad():
@@ -208,3 +215,19 @@ def calibrate(
         "best_loss": round(result.best_loss, 8),
         "epochs_run": result.epochs_run,
     }
+
+
+def calibrate(
+    specification: Specification, scenario: Scene, observed: ObservedTrajectory
+) -> tuple[WorldModel, dict]:
+    """Variational calibration: gradient-fit the perturbed trait cells of
+    spec.crop through the rollout on the calibration realization — the
+    seasonal-metric arm of `trait_fit`."""
+    forcing_t0 = scenario.realization(0)
+    return trait_fit(
+        specification,
+        scenario,
+        lambda candidate: trajectory_loss(
+            season_metrics(candidate, scenario.field, forcing_t0, scenario.actions), observed
+        ),
+    )

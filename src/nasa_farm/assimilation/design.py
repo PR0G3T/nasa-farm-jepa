@@ -101,6 +101,94 @@ def plan_schedule(
     return output
 
 
+def metric_jacobian(
+    model,
+    field: Field,
+    forcing: Forcing,
+    actions: Actions,
+    crop_index: int,
+    traits: tuple[str, ...],
+    channels: tuple[str, ...],
+) -> torch.Tensor:
+    """J[h·c, p] = ∂(seasonal metric c of year h)/∂θ_p — exact forward-mode
+    Jacobian of the seasonal-metric map w.r.t. the trait cells. One
+    jacfwd costs len(traits) forward-mode passes; the singular spectrum of
+    J·R⁻¹ is the formal identifiability diagnostic of the channel set."""
+    from nasa_farm.heads import METRICS
+    from nasa_farm.optimize.targets import season_metrics
+    from nasa_farm.state.crops import INDEX
+
+    base = model.crop_table.detach().clone()
+    cols = [INDEX[t] for t in traits]
+    idx = [METRICS.index(c) for c in channels]
+
+    def fn(theta: torch.Tensor) -> torch.Tensor:
+        table = base.clone()
+        table[crop_index, cols] = theta
+        model.crop_table = table
+        return season_metrics(model, field, forcing, actions)[0][:, idx].flatten()
+
+    j = torch.func.jacfwd(fn)(base[crop_index, cols].detach().clone())
+    model.crop_table = base
+    return j
+
+
+def series_jacobian(
+    model,
+    field: Field,
+    forcing: Forcing,
+    actions: Actions,
+    crop_index: int,
+    traits: tuple[str, ...],
+    channels: tuple[str, ...],
+    every: int = 10,
+) -> torch.Tensor:
+    """J[t, c, p] = ∂obs_c(t)/∂θ_p — exact forward-mode Jacobian of the
+    predicted observation series w.r.t. the trait cells, at cadence
+    `every`. Rows are (day, channel) pairs; slice [:, c, :] per channel."""
+    from nasa_farm.optimize.targets import series
+    from nasa_farm.state.crops import INDEX
+
+    base = model.crop_table.detach().clone()
+    cols = [INDEX[t] for t in traits]
+
+    def fn(theta: torch.Tensor) -> torch.Tensor:
+        table = base.clone()
+        table[crop_index, cols] = theta
+        model.crop_table = table
+        return series(model, field, forcing, actions, channels, every=every)[0].flatten()
+
+    j = torch.func.jacfwd(fn)(base[crop_index, cols].detach().clone())
+    model.crop_table = base
+    n = j.shape[0] // len(channels)
+    return j.reshape(n, len(channels), len(traits))
+
+
+def select_channels(
+    jacobian: torch.Tensor, scale: torch.Tensor, k: int
+) -> tuple[list[int], torch.Tensor]:
+    """Greedy E-optimal design over channel rows of a series Jacobian.
+
+    Each step adds the channel maximizing the smallest eigenvalue of the
+    accumulated information matrix JᵀR⁻¹J — the design criterion aimed at
+    the weakest trait direction, which is exactly the direction
+    equifinality hides in. `scale` whitens rows (per-channel obs scale)."""
+    p = jacobian.shape[2]
+    info = torch.zeros(p, p, dtype=jacobian.dtype)
+    picked, rest = [], list(range(jacobian.shape[1]))
+
+    def whiten(c: int) -> torch.Tensor:
+        j = jacobian[:, c, :] / scale[c].clamp(min=1e-9)
+        return j.t() @ j
+
+    for _ in range(min(k, jacobian.shape[1])):
+        c = max(rest, key=lambda c: float(torch.linalg.eigvalsh(info + whiten(c))[0]))
+        picked.append(c)
+        rest.remove(c)
+        info = info + whiten(c)
+    return picked, info
+
+
 def fisher_design(
     model,
     field: Field,
