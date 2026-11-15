@@ -32,11 +32,11 @@ COPY wheels ./wheels
 
 RUN uv python install 3.15t
 
-RUN uv sync --frozen --no-dev --no-install-project --extra serve --find-links ./wheels
+RUN uv sync --frozen --no-dev --no-install-project --extra serve --find-links ./wheels || (uv sync --frozen --no-dev --no-install-project --extra serve --find-links ./wheels -v >&2 && exit 1)
 
 COPY src ./src
 
-RUN uv sync --frozen --no-dev --extra serve --find-links ./wheels
+RUN uv sync --frozen --no-dev --extra serve --find-links ./wheels || (uv sync --frozen --no-dev --extra serve --find-links ./wheels -v >&2 && exit 1)
 
 FROM debian:bookworm-slim AS runtime
 
