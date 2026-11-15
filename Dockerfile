@@ -1,6 +1,4 @@
-FROM debian:bookworm-slim AS builder
-
-COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
+FROM ghcr.io/astral-sh/uv:bookworm-slim AS builder
 
 ENV UV_COMPILE_BYTECODE=1 \
     UV_LINK_MODE=copy \
@@ -9,13 +7,10 @@ ENV UV_COMPILE_BYTECODE=1 \
 
 WORKDIR /app
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    ca-certificates \
-    && rm -rf /var/lib/apt/lists/*
-
 COPY pyproject.toml uv.lock .python-version ./
 
 RUN --mount=type=cache,target=/root/.cache/uv \
+    uv python install 3.15t && \
     uv sync --frozen --no-dev --no-install-project --no-editable --extra serve
 
 COPY src ./src
