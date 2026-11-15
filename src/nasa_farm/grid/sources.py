@@ -44,6 +44,10 @@ GRACE_PERCENTILES = Collection("GRACEDADM_CLSM0125US_7D", "4.0")
 HLS_L30_INDICES = Collection("HLSL30_VI", "2.0")
 VIIRS_LST_DAY = Collection("VNP21A1D", "002")
 VIIRS_LST_NIGHT = Collection("VNP21A1N", "002")
+# NOAA-20 twins of the Suomi-NPP LST products (same algorithm and layers):
+# fallback when S-NPP has a gap (e.g. h11v04, 2024-07-11 → 07-16)
+VIIRS_LST_DAY_N20 = Collection("VJ121A1D", "002")
+VIIRS_LST_NIGHT_N20 = Collection("VJ121A1N", "002")
 VIIRS_REFLECTANCE = Collection("VNP09GA", "002")
 # structure / water
 GEDI_L2A = Collection("GEDI02_A", "003")

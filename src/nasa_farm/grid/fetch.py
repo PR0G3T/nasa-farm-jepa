@@ -20,6 +20,7 @@ import json
 import netrc
 import os
 import re
+import threading
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -118,6 +119,54 @@ def download(url: str, dest: Path, *, sess=None, params=None, headers=None,
     return dest
 
 
+def download_ranged(url: str, dest: Path, *, sess=None, chunk: int = 64 << 20,
+                    timeout: int = 300, context: "Context | None" = None) -> Path:
+    """Large file fetched as successive HTTP Range requests, resumable.
+
+    For servers that fail a single whole-file GET but serve byte ranges
+    (NASS answers HTTP 500 to a plain GET of the 3.8 GB CSB zip, 206 to
+    ranges). Each chunk is retried on transient errors and length-checked;
+    the `.part` file is kept on failure so the next run resumes from it."""
+    if dest.exists() and dest.stat().st_size > 0:
+        return dest
+    s = sess or session()
+    h = s.head(url, allow_redirects=True, timeout=60)
+    h.raise_for_status()
+    total = int(h.headers.get("Content-Length") or 0)
+    if not total or h.headers.get("Accept-Ranges", "").lower() != "bytes":
+        return download(url, dest, sess=s, timeout=timeout)   # no ranges: plain GET
+    tmp = dest.with_suffix(dest.suffix + ".part")
+    done = tmp.stat().st_size if tmp.exists() else 0
+    if done > total:                                  # stale partial of another file
+        tmp.unlink()
+        done = 0
+    if done and context is not None:
+        context.note(f"resuming {dest.name} at {done / total:.0%}")
+    with open(tmp, "ab") as f:
+        while done < total:
+            lo, hi = done, min(done + chunk, total) - 1
+
+            def get(lo=lo, hi=hi) -> bytes:
+                r = s.get(url, headers={"Range": f"bytes={lo}-{hi}"}, timeout=timeout)
+                r.raise_for_status()
+                if r.status_code != 206:
+                    raise RuntimeError(f"{url}: server ignored the Range header "
+                                       f"(HTTP {r.status_code})")
+                if len(r.content) != hi - lo + 1:
+                    raise ConnectionError(f"short range read {len(r.content)} of {hi - lo + 1} B")
+                return r.content
+
+            data = retry_transient(get, attempts=5, wait=10, what=f"{dest.name} @{lo}",
+                                   context=context)
+            f.write(data)
+            f.flush()
+            done += len(data)
+    if tmp.stat().st_size != total:
+        raise ConnectionError(f"{dest.name}: {tmp.stat().st_size} of {total} B")
+    tmp.rename(dest)
+    return dest
+
+
 def find_urls(obj: Any) -> list[str]:
     """Every http(s) URL anywhere in a JSON payload (for APIs whose result
     key is not documented consistently)."""
@@ -142,6 +191,55 @@ def poll(fn, *, every: float = 10.0, timeout: float = 1800.0, what: str = "job")
             return v
         time.sleep(every)
     raise TimeoutError(f"{what} not ready after {timeout:.0f} s")
+
+
+def is_transient(e: BaseException) -> bool:
+    """Server-side or network hiccup worth retrying: HTTP 429/5xx (aiohttp,
+    as raised by fsspec streams, or requests) and dropped connections."""
+    import asyncio
+    status = getattr(e, "status", None)
+    if status is None and getattr(e, "response", None) is not None:
+        status = getattr(e.response, "status_code", None)
+    if isinstance(status, int):
+        return status == 429 or status >= 500
+    try:
+        import requests
+        if isinstance(e, (requests.ConnectionError, requests.Timeout,
+                          requests.exceptions.ChunkedEncodingError)):
+            return True
+    except ImportError:
+        pass
+    try:
+        import aiohttp
+        if isinstance(e, (aiohttp.ClientConnectionError, aiohttp.ClientPayloadError)):
+            return True
+    except ImportError:
+        pass
+    try:
+        from fsspec.exceptions import FSTimeoutError
+        if isinstance(e, FSTimeoutError):
+            return True
+    except ImportError:
+        pass
+    return isinstance(e, (asyncio.TimeoutError, ConnectionError, TimeoutError))
+
+
+def retry_transient(fn, *, attempts: int = 4, wait: float = 30.0,
+                    what: str = "read", context: "Context | None" = None):
+    """fn() retried with linear backoff on transient errors only; any other
+    error (missing variable, bad path…) is raised at once. For long
+    streamed reads, where one 502 among hundreds of range requests would
+    otherwise fail the whole product."""
+    for k in range(attempts):
+        try:
+            return fn()
+        except Exception as e:  # noqa: BLE001 — filtered just below
+            if not is_transient(e) or k + 1 == attempts:
+                raise
+            if context is not None:
+                context.note(f"{what}: {type(e).__name__} "
+                             f"{getattr(e, 'status', '')} → retry {k + 1}/{attempts - 1}")
+            time.sleep(wait * (k + 1))
 
 
 # --- granule choice ------------------------------------------------------------
@@ -266,15 +364,47 @@ class AppEEARS:
     Asynchronous: a task takes minutes to an hour."""
 
     base = "https://appeears.earthdatacloud.nasa.gov/api"
+    _token: str | None = None          # one login per process, shared by products
+    _failed: str | None = None         # …and one failure: later products fail fast
+    _token_lock = threading.Lock()
 
     def __init__(self) -> None:
         self.s = session()
-        up = earthdata_userpass()
-        if up is None:
-            raise Skip("AppEEARS needs Earthdata credentials")
-        r = self.s.post(f"{self.base}/login", auth=up, timeout=60)
-        r.raise_for_status()
-        self.s.headers["Authorization"] = f"Bearer {r.json()['token']}"
+        self.s.headers["Authorization"] = f"Bearer {self._login()}"
+
+    @classmethod
+    def _login(cls, attempts: int = 3) -> str:
+        """POST /login, retried: the endpoint intermittently answers HTTP 504
+        (gateway timeout at 60 s) while the rest of the API is up."""
+        import requests
+        with cls._token_lock:
+            if cls._token:
+                return cls._token
+            if cls._failed:
+                raise ConnectionError(cls._failed)
+            up = earthdata_userpass()
+            if up is None:
+                raise Skip("AppEEARS needs Earthdata credentials")
+            last = ""
+            for k in range(attempts):
+                try:
+                    r = session().post(f"{cls.base}/login", auth=up, timeout=120)
+                    if r.ok:
+                        cls._token = r.json()["token"]
+                        return cls._token
+                    if r.status_code in (401, 403):
+                        raise PermissionError(f"AppEEARS login refused: HTTP {r.status_code} "
+                                              "(check the Earthdata credentials)")
+                    last = f"HTTP {r.status_code}"
+                except (requests.Timeout, requests.ConnectionError) as e:
+                    last = type(e).__name__
+                if k + 1 < attempts:
+                    time.sleep(30 * (k + 1))
+            cls._failed = (f"AppEEARS /login failed {attempts}× ({last}). Bad credentials get "
+                           "a fast 401, so a 504 means the account was accepted but not set up "
+                           "for AppEEARS: sign in once at https://appeears.earthdatacloud.nasa.gov "
+                           "(authorizes the app in Earthdata Login), then retry")
+            raise ConnectionError(cls._failed)
 
     def layers(self, product: str) -> list[str]:
         r = self.s.get(f"{self.base}/product/{product}", timeout=60)
@@ -460,38 +590,94 @@ def usgs_items(collection: str, params: dict[str, Any]) -> list[dict]:
     return feats
 
 
+OPENET_MAX_ACRES = 45_000.0
+"""Per-request area cap. The API refuses > 50,000 acres on the default tier
+(HTTP 422 "Single query area limit exceeded"); the margin absorbs the
+difference between our geodesic estimate and the server's."""
+
+
+def _ll_tiles(b: Bounds, max_acres: float) -> list[Bounds]:
+    """Split a lon/lat box into k × k equal tiles, each under `max_acres`."""
+    import math
+    from pyproj import Geod
+    area_m2, _ = Geod(ellps="WGS84").polygon_area_perimeter(
+        [b.west, b.east, b.east, b.west], [b.south, b.south, b.north, b.north])
+    k = max(1, math.ceil(math.sqrt(abs(area_m2) / 4046.8564224 / max_acres)))
+    dx, dy = (b.east - b.west) / k, (b.north - b.south) / k
+    return [Bounds(b.west + i * dx, b.south + j * dy,
+                   b.west + (i + 1) * dx, b.south + (j + 1) * dy)
+            for j in range(k) for i in range(k)]
+
+
 def openet_export(context: Context, bbox: Bounds, day: dt.date, *, variable: str = "ET",
                   model: str = "Ensemble", interval: str = "daily",
-                  timeout: float = 1800) -> Path:
-    """OpenET `/raster/export/stack` → GeoTIFF. The API answers with a
-    link to a file it builds asynchronously; we poll that link.
-    Confidence M: response layout not executed here (key needed)."""
+                  max_acres: float = OPENET_MAX_ACRES) -> Path:
+    """OpenET `/raster/geotiff/stack` → one merged 30 m GeoTIFF (EPSG:4326).
+
+    The endpoint answers synchronously with `{date: link}`; the link (valid
+    ~5 min) serves a ZIP holding one `<model>_<variable>_<date>.tif`. The
+    AOI is split into tiles under the per-request area cap and the tiles,
+    which share OpenET's pixel grid, are merged before any regridding — so
+    no 1 km cell is averaged from a partial tile. Each tile costs one query
+    of the monthly quota (100 on the free tier)."""
+    import zipfile
+    import rasterio
+    from rasterio.merge import merge
     key = os.environ.get("OPENET_API_KEY")
     if not key:
         raise Skip("OpenET needs OPENET_API_KEY")
     dest = context.raw / f"openet_{model}_{variable}_{interval}_{day}.tif"
-    if dest.exists():
+    if dest.exists() and dest.stat().st_size > 0:
         return dest
-    geom = [bbox.west, bbox.north, bbox.east, bbox.north, bbox.east,
-            bbox.south, bbox.west, bbox.south]
-    body = {"date_range": [str(day), str(day)], "interval": interval,
-            "geometry": geom, "model": model, "variable": variable,
-            "reference_et": "gridMET", "units": "mm", "encrypt": False}
     s = session()
     s.headers["Authorization"] = key
-    r = s.post("https://openet-api.org/raster/export/stack", json=body, timeout=300)
-    r.raise_for_status()
-    urls = find_urls(r.json())
-    if not urls:
-        raise RuntimeError(f"OpenET export: no URL in {r.text[:300]}")
-    context.note(f"OpenET export → {urls[0][:80]}…")
-
-    def ready():
-        h = s.head(urls[0], timeout=60, allow_redirects=True)
-        return h.status_code == 200
-
-    poll(ready, every=20, timeout=timeout, what="OpenET export")
-    return download(urls[0], dest, sess=s)
+    tiles = _ll_tiles(bbox, max_acres)
+    parts = []
+    for k, t in enumerate(tiles):
+        zp = context.raw / f"{dest.stem}_tile{k}.zip"
+        if not (zp.exists() and zp.stat().st_size > 0):
+            body = {"date_range": [str(day), str(day)], "interval": interval,
+                    "geometry": [t.west, t.north, t.east, t.north, t.east, t.south,
+                                 t.west, t.south],
+                    "model": model, "variable": variable,
+                    "reference_et": "gridMET", "units": "mm"}
+            import requests
+            for attempt in range(4):        # transient resets (rate limit: 20/min)
+                try:
+                    r = s.post("https://openet-api.org/raster/geotiff/stack",
+                               json=body, timeout=300)
+                    break
+                except requests.ConnectionError:
+                    if attempt == 3:
+                        raise
+                    time.sleep(15 * (attempt + 1))
+            if not r.ok:
+                raise RuntimeError(f"OpenET tile {k}: HTTP {r.status_code} {r.text[:300]}")
+            urls = find_urls(r.json())
+            if not urls:
+                raise FileNotFoundError(f"OpenET: no raster for {day} ({r.text[:200]})")
+            download(urls[0], zp, sess=session())   # signed link: no API key header
+        with zipfile.ZipFile(zp) as z:
+            tif = next((n for n in z.namelist() if n.lower().endswith((".tif", ".tiff"))), None)
+        if tif is None:
+            raise FileNotFoundError(f"OpenET tile {k}: no GeoTIFF in {zp.name}")
+        parts.append(f"/vsizip/{zp}/{tif}")
+    context.note(f"OpenET {model} {variable} {day}: {len(tiles)} tile(s) ≤ {max_acres:.0f} ac")
+    srcs = [rasterio.open(p) for p in parts]
+    try:
+        nodata = srcs[0].nodata if srcs[0].nodata is not None else float("nan")
+        data, transform = merge(srcs, nodata=nodata)
+        profile = srcs[0].profile | {"driver": "GTiff", "height": data.shape[1],
+                                     "width": data.shape[2], "transform": transform,
+                                     "nodata": nodata, "compress": "deflate"}
+    finally:
+        for src in srcs:
+            src.close()
+    tmp = dest.with_suffix(".part.tif")
+    with rasterio.open(tmp, "w", **profile) as dst:
+        dst.write(data)
+    tmp.rename(dest)
+    return dest
 
 
 LFPS = "https://lfps.usgs.gov/api"

@@ -216,16 +216,19 @@ def test_sentinel2_offset_scl_mask_and_fractions(monkeypatch, context, tmp_path)
     assert veg[-1].min() == pytest.approx(1) and veg[0].max() == pytest.approx(0)
 
 
-def test_cdl_and_crop_frequency(monkeypatch, context, tmp_path):
+def test_cdl_and_crop_frequency(monkeypatch, context):
+    xr = pytest.importorskip("xarray")
     g = context.grid.buffered(3)
-    tr = Affine(30, 0, g.west, 0, -30, g.north)
     ny, nx = int((g.north - g.south) // 30), int((g.east - g.west) // 30)
     cols = np.arange(nx)[None, :].repeat(ny, 0)
-    for y in range(2008, 2025):
-        # corn/soy alternation: even years corn on the west half, soy east
-        a = np.where((cols < nx // 2) == (y % 2 == 0), 1, 5).astype("u1")
-        _tif(tmp_path / f"cdl_{y}.tif", a, tr, "EPSG:5070", 0)
-    monkeypatch.setattr(C, "CDL_URL", str(tmp_path / "cdl_{y}.tif"))
+    years = np.arange(2008, 2025)
+    # corn/soy alternation: even years corn on the west half, soy east
+    a = np.stack([np.where((cols < nx // 2) == (y % 2 == 0), 1, 5) for y in years]).astype("u1")
+    store = xr.Dataset({"crop_type": (("year", "y", "x"), a)},
+                       coords={"year": years,                       # pixel centres, y down
+                               "y": g.north - 15.0 - 30.0 * np.arange(ny),
+                               "x": g.west + 15.0 + 30.0 * np.arange(nx)})
+    monkeypatch.setattr(C, "_cdl_store", lambda: store)
     out = Out(context.grid)
     C.cdl(context, out)
     ds = _dataset(out)
@@ -273,7 +276,7 @@ def test_gedi_binning(monkeypatch, context):
     q = np.ones(n, "u1")
     q[::2] = 0                                              # half the shots bad
     beam = G(lat_lowestmode=DS(plat), lon_lowestmode=DS(plon), rh=DS(rh),
-             elev_lowestmode=DS(np.full(n, 300.0)), quality_flag=DS(q),
+             elev_lowestmode=DS(np.full(n, 300.0)), l2a_quality_flag_rel3=DS(q),
              degrade_flag=DS(np.zeros(n, "u1")))
     h5 = G(BEAM0000=beam, METADATA=G())
     monkeypatch.setattr(C, "earthdata_granules", lambda *a, **k: [None])
@@ -299,19 +302,27 @@ def test_usgs_points(monkeypatch, context, tmp_path):
     assert out.vars["n_sites"][1].sum() == 1
 
 
-def test_gssurgo_join(monkeypatch, context, tmp_path):
+def test_gssurgo_valu1_rasters(monkeypatch, context, tmp_path):
     tr, shape = _utm_frame(context.grid, 30.0)
-    mk = np.where(np.arange(shape[1])[None, :] < shape[1] // 2, 111, 222).repeat(shape[0], 0)
-    item = _Item("gnatsgo", {"mukey": _tif(tmp_path / "mukey.tif", mk.astype("u4"), tr,
-                                           "EPSG:32615", 0)})
+    west = np.arange(shape[1])[None, :] < shape[1] // 2
+    a = np.where(west, 0.5, -9999.0).repeat(shape[0], 0).astype("f4")   # east = nodata
+    item = _Item("gnatsgo", {c: _tif(tmp_path / f"{c}.tif", a, tr, "EPSG:32615", -9999.0)
+                             for c in C.VALU1})
     monkeypatch.setattr(C, "planetary_items", lambda *a, **k: [item])
-    rows = [dict({c: 0.5 for c in C.VALU1}, mukey="111")]   # 222 retired → NaN
-    monkeypatch.setattr(C, "sda_query", lambda sql: rows)
     out = Out(context.grid)
     C.gssurgo_valu1(context, out)
+    assert set(C.VALU1) <= set(out.vars)
     v = out.vars["nccpi3all"][1]
     assert np.allclose(v[np.isfinite(v)], 0.5) and np.isnan(v).any()
-    assert any("absent from current SDA" in n for n in context.notes)
+
+
+def test_gssurgo_valu1_missing_asset(monkeypatch, context, tmp_path):
+    tr, shape = _utm_frame(context.grid, 30.0)
+    item = _Item("gnatsgo", {"mukey": _tif(tmp_path / "mukey.tif", np.ones(shape, "u4"), tr,
+                                           "EPSG:32615", 0)})
+    monkeypatch.setattr(C, "planetary_items", lambda *a, **k: [item])
+    with pytest.raises(KeyError, match="Valu1"):
+        C.gssurgo_valu1(context, Out(context.grid))
 
 
 def test_run_one_writes_netcdf_and_stack(monkeypatch, grid, tmp_path):
@@ -331,3 +342,73 @@ def test_run_one_writes_netcdf_and_stack(monkeypatch, grid, tmp_path):
         assert "fake__a" in s
     R.report(tmp_path, [rec], grid, DATE)
     assert "1 ok" in (tmp_path / "report.md").read_text()
+
+
+def _mrms_field(context, fill):
+    """0.01° lat/lon field of 12.5 mm with `fill` (no coverage) on the
+    western half of the target grid itself — so the masking is exercised."""
+    b, g = context.grid.bbox_ll(30.0), context.grid.bbox_ll()
+    res = 0.01
+    nx, ny = int((b.east - b.west) / res) + 1, int((b.north - b.south) / res) + 1
+    lon = b.west + res * (np.arange(nx) + 0.5)
+    a = np.where(lon[None, :] < (g.west + g.east) / 2, fill, 12.5).repeat(ny, 0).astype("f8")
+    return a, Affine(res, 0, b.west, 0, -res, b.north)
+
+
+def _check_mrms(out, context):
+    ds = _dataset(out)
+    v = ds["qpe_24h"].values
+    nx = context.grid.shape[1]
+    assert ds["qpe_24h"].attrs["units"] == "mm"
+    assert np.allclose(v[:, -nx // 4:], 12.5, atol=1e-3)     # mm kept as is (east)
+    assert np.isnan(v[:, : nx // 4]).all()                  # no coverage → NaN (west)
+    nxt = DATE + dt.timedelta(days=1)
+    assert ds["qpe_24h"].attrs["time"] == f"{DATE:%Y-%m-%d}T00Z/{nxt:%Y-%m-%d}T00Z"
+
+
+def test_mrms_qpe_24h_planetary(monkeypatch, context, tmp_path):
+    a, tr = _mrms_field(context, -1.0)                      # PC COG nodata
+    item = _Item("CONUS_MRMS_..._20240716-000000",
+                 {"cog": _tif(tmp_path / "q.tif", a, tr, "EPSG:4326", -1.0)})
+    calls = []
+    monkeypatch.setattr(C, "planetary_items", lambda *a, **k: calls.append((a, k)) or [item])
+    out = Out(context.grid)
+    C.mrms_qpe_24h(context, out)
+    (args, kw), = calls
+    assert args[0] == "noaa-mrms-qpe-24h-pass2" and args[2] is None
+    assert kw["datetime"] == "2024-07-16T00:00:00Z"          # end of the 24 h window
+    assert kw["query"] == {"noaa_mrms_qpe:region": {"eq": "CONUS"}}
+    _check_mrms(out, context)
+    monkeypatch.setenv("MRMS_DAY_START_UTC", "12")
+    C.mrms_qpe_24h(context, Out(context.grid))
+    assert calls[-1][1]["datetime"] == "2024-07-16T12:00:00Z"  # 12Z → 12Z window
+
+
+def test_mrms_qpe_24h_noaa_fallback(monkeypatch, context, tmp_path):
+    import gzip
+    import shutil
+    from rasterio.shutil import copy as rio_copy
+    a, tr = _mrms_field(context, -3.0)                      # GRIB "no coverage"
+    _tif(tmp_path / "q.tif", a, tr, "EPSG:4326")
+    rio_copy(str(tmp_path / "q.tif"), str(tmp_path / "q.grib2"), driver="GRIB")
+    gz = tmp_path / "q.grib2.gz"
+    with open(tmp_path / "q.grib2", "rb") as src, gzip.open(gz, "wb") as dst:
+        shutil.copyfileobj(src, dst)
+    seen = []
+
+    def no_pc(*a, **k):
+        raise FileNotFoundError("PC: no item")             # date before the PC archive
+
+    def fake_download(url, dest, **kw):
+        seen.append(url)
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy(gz, dest)
+        return dest
+
+    monkeypatch.setattr(C, "planetary_items", no_pc)
+    monkeypatch.setattr(C, "download", fake_download)
+    out = Out(context.grid)
+    C.mrms_qpe_24h(context, out)
+    nxt = (DATE + dt.timedelta(days=1)).strftime("%Y%m%d")
+    assert seen[0].endswith(f"/{nxt}/MRMS_MultiSensor_QPE_24H_Pass2_00.00_{nxt}-000000.grib2.gz")
+    _check_mrms(out, context)

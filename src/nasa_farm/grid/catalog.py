@@ -24,6 +24,7 @@ Choices that differ from the access doc's "best route" (and why):
 from __future__ import annotations
 
 import datetime as dt
+import io
 import os
 import re
 import zipfile
@@ -35,9 +36,11 @@ import numpy as np
 
 from nasa_farm.grid import sources as cmr
 from nasa_farm.grid.fetch import (
-    REQUESTER_PAYS, AppEEARS, Context, Skip, cds_retrieve, download, earthdata_download,
+    REQUESTER_PAYS, AppEEARS, Context, Skip, cds_retrieve, download, download_ranged,
+    earthdata_download,
     earthdata_granules, earthdata_open, gcs_href, gcs_list, lfps_job, openet_export,
-    planetary_assets, planetary_href, planetary_items, s3_list, sda_query, session, usgs_items,
+    planetary_assets, planetary_href, planetary_items, retry_transient, s3_list, sda_query,
+    session, usgs_items,
 )
 from nasa_farm.grid.output import Out
 from nasa_farm.grid.readers import (
@@ -149,24 +152,62 @@ def _bits(a: np.ndarray, *bits: int) -> np.ndarray:
 # ============================================================================
 # 1–3  Weather
 # ============================================================================
-NLDAS3_DAILY = ("https://nasa-waterinsight.s3.amazonaws.com/NLDAS3/forcing/daily/"
-                "{ym}/NLDAS_FOR0010_D.A{day}.030.beta.nc")
-NLDAS3_VARS = ("Tair", "Tair_min", "Tair_max", "Qair", "PSurf", "Wind_E", "Wind_N",
-               "SWdown", "LWdown", "Rainf")
+MRMS_PC_COLLECTION = "noaa-mrms-qpe-24h-pass2"
+"""Planetary Computer: hourly CONUS COGs (item datetime = end of the 24 h
+window), from 2022-07-21 — https://planetarycomputer.microsoft.com/dataset/noaa-mrms-qpe-24h-pass2"""
+MRMS_QPE_24H = ("https://noaa-mrms-pds.s3.amazonaws.com/CONUS/MultiSensor_QPE_24H_Pass2_00.00/"
+                "{day}/MRMS_MultiSensor_QPE_24H_Pass2_00.00_{day}-{hour:02d}0000.grib2.gz")
+"""NOAA Open Data GRIB2 (same values), used only before the PC archive starts."""
+MRMS_FIRST_DAY = dt.date(2020, 10, 14)
+"""First day of the 24 h Pass 2 archive on the NOAA Open Data bucket."""
 
 
-@product("nldas3-forcing", 1, "NLDAS-3 forcing (beta), daily, 0.01°",
-         "public S3 over HTTPS (range reads)", conf="D")
-def nldas3(context: Context, out: Out) -> None:
-    """Whole-domain daily file (~0.7 GB) read lazily: only the chunks under
-    the AOI travel. Units are kept as in the file (`units` attribute);
-    conversion to model forcing belongs to the consumer."""
-    import fsspec
-    url = NLDAS3_DAILY.format(ym=context.date.strftime("%Y%m"), day=context.date.strftime("%Y%m%d"))
-    context.note(url)
-    with fsspec.open(url).open() as f, _xr(f) as ds:
-        r = read_latlon(ds, context.grid, [v for v in NLDAS3_VARS if v in ds], buffer_deg=0.05)
-    out.continuous(r, valid=None)
+@product("mrms-qpe-24h", 1, "NOAA MRMS multi-sensor QPE, 24 h, Pass 2, 0.01°",
+         "Planetary Computer COG (NOAA S3 GRIB2 before 2022-07-21)", conf="V")
+def mrms_qpe_24h(context: Context, out: Out) -> None:
+    """24 h precipitation accumulation (mm), radar + gauge (Pass 2: ~2 h
+    latency, more gauges than Pass 1). One CONUS raster per hour, each
+    holding the 24 h ending at that hour. Default window: the UTC day of the
+    date, i.e. the raster ending 00:00 UTC the next day; MRMS_DAY_START_UTC=12
+    gives 12Z → 12Z (gauge-day convention).
+
+    Read as a windowed COG from Planetary Computer; for dates before its
+    archive (2022-07-21) the gzipped GRIB2 (~5 MB) comes from NOAA's bucket —
+    values are identical. No coverage (COG nodata −1, GRIB −3) → NaN. The
+    lat/lon is on the GRIB sphere; MRMS is used as plain lat/lon (EPSG:4326)."""
+    h = int(os.environ.get("MRMS_DAY_START_UTC", "0"))
+    if not 0 <= h <= 23:
+        raise ValueError(f"MRMS_DAY_START_UTC must be 0–23, got {h}")
+    end = dt.datetime.combine(context.date, dt.time(h)) + dt.timedelta(days=1)
+    start = end - dt.timedelta(days=1)
+    try:
+        [it] = planetary_items(MRMS_PC_COLLECTION, context, None,
+                               datetime=f"{end:%Y-%m-%dT%H}:00:00Z",
+                               query={"noaa_mrms_qpe:region": {"eq": "CONUS"}}, max_tiles=1)
+        href, src = planetary_href(it, "cog"), f"PC {it.id}"
+    except FileNotFoundError:
+        href, src = _mrms_noaa_grib(context, end), "NOAA S3 GRIB2"
+    r = read_tif(href, context.grid, name="qpe_24h", units="mm", valid_range=(0.0, 2000.0))
+    r.crs = "EPSG:4326"
+    r.times = [f"{start:%Y-%m-%dT%H}Z/{end:%Y-%m-%dT%H}Z"]
+    out.continuous(r)
+    context.note(f"MRMS QPE 24 h Pass 2, {start:%Y-%m-%d %H}Z → {end:%Y-%m-%d %H}Z ({src})")
+
+
+def _mrms_noaa_grib(context: Context, end: dt.datetime) -> str:
+    """NOAA Open Data GRIB2 for the 24 h window ending `end` → GDAL path."""
+    import requests
+    if end.date() <= MRMS_FIRST_DAY:
+        raise Skip(f"MRMS 24 h Pass 2 archive starts {MRMS_FIRST_DAY}; no file for {context.date}")
+    url = MRMS_QPE_24H.format(day=end.strftime("%Y%m%d"), hour=end.hour)
+    p = context.raw / url.rsplit("/", 1)[-1]
+    try:
+        download(url, p)
+    except requests.HTTPError as e:
+        if e.response is not None and e.response.status_code in (403, 404):
+            raise FileNotFoundError(f"MRMS: no 24 h Pass 2 file ending {end:%Y-%m-%d %H}Z") from None
+        raise
+    return f"/vsigzip/{p}"
 
 
 @product("ecostress-met", 2, "ECOSTRESS L3T MET (Ta, RH), 70 m",
@@ -225,13 +266,17 @@ SMAP_L4_VARS = ("sm_surface", "sm_rootzone", "sm_profile", "sm_surface_wetness",
          "earthaccess (HDF5 streamed)", needs=("earthdata",), conf="V")
 def smap_l4(context, out):
     g = earthdata_granules(cmr.SMAP_L4, context, days=1, pick=r"T133000", max_tiles=1)
-    [f] = earthdata_open(g, suffixes=(".h5",))
-    with _h5(f) as h5:
-        grp = h5["Geophysical_Data"]
-        vs = {v: f"Geophysical_Data/{v}" for v in SMAP_L4_VARS if v in grp}
-        r = read_ease2(h5, context.grid, vs, "cell_lat", "cell_lon")
-        r.units = {v: _attr_str(grp[v], "units") for v in vs}
-    out.continuous(r)
+
+    def read():      # streamed HDF5: retried on transient 5xx / dropped connections
+        [f] = earthdata_open(g, suffixes=(".h5",))
+        with _h5(f) as h5:
+            grp = h5["Geophysical_Data"]
+            vs = {v: f"Geophysical_Data/{v}" for v in SMAP_L4_VARS if v in grp}
+            r = read_ease2(h5, context.grid, vs, "cell_lat", "cell_lon")
+            r.units = {v: _attr_str(grp[v], "units") for v in vs}
+        return r
+
+    out.continuous(retry_transient(read, what=cmr.SMAP_L4.short_name, context=context))
 
 
 @product("ecostress-sm", 4, "ECOSTRESS L3T SM, 70 m (GEOS-5 resampled)",
@@ -254,7 +299,7 @@ def s1_rtc(context, out):
 
 
 @product("openet", 6, "OpenET ensemble daily ET, 30 m",
-         "OpenET REST /raster/export/stack", needs=("openet",), conf="M")
+         "OpenET REST /raster/geotiff/stack (tiled)", needs=("openet",), conf="V")
 def openet(context, out):
     p = openet_export(context, context.bbox(1.0), context.date)
     out.continuous(read_tif(str(p), context.grid, name="et_ensemble", units="mm/day"))
@@ -314,12 +359,31 @@ def usgs_wq(context, out):
     b = context.bbox(5.0)
     y = context.date.year
     p = context.raw / f"samples_{y}.csv"
-    download("https://api.waterdata.usgs.gov/samples-data/results/fullphyschem", p,
-             params={"mimeType": "text/csv",
-                     "boundingBox": f"{b.west:.4f},{b.south:.4f},{b.east:.4f},{b.north:.4f}",
-                     "activityStartDateLower": f"{y}-01-01",
-                     "activityStartDateUpper": f"{y}-12-31",
-                     "characteristicGroup": "Nutrient"})
+    if not (p.exists() and p.stat().st_size > 0):
+        # A `boundingBox` query is evaluated server-side so slowly that a
+        # year of nutrients exceeds the gateway limit (HTTP 504 after ~300 s).
+        # Listing the monitoring locations in the box (OGC API, ~1 s) and
+        # asking for those ids returns the same rows in seconds.
+        bb = f"{b.west:.4f},{b.south:.4f},{b.east:.4f},{b.north:.4f}"
+        ids = [f["properties"].get("id") or f.get("id")
+               for f in usgs_items("monitoring-locations", {"bbox": bb, "limit": 1000})]
+        ids = [i for i in ids if i]
+        s, parts = session(), []
+        for k in range(0, len(ids), 100):            # ~5 kB of URL per 100 ids
+            r = s.get("https://api.waterdata.usgs.gov/samples-data/results/fullphyschem",
+                      params=[("mimeType", "text/csv"),
+                              *[("monitoringLocationIdentifier", i) for i in ids[k:k + 100]],
+                              ("activityStartDateLower", f"{y}-01-01"),
+                              ("activityStartDateUpper", f"{y}-12-31"),
+                              ("characteristicGroup", "Nutrient")], timeout=290)
+            r.raise_for_status()
+            if r.text.count("\n") > 1:
+                parts.append(pd.read_csv(io.StringIO(r.text), low_memory=False))
+        if not parts:
+            raise FileNotFoundError(f"no USGS nutrient sample in AOI (+5 km) for {y} "
+                                    f"({len(ids)} monitoring locations queried)")
+        pd.concat(parts, ignore_index=True).to_csv(p, index=False)
+        context.note(f"USGS Samples: {len(ids)} locations in AOI (+5 km) queried by id")
     df = pd.read_csv(p, low_memory=False)
     col = lambda *c: next((x for x in df.columns if x in c), None)
     lat, lon = col("Location_Latitude", "ActivityLocation_Latitude"), \
@@ -447,8 +511,15 @@ def ecostress_lst(context, out):
                                   "EmisWB": "EmisWB"}, context, out)
 
 
-def _viirs_lst(src, context, out):
-    g = earthdata_granules(src, context, days=1)
+def _viirs_lst(src, context, out, fallback=None):
+    """S-NPP first; the NOAA-20 twin when S-NPP has no granule in ±1 d."""
+    try:
+        g = earthdata_granules(src, context, days=1)
+    except FileNotFoundError:
+        if fallback is None:
+            raise
+        context.note(f"{src.short_name}: no granule within ±1 d → {fallback.short_name}")
+        g = earthdata_granules(fallback, context, days=1)
     files = earthdata_download(g, context, [".h5"])
     bad = lambda qc: np.isin(np.asarray(qc).astype(np.int64) & 3, (2, 3))
     rs = []
@@ -460,16 +531,16 @@ def _viirs_lst(src, context, out):
     out.continuous(rs)
 
 
-@product("viirs-lst-day", 10, "VIIRS VNP21A1D v002 daytime LST, 1 km",
+@product("viirs-lst-day", 10, "VIIRS VNP21A1D v002 daytime LST, 1 km (VJ121A1D fallback)",
          "earthaccess", needs=("earthdata",), conf="V")
 def viirs_lst_day(context, out):
-    _viirs_lst(cmr.VIIRS_LST_DAY, context, out)
+    _viirs_lst(cmr.VIIRS_LST_DAY, context, out, cmr.VIIRS_LST_DAY_N20)
 
 
-@product("viirs-lst-night", 10, "VIIRS VNP21A1N v002 night-time LST, 1 km",
+@product("viirs-lst-night", 10, "VIIRS VNP21A1N v002 night-time LST, 1 km (VJ121A1N fallback)",
          "earthaccess", needs=("earthdata",), conf="V")
 def viirs_lst_night(context, out):
-    _viirs_lst(cmr.VIIRS_LST_NIGHT, context, out)
+    _viirs_lst(cmr.VIIRS_LST_NIGHT, context, out, cmr.VIIRS_LST_NIGHT_N20)
 
 
 HLS_VI = ("NDVI", "EVI", "SAVI", "MSAVI", "NDMI", "NDWI", "NBR", "NBR2", "TVI")
@@ -713,10 +784,13 @@ def modis_pheno(context, out):
 def _gedi(src, context: Context, out: Out, fields: dict, *, quality: str,
           lat="lat_lowestmode", lon="lon_lowestmode"):
     g = earthdata_granules(src, context, days=120, max_tiles=1)
-    [f] = earthdata_open(g, suffixes=(".h5",))
-    with _h5(f) as h5:
-        plon, plat, vals = read_gedi(h5, context.grid, fields, lat=lat, lon=lon,
-                                     quality=quality)
+
+    def read():      # fresh handle per attempt: a failed stream is not reused
+        [f] = earthdata_open(g, suffixes=(".h5",))
+        with _h5(f) as h5:
+            return read_gedi(h5, context.grid, fields, lat=lat, lon=lon, quality=quality)
+
+    plon, plat, vals = retry_transient(read, what=src.short_name, context=context)
     b = bin_points(plon, plat, vals, context.grid)
     out.add("n_shots", b.pop("count"), method="count of quality shots per cell")
     for k, v in b.items():
@@ -729,7 +803,7 @@ def _gedi(src, context: Context, out: Out, fields: dict, *, quality: str,
 def gedi_l2a(context, out):
     _gedi(cmr.GEDI_L2A, context, out, {"rh98": ("rh", 98), "rh50": ("rh", 50),
                                   "elev_lowestmode": ("elev_lowestmode", None)},
-          quality="quality_flag")
+          quality="l2a_quality_flag_rel3")   # V003 name (was quality_flag)
 
 
 @product("gedi-l2b", 14, "GEDI L2B V003 cover, PAI, FHD, footprints → 1 km",
@@ -737,15 +811,14 @@ def gedi_l2a(context, out):
 def gedi_l2b(context, out):
     _gedi(cmr.GEDI_L2B, context, out, {"cover": ("cover", None), "pai": ("pai", None),
                                   "fhd_normal": ("fhd_normal", None)},
-          quality="l2b_quality_flag", lat="geolocation/lat_lowestmode",
-          lon="geolocation/lon_lowestmode")
+          quality="l2b_quality_flag_rel3")   # V003: lat/lon at beam root; flag renamed
 
 
 @product("gedi-l4a", 14, "GEDI L4A V3 aboveground biomass density, footprints → 1 km",
          "earthaccess (HDF5 streamed)", needs=("earthdata",), conf="V")
 def gedi_l4a(context, out):
     _gedi(cmr.GEDI_L4A, context, out, {"agbd": ("agbd", None), "agbd_se": ("agbd_se", None)},
-          quality="l4_quality_flag")
+          quality="l4a_quality_flag_rel3")   # V3 name (was l4_quality_flag)
 
 
 @product("gedi-l3", 14, "GEDI L3 V3 gridded land-surface metrics, 1 km (2019–2025)",
@@ -774,7 +847,12 @@ def gedi_l3(context, out):
 @product("landfire", 14, "LANDFIRE EVT, EVH, EVC, BPS, disturbance (LF 2024), 30 m",
          "LFPS REST", needs=("lfps",), conf="M")
 def landfire(context, out):
-    layers = os.environ.get("LANDFIRE_LAYERS", "240EVT;240EVH;240EVC;240BPS;240Dist").split(";")
+    """Layer names follow the LFPS catalogue (https://lfps.usgs.gov/api/products):
+    `LF<version>_<acronym>`. BPS is not remapped yearly: latest CONUS is
+    LF2020 (LF2023_BPS is Alaska-only)."""
+    layers = os.environ.get(
+        "LANDFIRE_LAYERS",
+        "LF2024_EVT;LF2024_EVH;LF2024_EVC;LF2020_BPS;LF2024_Dist24").split(";")
     z = lfps_job(context, layers)
     d = context.raw / z.stem
     if not d.exists():
@@ -782,12 +860,21 @@ def landfire(context, out):
     tifs = sorted(d.rglob("*.tif"))
     if not tifs:
         raise FileNotFoundError(f"no GeoTIFF in {z.name}")
+    import rasterio
+    short = lambda l: re.sub(r"\d+$", "", l.split("_", 1)[-1]).lower()  # LF2024_Dist24 → dist
+    # LFPS returns ONE multi-band GeoTIFF (j<job>.tif); each band's
+    # description names its layer, e.g. "LF2024_EVT_CONUS".
     for t in tifs:
-        lay = next((l for l in layers if l.lower() in t.name.lower()), t.stem)
-        name = re.sub(r"^\d+", "", lay).lower()
-        r = read_tif(str(t), context.grid, name=name, kind="categorical")
-        r.classes = _top_classes(r, 15)
-        out.categorical(r, name)
+        with rasterio.open(t) as ds:
+            descs = [ds.descriptions[i] or "" for i in range(ds.count)]
+        for i, desc in enumerate(descs, start=1):
+            lay = next((l for l in layers if l.lower() in desc.lower()), None)
+            if lay is None:
+                lay = layers[i - 1] if len(descs) == len(layers) else f"{t.stem}_b{i}"
+            name = short(lay)
+            r = read_tif(str(t), context.grid, name=name, kind="categorical", band=i)
+            r.classes = _top_classes(r, 15)
+            out.categorical(r, name)
 
 
 def _top_classes(r: Raster, n: int) -> list[int]:
@@ -807,21 +894,56 @@ CDL_CLASSES = {1: "corn", 5: "soybeans", 24: "winter_wheat", 36: "alfalfa",
                37: "other_hay", 61: "fallow", 111: "water", 121: "dev_open",
                122: "dev_low", 123: "dev_med", 124: "dev_high", 141: "deciduous_forest",
                176: "grass_pasture", 190: "woody_wetlands", 195: "herb_wetlands"}
-CDL_URL = "/vsicurl/https://data.source.coop/tyler/usda-nass-cdl/{y}/{y}_30m_cdls.tif"
+CDL_STORE = {"bucket": "chill", "prefix": "usda-cropland-data-layer/v0.1.0.icechunk",
+             "endpoint_url": "https://data.source.coop", "region": "us-east-1"}
+"""Source Cooperative Icechunk/Zarr store of the national 30 m CDL, 2008–2025
+(EPSG:5070, (1, 512, 512) chunks: an AOI window is a few MB per year). The
+former per-year COGs (tyler/usda-nass-cdl) now only hold 2023."""
 
 
-def _cdl(context: Context, year: int) -> Raster:
-    r = read_tif(CDL_URL.format(y=year), context.grid, name="cdl", kind="categorical",
-                 classes=list(CDL_CLASSES), class_names=CDL_CLASSES)
-    r.nodata = 0
-    return r
+def _cdl_store():
+    import icechunk
+    import xarray as xr
+    st = icechunk.s3_storage(**CDL_STORE, anonymous=True, force_path_style=True)
+    repo = icechunk.Repository.open(st)
+    return xr.open_zarr(repo.readonly_session("main").store, group="30m", chunks=None)
+
+
+def _cdl(context: Context, years: Sequence[int]) -> list[Raster]:
+    """One categorical Raster per year over the grid (+ 3 px margin)."""
+    from affine import Affine
+    from pyproj import Transformer
+    ds = _cdl_store()
+    have = set(int(y) for y in ds["year"].values)
+    missing = [y for y in years if y not in have]
+    if missing:
+        raise FileNotFoundError(f"CDL store has no year(s) {missing} (has {min(have)}–{max(have)})")
+    g, m = context.grid, 90.0
+    if str(g.crs).upper() != "EPSG:5070":
+        t = Transformer.from_crs(g.crs, "EPSG:5070", always_xy=True)
+        xs, ys = t.transform([g.west, g.east, g.west, g.east], [g.south, g.south, g.north, g.north])
+        w, e, s_, n = min(xs), max(xs), min(ys), max(ys)
+    else:
+        w, e, s_, n = g.west, g.east, g.south, g.north
+    da = ds["crop_type"].sel(year=list(years), x=slice(w - m, e + m), y=slice(n + m, s_ - m))
+    a = np.asarray(da.values)
+    x0, y0 = float(da["x"][0]), float(da["y"][0])
+    tr = Affine(30.0, 0, x0 - 15.0, 0, -30.0, y0 + 15.0)
+    return [Raster(a[k][None], tr, "EPSG:5070", ["cdl"], kind="categorical", nodata=0,
+                   classes=list(CDL_CLASSES), class_names=CDL_CLASSES)
+            for k in range(len(years))]
+
+
+def _cdl_last_year(year: int) -> int:
+    return min(year, int(_cdl_store()["year"].max()))
 
 
 @product("cdl", 15, "Cropland Data Layer (year of date), 30 m",
-         "Source Cooperative COG (windowed)", conf="D")
+         "Source Cooperative Icechunk/Zarr (windowed)", conf="V")
 def cdl(context, out):
-    y = min(context.date.year, 2025)
-    out.categorical(_cdl(context, y), "cdl")
+    y = _cdl_last_year(context.date.year)
+    [r] = _cdl(context, [y])
+    out.categorical(r, "cdl")
     out.attrs["cdl_year"] = y
 
 
@@ -831,16 +953,15 @@ CROP_GROUPS = {"corn": {1, 225, 226, 237, 241}, "soybeans": {5, 26, 239, 240, 24
 
 
 @product("crop-frequency", 15, "Crop frequency 2008→year (years in corn/soy/wheat/cotton)",
-         "derived from CDL COGs", conf="D")
+         "derived from CDL (Icechunk/Zarr)", conf="V")
 def crop_frequency(context, out):
     """NASS Crop Frequency Layers recomputed: per 30 m pixel the number of
     years in each crop group (double crops count for both), then the cell
     mean. Identical to summing each year's 1 km class fraction."""
-    y1 = min(context.date.year, 2025)
+    y1 = _cdl_last_year(context.date.year)
     tot = {k: np.zeros(context.grid.shape, np.float32) for k in CROP_GROUPS}
     years = 0
-    for y in range(2008, y1 + 1):
-        r = _cdl(context, y)
+    for r in _cdl(context, list(range(2008, y1 + 1))):   # one windowed read, all years
         a = r.data[0]
         for k, codes in CROP_GROUPS.items():
             m = Raster(np.where(a == 0, np.nan, np.isin(a, list(codes))).astype(np.float32)[None],
@@ -854,37 +975,48 @@ def crop_frequency(context, out):
 
 
 @product("csb", 15, "Crop Sequence Boundaries 2018–2025 (fields + 8-year rotation)",
-         "NASS national zip (large) + pyogrio bbox read", conf="M")
+         "NASS national zip (3.8 GB, cached) + pyogrio bbox read", conf="V")
 def csb(context, out):
+    """The national FileGDB zip is downloaded once into data/raw and read
+    with a bbox filter. CSB_REMOTE=1 skips the download and range-reads the
+    zip over HTTP instead (no disk use, but ~10 min per AOI)."""
     try:
         import pyogrio
+        import pyogrio.raw
         import shapely
     except ImportError as e:
-        raise Skip("CSB needs pyogrio + shapely (uv add pyogrio shapely)") from e
-    url = os.environ.get("CSB_URL", "https://www.nass.usda.gov/Research_and_Science/"
-                         "Crop-Sequence-Boundaries/datasets/NationalCSB_2018-2025_rev23.zip")
-    z = download(url, context.raw / url.rsplit("/", 1)[-1], timeout=7200)
-    names = zipfile.ZipFile(z).namelist()
+        raise Skip("CSB needs pyogrio + shapely (uv sync --extra grid)") from e
+    url = os.environ.get("CSB_URL", "https://www.nass.usda.gov/sites/default/files/"
+                         "Research_and_Science/Crop-Sequence-Boundaries/datasets/"
+                         "NationalCSB_2018-2025_rev23.zip")
+    if os.environ.get("CSB_REMOTE") == "1":
+        import fsspec
+        with fsspec.open(url, block_size=1 << 20).open() as f:
+            names = zipfile.ZipFile(f).namelist()
+        root = f"/vsizip//vsicurl/{url}"
+    else:
+        # NASS answers HTTP 500 to a whole-file GET of this zip; ranges work
+        z = download_ranged(url, context.raw / url.rsplit("/", 1)[-1], context=context)
+        names = zipfile.ZipFile(z).namelist()
+        root = f"/vsizip/{z}"
     src = next((n.split(".gdb/")[0] + ".gdb" for n in names if ".gdb/" in n), None) \
         or next((n for n in names if n.endswith((".gpkg", ".parquet", ".shp"))), None)
     if src is None:
-        raise FileNotFoundError(f"no vector dataset in {z.name}: {names[:10]}")
-    path = f"/vsizip/{z}/{src}"
+        raise FileNotFoundError(f"no vector dataset in {url.rsplit('/', 1)[-1]}: {names[:10]}")
+    path = f"{root}/{src}"
     from pyproj import CRS, Transformer
     info = pyogrio.read_info(path)
     from rasterio.warp import transform_bounds
     g = context.grid
     bb = transform_bounds(g.crs, info["crs"], g.west, g.south, g.east, g.north)
-    meta, tbl = pyogrio.read_arrow(path, bbox=bb)
-    gcol = meta.get("geometry_name") or "wkb_geometry"
-    geoms = shapely.from_wkb(tbl.column(gcol).to_numpy(zero_copy_only=False))
+    yrs = sorted(c for c in info["fields"] if re.fullmatch(r"CDL\d{4}", c, re.I))
+    # plain NumPy reader: read_arrow would also need pyarrow
+    _, _, wkb, fields = pyogrio.raw.read(path, bbox=bb, columns=yrs)
+    geoms = shapely.from_wkb(wkb)
     if not CRS.from_user_input(info["crs"]).equals(CRS.from_user_input(g.crs)):
         tr = Transformer.from_crs(info["crs"], g.crs, always_xy=True)
         geoms = shapely.transform(geoms, lambda xy: np.column_stack(tr.transform(xy[:, 0], xy[:, 1])))
-    cols = {c.upper(): c for c in tbl.column_names}
-    yrs = sorted(c for c in cols if re.fullmatch(r"CDL\d{4}", c))
-    cdl = np.column_stack([tbl.column(cols[c]).to_numpy(zero_copy_only=False) for c in yrs]) \
-        if yrs else np.zeros((len(geoms), 0))
+    cdl = np.column_stack([np.asarray(a) for a in fields]) if yrs else np.zeros((len(geoms), 0))
     corn = np.isin(cdl, list(CROP_GROUPS["corn"])).sum(1)
     soy = np.isin(cdl, list(CROP_GROUPS["soybeans"])).sum(1)
     n = max(len(yrs), 1)
@@ -996,35 +1128,23 @@ VALU1 = ("aws0_100", "aws0_150", "soc0_30", "soc0_100", "rootznemc", "rootznaws"
          "droughty", "nccpi3all", "nccpi3corn", "nccpi3soy", "pctearthmc")
 
 
-@product("gssurgo-valu1", 18, "gSSURGO Valu1 (current SDA values on the 30 m map-unit raster)",
-         "PC gnatsgo mukey raster + Soil Data Access", conf="M")
+@product("gssurgo-valu1", 18, "gNATSGO Valu1 (AWS, SOC, root zone, droughty, NCCPI…), 30 m",
+         "Planetary Computer gnatsgo-rasters", conf="V")
 def gssurgo_valu1(context, out):
+    """The Valu1 columns are published as 30 m rasters in the gNATSGO item
+    (2020 vintage). Soil Data Access has no `valu1` table, so the former
+    mukey → SDA lookup could not work."""
     [it] = planetary_items("gnatsgo-rasters", context, None, max_tiles=1)
-    mk = read_tif(planetary_href(it, "mukey"), context.grid, name="mukey", kind="categorical")
-    a = mk.data[0].astype(np.int64)
-    keys = sorted(int(k) for k in np.unique(a) if k > 0 and k != mk.nodata)
-    rows = []
-    for i in range(0, len(keys), 500):
-        chunk = ",".join(str(k) for k in keys[i:i + 500])
-        rows += sda_query(f"SELECT mukey, {', '.join(VALU1)} FROM valu1 "
-                          f"WHERE mukey IN ({chunk})")
-    lut = {int(r["mukey"]): r for r in rows}
-    miss = np.isin(a, [k for k in keys if k not in lut]).mean()
-    context.note(f"{len(keys)} map units in AOI; {miss:.1%} of pixels have a mukey "
-             "absent from current SDA (raster 2020 vintage → those stay NaN)")
-    idx = np.searchsorted(np.array(keys), a).clip(0, max(len(keys) - 1, 0))
-    bands = []
+    missing = [c for c in VALU1 if c not in it.assets]
+    if missing:
+        raise KeyError(f"gnatsgo item {it.id} lacks Valu1 asset(s) {missing}")
     for col in VALU1:
-        vals = np.array([float(lut[k][col]) if k in lut and lut[k][col] not in (None, "")
-                         else np.nan for k in keys], np.float32)
-        b = vals[idx] if len(keys) else np.full(a.shape, np.nan, np.float32)
-        b[(a <= 0) | ~np.isin(a, keys)] = np.nan
-        bands.append(b)
-    out.continuous(Raster(np.stack(bands), mk.transform, mk.crs, list(VALU1)))
+        out.continuous(read_tif(planetary_href(it, col), context.grid, name=col), valid=None)
+    context.note(f"gNATSGO {it.id}: {len(VALU1)} Valu1 rasters")
 
 
 @product("statsgo2", 18, "STATSGO2 map-unit aggregates (SDA spatial query), 1:250 000",
-         "Soil Data Access", conf="M")
+         "Soil Data Access (gsmmupolygon)", conf="V")
 def statsgo2(context, out):
     try:
         import shapely
@@ -1037,7 +1157,7 @@ def statsgo2(context, out):
     rows = sda_query(
         "SELECT mp.mukey, mp.mupolygongeo.STAsText() AS wkt, ma.aws0150wta, "
         "ma.slopegraddcp, ma.wtdepannmin, ma.brockdepmin "
-        "FROM mupolygon mp JOIN muaggatt ma ON ma.mukey = mp.mukey "
+        "FROM gsmmupolygon mp JOIN muaggatt ma ON ma.mukey = mp.mukey "
         "WHERE mp.areasymbol = 'US' AND mp.mupolygongeo.STIntersects("
         f"geometry::STGeomFromText('{poly}', 4326)) = 1")
     if not rows:
@@ -1118,19 +1238,30 @@ def nccpi(context, out):
                        valid=None)
 
 
+GAEZ_BUCKET = "fao-gismgr-gaez-v5-data"
+GAEZ_MAPSETS = {"yield": "RES05-YCX30AS",   # attainable yield, current cropland
+                "suit": "RES05-SXX30AS"}    # suitability index (0–10000)
+GAEZ_CROPS = ("MZE", "SOY", "WHE")
+
+
 @product("gaez-v5", 19, "GAEZ v5 suitability / attainable yield (maize, soy, wheat), 30″",
-         "public GCS bucket", conf="M")
+         "public GCS bucket (COG, windowed)", conf="V")
 def gaez(context, out):
-    rx = os.environ.get("GAEZ_PATTERN", r"(?i)/(RES05)[^/]*/.*(MZE|MAIZ|SOY|WHE).*\.tif$")
-    names = gcs_list("fao-gismgr-gaez-v5-data", "DATA/GAEZ-V5/MAPSET/", rx)
-    if not names:
-        sample = gcs_list("fao-gismgr-gaez-v5-data", "DATA/GAEZ-V5/MAPSET/", limit=40)
-        raise FileNotFoundError("no GAEZ v5 file matched GAEZ_PATTERN; first objects: "
-                                + "; ".join(sample[:12]))
-    for n in names[:8]:
-        out.continuous(read_tif(gcs_href("fao-gismgr-gaez-v5-data", n), context.grid,
-                                name=Path(n).stem), valid=None)
-    context.note(f"GAEZ v5: {min(len(names), 8)} of {len(names)} matching files")
+    """Baseline climate (HP0120 = 2001–2020, AgERA5), high-input rain-fed
+    (HRLM) by default; GAEZ_PERIOD / GAEZ_INPUT override (e.g. HILM for
+    high-input irrigated). File names are built, not listed: the MAPSET tree
+    holds > 20 000 objects. Nodata (−9) comes from the files."""
+    period = os.environ.get("GAEZ_PERIOD", "HP0120")
+    wsim = os.environ.get("GAEZ_INPUT", "HRLM")
+    for kind, mapset in GAEZ_MAPSETS.items():
+        for crop in GAEZ_CROPS:
+            name = (f"DATA/GAEZ-V5/MAPSET/{mapset}/"
+                    f"GAEZ-V5.{mapset}.{period}.AGERA5.HIST.{crop}.{wsim}.tif")
+            out.continuous(read_tif(gcs_href(GAEZ_BUCKET, name), context.grid,
+                                    name=f"{kind}_{crop.lower()}_{wsim.lower()}"),
+                           valid=None)
+    context.note(f"GAEZ v5 {period} AgERA5 {wsim}: {', '.join(GAEZ_MAPSETS.values())} "
+                 f"× {', '.join(GAEZ_CROPS)}")
 
 
 # ============================================================================

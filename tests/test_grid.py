@@ -247,3 +247,87 @@ def test_read_tif_window_scale_and_nodata(grid, tmp_path):
     assert rr.data.shape[1] < a.shape[0]               # windowed read
     vals = rr.data[0][np.isfinite(rr.data[0])]
     assert np.allclose(vals, 0.5)
+
+
+def test_retry_transient_retries_only_server_errors():
+    aiohttp = pytest.importorskip("aiohttp")
+    from nasa_farm.grid.fetch import is_transient, retry_transient
+
+    def http(status):
+        return aiohttp.ClientResponseError(None, (), status=status, message="x")
+
+    assert is_transient(http(502)) and is_transient(http(503)) and is_transient(http(429))
+    assert not is_transient(http(404)) and not is_transient(KeyError("lat"))
+    calls = []
+
+    def flaky():                       # fails twice with a 502, then succeeds
+        calls.append(1)
+        if len(calls) < 3:
+            raise http(502)
+        return "ok"
+
+    assert retry_transient(flaky, attempts=4, wait=0) == "ok" and len(calls) == 3
+    calls.clear()
+
+    def missing():
+        calls.append(1)
+        raise KeyError("lat_lowestmode")
+
+    with pytest.raises(KeyError):      # a real error is not retried
+        retry_transient(missing, attempts=4, wait=0)
+    assert len(calls) == 1
+    with pytest.raises(aiohttp.ClientResponseError):   # gives up after `attempts`
+        retry_transient(lambda: (_ for _ in ()).throw(http(502)), attempts=2, wait=0)
+
+
+class _FakeRangeServer:
+    """requests-like session serving `blob` by Range, with scripted faults."""
+
+    def __init__(self, blob: bytes, faults=(), ranges=True):
+        self.blob, self.faults, self.ranges, self.gets = blob, list(faults), ranges, []
+
+    def head(self, url, **kw):
+        return _Resp(200, b"", {"Content-Length": str(len(self.blob)),
+                                "Accept-Ranges": "bytes" if self.ranges else "none"})
+
+    def get(self, url, headers=None, **kw):
+        lo, hi = (int(v) for v in headers["Range"].split("=")[1].split("-"))
+        self.gets.append(lo)
+        fault = self.faults.pop(0) if self.faults else None
+        if fault == "503":
+            return _Resp(503, b"")
+        body = self.blob[lo:hi + 1]
+        if fault == "short":
+            body = body[:-1]
+        if fault == "ignore":
+            return _Resp(200, self.blob)
+        return _Resp(206, body)
+
+
+class _Resp:
+    def __init__(self, status, content, headers=None):
+        self.status_code, self.content, self.headers = status, content, headers or {}
+
+    def raise_for_status(self):
+        if self.status_code >= 400:
+            import requests
+            raise requests.HTTPError(f"{self.status_code}", response=self)
+
+
+def test_download_ranged_retries_and_resumes(tmp_path, monkeypatch):
+    pytest.importorskip("requests")
+    from nasa_farm.grid import fetch
+    monkeypatch.setattr(fetch.time, "sleep", lambda s: None)
+    blob = bytes(range(256)) * 40                      # 10 240 B → 3 chunks of 4 kB
+    srv = _FakeRangeServer(blob, faults=[None, "503", "short"])
+    p = fetch.download_ranged("https://x/f.zip", tmp_path / "f.zip", sess=srv, chunk=4096)
+    assert p.read_bytes() == blob and not (tmp_path / "f.zip.part").exists()
+    # resume: an existing .part is continued, not restarted
+    (tmp_path / "g.zip.part").write_bytes(blob[:4096])
+    srv = _FakeRangeServer(blob)
+    fetch.download_ranged("https://x/g.zip", tmp_path / "g.zip", sess=srv, chunk=4096)
+    assert (tmp_path / "g.zip").read_bytes() == blob and srv.gets[0] == 4096
+    # a server that ignores Range is an error, not a silently wrong file
+    with pytest.raises(RuntimeError, match="ignored the Range"):
+        fetch.download_ranged("https://x/h.zip", tmp_path / "h.zip",
+                              sess=_FakeRangeServer(blob, faults=["ignore"]), chunk=4096)

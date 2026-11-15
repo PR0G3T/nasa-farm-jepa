@@ -374,7 +374,13 @@ def read_gedi(h5, grid: TargetGrid, fields: dict[str, tuple[str, int | None]],
     falls in the AOI is read from each dataset."""
     b = grid.bbox_ll()
     LON, LAT, VAL = [], [], {k: [] for k in fields}
-    for beam in (k for k in h5 if k.startswith("BEAM")):
+    beams = [k for k in h5 if k.startswith("BEAM")]
+    if beams and not any(lat in h5[k] for k in beams):
+        # a wrong path must not read as "no shots" (L2B V003 moved lat/lon)
+        raise KeyError(f"GEDI: no beam has {lat!r}")
+    if quality and beams and not any(quality in h5[k] for k in beams):
+        raise KeyError(f"GEDI: no beam has quality flag {quality!r}")
+    for beam in beams:
         g = h5[beam]
         if lat not in g:
             continue
@@ -388,8 +394,10 @@ def read_gedi(h5, grid: TargetGrid, fields: dict[str, tuple[str, int | None]],
         mm = m[sl].copy()
         if quality and quality in g:
             mm &= g[quality][sl] == 1
-        if "degrade_flag" in g:
-            mm &= g["degrade_flag"][sl] == 0
+        for deg in ("degrade_flag", "geolocation/degrade_flag"):   # L2A/L4A · L2B
+            if deg in g:
+                mm &= g[deg][sl] == 0
+                break
         LON.append(lo[sl][mm])
         LAT.append(la[sl][mm])
         for name, (path, col) in fields.items():
