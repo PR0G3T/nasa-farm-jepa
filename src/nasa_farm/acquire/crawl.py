@@ -142,8 +142,7 @@ def _granule(work):
     specification, g, fields = work
     from nasa_farm.observe import fetch
     try:
-        ds = fetch(specification.source, g)
-        with ds:
+        with fetch(specification.source, g) as ds:
             margin = specification.radius_km / 111.0 + 0.05
             box = (min(f["lon"] for f in fields) - margin,
                    min(f["lat"] for f in fields) - margin,
@@ -162,9 +161,11 @@ def _granule(work):
 
 
 def _granules(specification, fields: list[dict], lake: Lake,
-              temporal: Temporal, log) -> None:
+              temporal: Temporal, log, workers: int = 0) -> None:
     """Satellite granules → obs series + coverage weights — one tx per
-    granule (all field puts + the mark), so re-crawl never re-opens."""
+    granule (all field puts + the mark), so re-crawl never re-opens.
+    `buffersize` bounds in-flight tasks — the map queue never holds more
+    than one batch of open granules."""
     area, span = _aoi(specification, fields), Temporal(
         max(temporal.start, specification.span[0]),
         min(temporal.end, specification.span[1]))
@@ -178,8 +179,9 @@ def _granules(specification, fields: list[dict], lake: Lake,
         return
 
     def work(g): return _granule((specification, g, fields))
-    with ThreadPoolExecutor(max_workers=specification.workers) as pool:
-        for gid, got in pool.map(work, todo):
+    n_workers = min(specification.workers, workers) or specification.workers
+    with ThreadPoolExecutor(max_workers=n_workers) as pool:
+        for gid, got in pool.map(work, todo, buffersize=n_workers):
             if not isinstance(got, tuple):
                 log(f"{specification.observed} {gid} {got}")
                 continue
@@ -217,4 +219,5 @@ def crawl(fields: Iterable[dict], root: Path | str, years: list[int],
             _nldas(fields, lake, years, log)
         for name, specification in GRANULE_SPECS.items():
             if name in sources:
-                _granules(specification, fields, lake, temporal, log)
+                _granules(specification, fields, lake, temporal, log,
+                          workers=workers)
