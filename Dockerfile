@@ -26,11 +26,11 @@ COPY pyproject.toml uv.lock .python-version ./
 
 RUN uv python install 3.15t
 
-RUN uv sync --verbose --frozen --no-dev --no-install-project --extra serve
+RUN uv sync --frozen --no-dev --no-install-project --extra serve > /tmp/sync.log 2>&1 || (tail -n 50 /tmp/sync.log && exit 1)
 
 COPY src ./src
 
-RUN uv sync --verbose --frozen --no-dev --extra serve
+RUN uv sync --frozen --no-dev --extra serve > /tmp/sync2.log 2>&1 || (tail -n 50 /tmp/sync2.log && exit 1)
 
 FROM debian:bookworm-slim AS runtime
 
