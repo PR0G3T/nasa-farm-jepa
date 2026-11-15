@@ -4,6 +4,10 @@ ENV UV_COMPILE_BYTECODE=1 \
     UV_LINK_MODE=copy \
     UV_PYTHON_INSTALL_DIR=/opt/python \
     UV_PYTHON_PREFERENCE=only-managed \
+    UV_CONCURRENT_BUILDS=1 \
+    MAKEFLAGS="-j1" \
+    CMAKE_BUILD_PARALLEL_LEVEL=1 \
+    MAX_JOBS=1 \
     CRC32C_PURE_PYTHON=1 \
     HDF5_DIR=/usr/lib/x86_64-linux-gnu/hdf5/serial \
     HDF5_PKGCONFIG_NAME=hdf5-serial \
@@ -23,17 +27,19 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && ln -sf /usr/include/hdf5/serial/* /usr/include/ \
     && ln -sf /usr/lib/*/hdf5/serial/lib* /usr/lib/ \
     && ldconfig \
+    && printf '#!/bin/sh\nexec /usr/bin/ninja -j1 "$@"\n' > /usr/local/bin/ninja \
+    && chmod +x /usr/local/bin/ninja \
     && rm -rf /var/lib/apt/lists/*
 
 COPY pyproject.toml uv.lock .python-version ./
 
 RUN uv python install 3.15t
 
-RUN uv sync --frozen --no-dev --no-install-project --extra serve > /tmp/sync.log 2>&1 || (tail -n 80 /tmp/sync.log >&2 && exit 1)
+RUN uv sync --frozen --no-dev --no-install-project --extra serve
 
 COPY src ./src
 
-RUN uv sync --frozen --no-dev --extra serve > /tmp/sync2.log 2>&1 || (tail -n 80 /tmp/sync2.log >&2 && exit 1)
+RUN uv sync --frozen --no-dev --extra serve
 
 FROM debian:bookworm-slim AS runtime
 
